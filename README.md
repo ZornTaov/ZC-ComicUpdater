@@ -235,6 +235,16 @@ believing stale metadata and scraping a fresh copy somewhere else.
 - `-m` and `-n` let you supply the XPaths yourself for a site the guesses do not cover.
 - Be considerate: this drives a real browser against someone's site. `-w` sets a wait between pages.
 
-## Credits
+## Credits and license
 
-`mirror_base.py` was originally written by AChillVamp.
+`mirror_base.py` began as a script by **AChillVamp**, and a recognizable part of their work is still
+in it. Everything since is built on that. Their archive.org page:
+<https://archive.org/details/@achillvamp>
+
+No license was attached to the original and none has been found, so this repository ships without a
+license file rather than claiming a grant nobody can give. Read it, run it on your own comics, take
+ideas from it. Redistribution and commercial use are not something anyone here is in a position to
+permit. See [NOTICE](NOTICE) for the detail, including which parts are whose.
+
+If you are AChillVamp, or know how to reach them, please get in touch — a licensing question is
+waiting on it.

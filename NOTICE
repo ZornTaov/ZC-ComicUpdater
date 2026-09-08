@@ -1,0 +1,50 @@
+NOTICE
+======
+
+mirror_base.py in this repository began as a script written by AChillVamp, and a recognizable part
+of their work is still in it. Thanks are owed for the original — it did the hard part, which was
+working out that a webcomic can be walked automatically at all, and doing it in a way that has kept
+working across years of sites redesigning themselves.
+
+AChillVamp's archive.org page: https://archive.org/details/@achillvamp
+
+
+What is still theirs
+--------------------
+
+Measured against the earliest copy still on hand (AChillVamp's v3.3, 168 lines), the current file
+has grown to 656 lines and 18 functions. The added material - the metadata sidecar, the append-only
+.cbz packing, resume points, exit codes, headless operation - is new, as are update_comics.py and
+adopt_comic.py, which did not exist in any form in the original.
+
+But volume is the wrong measure, and the parts that remain are the distinctive ones:
+
+  * The XPath candidate lists. 11 of the 12 original image paths and 10 of the 14 next-page paths
+    are still present word for word. Both lists have roughly doubled since, but the original
+    selection sits inside them intact. It is a list someone assembled by hand against real sites,
+    and it is the single most substantial piece of the original still in use.
+
+  * The wording. Four of the eight argparse strings are unchanged, including the program's own
+    description and the help text for -m and --element_find_next_manual.
+
+  * The structure. setup -> img_save -> next -> ele_get / next_ele_get, and the approach of trying
+    a list of candidate XPaths until one matches, are AChillVamp's design. Later work extended
+    those functions rather than replacing them.
+
+
+License status
+--------------
+
+No license was attached to the original, and no license grant for it has been located. This
+repository therefore ships without one: a derivative work cannot be licensed more freely than what
+it derives from, and putting a license file here would claim a grant that nobody is in a position
+to give.
+
+In practice that means the code is published for reading, for personal use, and for anyone who
+wants to run it on their own comics - but not with any formal permission to redistribute it, and
+certainly not commercially.
+
+If AChillVamp finds this and would like the code licensed, removed, credited differently, or simply
+handed back, that request will be honoured. Likewise if anyone knows how to reach them.
+
+Contributions made since the original are by ZornTaov, with parts written using Anthropic's Claude.

@@ -1,0 +1,6 @@
+# the build only needs the scripts and the pin file; everything else here is the comic library itself
+*
+!requirements.txt
+!mirror_base.py
+!update_comics.py
+!adopt_comic.py

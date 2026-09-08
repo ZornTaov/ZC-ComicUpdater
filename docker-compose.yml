@@ -1,0 +1,38 @@
+# Container Station -> Applications -> Create, or `docker compose up -d` over ssh.
+# The three marked lines are the ones to change for your own machine.
+services:
+  comics:
+    build: .
+    image: comics-updater:1.0
+    container_name: comics-updater
+    restart: unless-stopped
+
+    # CHANGE ME: must match the owner of the library folder, which `ls -n` will tell you. Without it
+    # scraped pages land owned by root and whatever shares the library cannot read them.
+    user: "1001:100"
+
+    environment:
+      # CHANGE ME, and do not leave it out: without this the container runs on UTC and the schedule
+      # fires at the wrong hour.
+      TZ: America/Los_Angeles
+
+    volumes:
+      # CHANGE ME: the library root, the folder holding CBZs/ and Uncompressed/. Always mounted at
+      # /library, because comics are addressed by paths relative to it in their metadata.
+      - /share/Media/Comics:/library
+
+    # chromium wants more than docker's default 64m of shared memory
+    shm_size: 512m
+
+    # Container Station rejects mem_limit here and wants it in Advanced Settings instead.
+    # One headless chromium is a few hundred MB, so 4 GB is headroom rather than a target.
+
+    # --schedule keeps the container alive and runs at that local time daily.
+    # Raise --jobs to update several comics at once; each one is its own browser.
+    command: ["--schedule", "03:30", "--jobs", "2"]
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

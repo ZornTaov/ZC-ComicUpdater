@@ -1,0 +1,5 @@
+path,kind,pages,numbering,last_number,nested,last_url,next_url,ended,increment,prefix,cbz_path,notes
+Uncompressed/ExampleOngoing,folder,412,prefixed,412,,https://example.com/comic/412,,,412,TRUE,CBZs/ExampleOngoing.cbz,pages are numbered by mirror_base so prefix and increment are both set
+Uncompressed/ExampleSiteNames,folder,5885,numbered,5885,,https://example.com/view.php?comic=5885,,,,,CBZs/ExampleSiteNames.cbz,blank prefix keeps whatever filename the site gives each page
+Uncompressed/ExampleFinished,folder,260,prefixed,260,,,,TRUE,,,CBZs/ExampleFinished.cbz,ended comics need no address and are skipped from then on
+Uncompressed/Author/ExampleNested,folder,190,prefixed,190,TRUE,,https://example.com/next-page/,,190,TRUE,CBZs/Author/ExampleNested.cbz,next_url when re-saving the last page would make a differently named duplicate

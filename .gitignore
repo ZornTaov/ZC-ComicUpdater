@@ -1,0 +1,19 @@
+# This repository lives inside a working comic library, so it tracks by allowlist rather than by
+# exclusion. Anything not named below - the comic folders, the .cbz archives, a personal comics.csv -
+# stays out, and git never has to walk tens of gigabytes to work that out.
+*
+
+!.gitignore
+!.gitattributes
+!.dockerignore
+!README.md
+!LICENSE
+!requirements.txt
+
+!mirror_base.py
+!update_comics.py
+!adopt_comic.py
+
+!Dockerfile
+!docker-compose.yml
+!comics.example.csv

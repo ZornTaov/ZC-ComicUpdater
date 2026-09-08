@@ -1,0 +1,4 @@
+# selenium 4.6 and later fetch a matching driver on their own, so no chromedriver download is needed
+# outside the container. requests handles the image downloads, which selenium is not built for.
+selenium>=4.20,<5
+requests>=2.31,<3

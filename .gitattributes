@@ -1,0 +1,11 @@
+# The scripts are edited on Windows and run on Linux in the container, so line endings are normalised
+# here rather than left to whatever each clone happens to be configured for.
+* text=auto
+
+*.py text
+*.md text
+*.csv text
+*.txt text
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.sh text eol=lf

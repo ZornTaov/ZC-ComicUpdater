@@ -1,8 +1,13 @@
 # Container Station -> Applications -> Create, or `docker compose up -d` over ssh.
-# The three marked lines are the ones to change for your own machine.
+# The image is built separately and on purpose:
+#
+#     docker build -t comics-updater:1.0 .
+#
+# There is deliberately no `build:` key here. Container Station tries to build for itself when it
+# finds one, from a context it does not have, and ends up with a second image entry that holds
+# nothing useful. Building by hand keeps one image with one tag.
 services:
   comics:
-    build: .
     image: comics-updater:1.0
     container_name: comics-updater
     restart: unless-stopped
@@ -20,6 +25,15 @@ services:
       # CHANGE ME: the library root, the folder holding CBZs/ and Uncompressed/. Always mounted at
       # /library, because comics are addressed by paths relative to it in their metadata.
       - /share/Media/Comics:/library
+
+      # OPTIONAL, and the reason to want it is that editing a script should not cost an image build.
+      # Mounted over the copies baked in at build time, so whatever .py files sit in this folder are
+      # what runs. Read-only, because the container has no business rewriting its own code.
+      #
+      # Point it at the folder holding the three scripts. Uncomment only once that folder really has
+      # them in it: an empty or missing path here mounts an empty /app and nothing will start.
+      #
+      # - /share/Container/ComicScraper:/app:ro
 
     # chromium wants more than docker's default 64m of shared memory
     shm_size: 512m

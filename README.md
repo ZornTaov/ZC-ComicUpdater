@@ -175,10 +175,14 @@ saved XPath no longer matches.
 The image pins Chromium and a matching ChromeDriver together, so a host update cannot break the pair.
 
 ```sh
-docker compose build
+docker build -t comics-updater:1.0 .
 docker compose up -d
 docker compose logs -f
 ```
+
+The build is a separate command on purpose, and `docker-compose.yml` has no `build:` key. QNAP
+Container Station tries to build for itself when it finds one, from a context it does not have, and
+leaves you with a second image entry holding nothing useful.
 
 Edit `docker-compose.yml` before the first run:
 
@@ -191,6 +195,37 @@ Edit `docker-compose.yml` before the first run:
 This runs happily on a NAS. On QNAP Container Station, memory limits belong in Advanced Settings
 rather than `mem_limit` in the compose file, which Container Station rejects. If `docker build` fails
 with a permission error about a home directory, run it as `HOME=/tmp DOCKER_CONFIG=/tmp/.docker docker build ...`.
+
+### Changing the scripts without rebuilding
+
+Rebuilding an image to change one line is miserable, especially when the build has to happen over
+ssh. Uncomment the second volume in `docker-compose.yml` and point it at the folder holding the three
+scripts:
+
+```yaml
+      - /share/Container/ComicScraper:/app:ro
+```
+
+That mounts over the copies baked in at build time, so the `.py` files in that folder are what runs.
+Edit them over a file share, and:
+
+- **`mirror_base.py` needs nothing at all.** Every comic is launched as a fresh
+  `python /app/mirror_base.py …` subprocess, so the next comic to run picks up the new file. Even a
+  scheduled run already in progress will use it for the comics it has not reached yet.
+- **`update_comics.py` needs a container restart**, since it is the long-running process. The Restart
+  button in Container Station is enough; no ssh.
+- **Adopting a new comic needs nothing.** The library is re-scanned at the start of every scheduled
+  run, so a `mirror_metadata.json` written today joins tonight's run by itself.
+
+After that the image only exists to carry Python, Chromium and ChromeDriver, and needs rebuilding
+only when one of those should change.
+
+One warning: an empty or missing host path here mounts an empty `/app` and nothing will start. Make
+sure the scripts really are in that folder before uncommenting.
+
+Rebuilding with a tag that is already in use leaves the previous image behind as `<none>`, which is
+usually what an unexpected extra entry in the Container Station image list turns out to be.
+`docker image prune` clears them.
 
 Three environment variables override browser discovery, which is how the container points Selenium at
 its bundled Chromium. They are deliberately not command line flags, so they never end up baked into a

@@ -308,6 +308,10 @@ def setup():
                         help="How many folders deep to look for comics. Lets a library group comics by author or site. Defaults to 5.")
     params.add_argument("--schedule", default=None, metavar="HH:MM",
                         help="Stay running and start an update at this local time every day. Without it the update runs once and exits.")
+    params.add_argument("--now", action='store_true', default=False,
+                        help="Update once straight away, then settle into --schedule. Without --schedule "
+                             "this is what happens anyway. Useful for a container that should not sit "
+                             "idle until the small hours the first time it starts.")
     args = params.parse_args()
 
     args.root = os.path.abspath(args.root)
@@ -453,6 +457,11 @@ def main():
         print("WARNING: TZ is not set, so this container is running on {0}. Set TZ to your own timezone "
               "or the update will run at the wrong hour.".format(zone))
     print("Updating every day at {0:02d}:{1:02d} {2}.".format(hour, minute, zone), flush=True)
+    if args.now:
+        #a fresh container would otherwise do nothing at all until the first scheduled hour came round,
+        #which makes it hard to tell a working setup from a broken one
+        print("Running once now before waiting for the schedule.", flush=True)
+        run_once(args)
     while True:
         target = next_run(hour, minute)
         wait = (target - datetime.now()).total_seconds()

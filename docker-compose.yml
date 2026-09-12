@@ -43,6 +43,7 @@ services:
 
     # --schedule keeps the container alive and runs at that local time daily.
     # Raise --jobs to update several comics at once; each one is its own browser.
+    # Add "--now" to update once on startup too, rather than sitting idle until the first 03:30.
     command: ["--schedule", "03:30", "--jobs", "2"]
 
     logging:

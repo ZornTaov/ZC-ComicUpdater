@@ -145,7 +145,12 @@ new pages arrive.
 python update_comics.py "D:/Comics" --dry-run     # what would run, and with what arguments
 python update_comics.py "D:/Comics"               # run once
 python update_comics.py "D:/Comics" --schedule 03:30 --jobs 2
+python update_comics.py "D:/Comics" --schedule 03:30 --now   # and once immediately
 ```
+
+`--now` updates once straight away and then settles into the schedule. Worth having on a container:
+otherwise a fresh start does nothing at all until the small hours, which makes a working setup hard
+to tell apart from a broken one.
 
 Each comic is a separate process, so one badly behaved site cannot take the run down with it.
 `--timeout` (30 minutes by default) kills anything that hangs, along with the whole browser process

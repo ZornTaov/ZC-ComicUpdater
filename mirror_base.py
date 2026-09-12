@@ -1,4 +1,4 @@
-#a small script to go through a webcomic and download all of the pages. #Written by AChillVamp. #V 3.4
+#a small script to go through a webcomic and download all of the pages. #Written by AChillVamp. #V 3.5
 
 import sys
 
@@ -223,34 +223,6 @@ def output_folder(args):
     return args.output if args.output else current_url.split('/')[2]
 
 
-def command_line(argv):
-    #renders an argument list back into a command that can be pasted into a shell
-    argv = [os.path.basename(__file__)] + list(argv)
-    rendered = subprocess.list2cmdline(argv) if os.name == 'nt' else shlex.join(argv)
-    return 'python {0}'.format(rendered)
-
-
-def rebuild_argv(args, url=None, increment=None):
-    #rebuilds the arguments from the parsed namespace, skipping anything left at its default
-    argv = []
-    for action in arg_parser._actions:
-        if action.dest in ('help', 'URL') or not action.option_strings:
-            continue
-        value = increment if (action.dest == 'increment' and increment is not None) else getattr(args, action.dest, None)
-        if value is None or value == action.default:
-            continue
-        #prefer the long form, so the saved command documents itself
-        positive = [f for f in action.option_strings if f.startswith('--') and not f.startswith('--no-')]
-        flag = positive[-1] if positive else action.option_strings[-1]
-        if action.nargs == 0: #store_true, --flag/--no-flag pairs and friends carry no value
-            negative = [f for f in action.option_strings if f.startswith('--no-')]
-            argv.append(negative[-1] if (negative and not value) else flag)
-        else:
-            argv.extend([flag, str(value)])
-    argv.append(url if url else args.URL)
-    return argv
-
-
 def resume_point(driver):
     #where a follow-up run should pick up: the page after the last saved one, if we already moved on
     url = scrape_state["last_page_url"]
@@ -263,39 +235,69 @@ def resume_point(driver):
     return url, increment
 
 
+def settings_from_args(args, url, increment, ended=False):
+    #everything about this comic that a later run has to be told, and nothing that can be worked out
+    #from it. this block is the only place any of it is written down: the command is rebuilt from here
+    #when a run starts, so editing one value here is the whole of changing how a comic is scraped.
+    #every key is always written, even at its default, so there is somewhere obvious to change it.
+    return {
+        "url": url,
+        "output": output_folder(args),
+        "cbz_path": args.cbz_path,
+        "increment": increment,
+        "prefix": bool(args.prefix),
+        "javascript": bool(args.enable_javascript),
+        "firefox": bool(args.firefox),
+        "waittime": args.waittime,
+        "cbz": bool(args.cbz),
+        #not a scraping option: update_comics.py reads it and leaves a finished comic alone
+        "ended": bool(ended),
+    }
+
+
 def metadata_save(driver, args, completed=False, exit_code=None):
     #writes the sidecar describing this scrape into the output folder, so it ends up inside the cbz
     if scrape_state["pages_saved"] == 0:
         return None
     path = os.path.join(output_folder(args), metadata_file)
 
-    #carry over what an earlier run recorded, so a resumed comic still knows where it originally started
+    #carry over what an earlier run recorded, so a resumed comic still knows where it originally started.
+    #each lookup falls back to the flat key a schema 1 file used, so an old sidecar is read and then
+    #quietly rewritten in the current shape rather than needing a separate conversion first
     created = run_start
-    source_url = args.URL
     first_page_url = scrape_state["first_page_url"]
     first_increment = scrape_state["first_increment"]
-    previous = {}
+    previous, was_ended = {}, False
+    old_settings, old_state, old_history = {}, {}, {}
     runs = []
     if os.path.exists(path):
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 previous = json.load(f)
+            old_settings = previous.get("settings") or {}
+            old_state = previous.get("state") or {}
+            old_history = previous.get("history") or {}
             created = previous.get("created", created)
-            source_url = previous.get("source_url", source_url)
-            first_page_url = previous.get("first_page_url", first_page_url)
-            first_increment = previous.get("first_page_number", first_increment)
+            first_page_url = old_history.get("first_page_url", previous.get("first_page_url")) or first_page_url
+            saved_first = old_history.get("first_page_number", previous.get("first_page_number"))
+            if saved_first is not None:
+                first_increment = saved_first
+            #a comic marked finished by hand stays finished, even if someone runs it once more directly
+            was_ended = bool(old_settings.get("ended", previous.get("ended", False)))
             #drop this run's own entry so repeated writes update it instead of stacking up
-            runs = [run for run in previous.get("runs", []) if run.get("run_id") != run_id]
-        except (ValueError, OSError, TypeError):
+            runs = [run for run in old_history.get("runs", previous.get("runs", []))
+                    if run.get("run_id") != run_id]
+        except (ValueError, OSError, TypeError, AttributeError):
             pass
 
+    #argv is the record of what this run was actually told to do. the rendered command and the full
+    #option dump that used to sit beside it said the same thing twice more, and went stale the moment
+    #anyone edited the settings by hand
     runs.append({
         "run_id": run_id,
         "started": run_start,
         "updated": now_stamp(),
         "argv": sys.argv[1:],
-        "command_line": command_line(sys.argv[1:]),
-        "options": vars(args),
         "start_url": args.URL,
         "start_page_number": scrape_state["first_increment"],
         "last_url": scrape_state["last_page_url"],
@@ -311,34 +313,36 @@ def metadata_save(driver, args, completed=False, exit_code=None):
 
     resume_url, resume_increment = resume_point(driver)
     metadata = {
+        "schema": 2,
         "generator": "mirror_base.py",
-        "generator_version": "3.4",
+        "generator_version": "3.5",
         "created": created,
         "updated": now_stamp(),
-        "source_url": source_url,
-        "site": source_url.split('/')[2] if '//' in source_url else None,
-        "output_folder": output_folder(args),
-        "first_page_url": first_page_url,
-        "first_page_number": first_increment,
-        "last_page_url": scrape_state["last_page_url"],
-        "last_page_number": scrape_state["last_increment"],
-        "last_image_url": scrape_state["last_image_src"],
-        "last_image_file": scrape_state["last_image_file"],
-        #pages present in the folder, not saves made: a resume re-saves its starting page, so summing the
-        #runs would count the overlap twice
-        "page_count": len([f for f in os.listdir(output_folder(args)) if f != metadata_file]),
-        "completed": completed,
-        #the xpaths that actually matched this site, handy if the automatic search ever stops finding them.
-        #a run that found nothing keeps whatever an earlier run discovered, so the record is not lost
-        "image_xpath": image_xpath or previous.get("image_xpath"),
-        "next_xpath": next_xpath or previous.get("next_xpath"),
-        #the command that scrapes this comic from the top, and the one that carries on from the last page
-        "command_line": command_line(rebuild_argv(args, source_url, first_increment)),
-        "resume_command_line": command_line(rebuild_argv(args, resume_url, resume_increment)),
-        #the same arguments as a list, so a batch updater can run them without re-parsing quoted text
-        "resume_argv": rebuild_argv(args, resume_url, resume_increment),
-        "runs": runs,
+        #the one place to edit. everything a run needs is built from this and nowhere else
+        "settings": settings_from_args(args, resume_url, resume_increment, was_ended),
+        "state": {
+            "site": resume_url.split('/')[2] if resume_url and '//' in resume_url else None,
+            #pages present in the folder, not saves made: a resume re-saves its starting page, so summing
+            #the runs would count the overlap twice
+            "page_count": len([f for f in os.listdir(output_folder(args)) if f != metadata_file]),
+            "completed": completed,
+            #the xpaths that actually matched this site, handy if the automatic search ever stops finding
+            #them. a run that found nothing keeps whatever an earlier run discovered
+            "image_xpath": image_xpath or old_state.get("image_xpath", previous.get("image_xpath")),
+            "next_xpath": next_xpath or old_state.get("next_xpath", previous.get("next_xpath")),
+            "last_image_url": scrape_state["last_image_src"],
+            "last_image_file": scrape_state["last_image_file"],
+        },
+        "history": {
+            "first_page_url": first_page_url,
+            "first_page_number": first_increment,
+            "adopted": bool(old_history.get("adopted", previous.get("adopted", False))),
+            "runs": runs,
+        },
     }
+    kept_from = old_history.get("adopted_from", previous.get("adopted_from"))
+    if kept_from:
+        metadata["history"]["adopted_from"] = kept_from
 
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=2)

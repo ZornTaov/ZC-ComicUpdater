@@ -251,13 +251,55 @@ costs CPU to save nothing.
 
 ## The metadata file
 
-`mirror_metadata.json` sits in each comic's folder and is packed into its archive. It holds the
-resume URL and page number, the XPaths that worked for that site, the exact arguments needed to
-continue, and a capped history of past runs. It is plain JSON and safe to edit by hand.
+`mirror_metadata.json` sits in each comic's folder and is packed into its archive. It is plain JSON,
+meant to be edited by hand, and split into three parts:
+
+```json
+{
+  "schema": 2,
+  "settings": {
+    "url":       "https://example.com/comic/412",
+    "output":    "Uncompressed/MyComic",
+    "cbz_path":  "CBZs/MyComic.cbz",
+    "increment": 412,
+    "prefix":    true,
+    "javascript": false,
+    "firefox":   false,
+    "waittime":  0,
+    "cbz":       true,
+    "ended":     false
+  },
+  "state":   { "page_count": 412, "image_xpath": "...", "completed": false },
+  "history": { "first_page_url": "...", "runs": [ ... ] }
+}
+```
+
+**`settings` is the only part you edit, and the only part that decides anything.** The command is
+built from it when a run starts, so changing `prefix` to `true` is the whole of turning numbering on
+— there is no second copy of that fact to keep in step. Every key is written even at its default, so
+there is always somewhere obvious to change it. `state` and `history` are what the scraper has
+learned and done; they are rewritten each run.
+
+Earlier versions stored the rendered command instead — as a list, as a string, and again inside every
+run entry — which meant a hand edit had to be made in three or four places or it silently did
+nothing. Files in that shape are still read, and
+
+```sh
+python adopt_comic.py --migrate --root "D:/Comics"
+```
+
+rewrites them all in the current shape. Add `--dry-run` to see what it would touch first. It is safe
+to run twice; files already current are left alone.
 
 Because the file is what marks a folder as a comic, moving a comic within the library is enough —
-the updater notices the folder no longer matches the saved `--output` and corrects it, rather than
+the updater notices the folder no longer matches the saved `output` and corrects it, rather than
 believing stale metadata and scraping a fresh copy somewhere else.
+
+To see the command a comic will actually run, without running it:
+
+```sh
+python update_comics.py "D:/Comics" --only MyComic --dry-run
+```
 
 ## Notes and limits
 

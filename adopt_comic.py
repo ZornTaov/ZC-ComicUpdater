@@ -1,14 +1,19 @@
 #writes a mirror_metadata.json for a comic that already exists as a folder of pages or a .cbz, so
-#update_comics.py can carry it on without re-downloading everything that is already there. #V 1.1
+#update_comics.py can carry it on without re-downloading everything that is already there. #V 1.2
 
 import argparse
 import csv
 import json
 import os
 import re
+import shlex
 import sys
 import zipfile
 from datetime import datetime, timezone
+
+#the one definition of which setting maps to which mirror_base flag lives next door, so the command
+#shown in a dry run is built the same way the one update_comics actually runs is
+from update_comics import settings_to_argv, argv_to_settings
 
 metadata_file = "mirror_metadata.json"
 
@@ -104,57 +109,60 @@ def build_metadata(args, folder, details, existing=None):
         if args.next_url:
             increment += 1
 
-    argv = ["--increment", str(increment), "--output", output]
-    if args.prefix:
-        argv.append("--prefix")
     #without this the scraper would build a second archive beside the pages and leave the real one alone
-    archive = getattr(args, "cbz_path", None)
-    if archive:
-        argv.extend(["--cbz-path", archive])
+    archive = getattr(args, "cbz_path", None) or None
     url = args.next_url or args.last_url
-    if url:
-        argv.append(url)
 
     kept = existing or {}
+    old_state = kept.get("state") or {}
+    old_history = kept.get("history") or {}
     created = kept.get("created", now_stamp())
     metadata = {
+        "schema": 2,
         "generator": "adopt_comic.py",
-        "generator_version": "1.1",
+        "generator_version": "1.2",
         "created": created,
         "updated": now_stamp(),
-        "adopted": True,
-        #anything an earlier real scrape worked out is worth more than what can be guessed from filenames
-        "image_xpath": kept.get("image_xpath"),
-        "next_xpath": kept.get("next_xpath"),
-        "runs": kept.get("runs", []),
-        "first_page_url": kept.get("first_page_url"),
-        "first_page_number": kept.get("first_page_number"),
-        "source_url": url,
-        "site": url.split('/')[2] if url and '//' in url else None,
-        "output_folder": output,
-        "archive_path": archive or None,
-        "last_page_url": args.last_url,
-        "last_page_number": details["last_number"],
-        "resume_page_number": None if args.ended else increment,
-        "last_image_url": None,
-        "last_image_file": None,
-        "page_count": details["count"],
-        "completed": bool(args.ended),
-        "command_line": kept.get("command_line"),
-        "resume_command_line": None if args.ended else
-            "python mirror_base.py {0}".format(" ".join(argv)),
-        "resume_argv": None if args.ended else argv,
-        #the numbering that was already in use, kept so it is obvious later why --prefix was or was not set
-        "adopted_from": {
-            "path": os.path.abspath(args.path),
-            "pages_found": details["count"],
-            "numbering": details["style"],
-            "at": now_stamp(),
+        #the one place to edit. update_comics.py builds the scrape command from this and nowhere else,
+        #so a value corrected here is corrected everywhere, with no second copy to fall out of step
+        "settings": {
+            "url": url,
+            "output": output,
+            "cbz_path": archive,
+            "increment": increment,
+            "prefix": bool(args.prefix),
+            "javascript": False,
+            "firefox": False,
+            "waittime": 0,
+            "cbz": True,
+            #update_comics.py leaves a comic marked this way alone from then on
+            "ended": bool(args.ended),
+        },
+        "state": {
+            "site": url.split('/')[2] if url and '//' in url else None,
+            "page_count": details["count"],
+            "completed": bool(args.ended),
+            #anything an earlier real scrape worked out is worth more than what can be guessed from
+            #filenames, so a re-adopt keeps it
+            "image_xpath": old_state.get("image_xpath", kept.get("image_xpath")),
+            "next_xpath": old_state.get("next_xpath", kept.get("next_xpath")),
+            "last_image_url": None,
+            "last_image_file": None,
+        },
+        "history": {
+            "first_page_url": old_history.get("first_page_url", kept.get("first_page_url")),
+            "first_page_number": old_history.get("first_page_number", kept.get("first_page_number")),
+            "adopted": True,
+            #the numbering already in use, kept so it is obvious later why prefix was or was not set
+            "adopted_from": {
+                "path": os.path.abspath(args.path),
+                "pages_found": details["count"],
+                "numbering": details["style"],
+                "at": now_stamp(),
+            },
+            "runs": old_history.get("runs", kept.get("runs", [])),
         },
     }
-    if args.ended:
-        #update_comics skips a comic marked this way, so a finished one is never checked again
-        metadata["ended"] = True
     return metadata
 
 
@@ -427,19 +435,20 @@ def adopt_one(args, quiet=False):
         print("{0}".format(os.path.abspath(args.path)))
         print("  pages found   : {0} ({1}, last number {2})".format(
             details["count"], details["style"], details["last_number"]))
-        print("  output folder : {0}".format(metadata["output_folder"]))
+        print("  output folder : {0}".format(metadata["settings"]["output"]))
         print("  prefix        : {0}".format("yes" if args.prefix else "no"))
-        if metadata.get("archive_path"):
-            print("  archive       : {0}".format(metadata["archive_path"]))
+        if metadata["settings"]["cbz_path"]:
+            print("  archive       : {0}".format(metadata["settings"]["cbz_path"]))
         if args.ended:
             print("  ended         : yes, update_comics.py will skip it")
         else:
-            print("  resumes with  : {0}".format(metadata["resume_command_line"]))
+            print("  resumes with  : python mirror_base.py {0}".format(
+                " ".join(settings_to_argv(metadata["settings"]))))
 
     #worked out before the dry run returns, so a dry run can say what it would have done
-    summary = "ended" if args.ended else "resumes at page {0}".format(metadata["resume_page_number"])
-    if metadata.get("archive_path"):
-        summary += ", packs into {0}".format(metadata["archive_path"])
+    summary = "ended" if args.ended else "resumes at page {0}".format(metadata["settings"]["increment"])
+    if metadata["settings"]["cbz_path"]:
+        summary += ", packs into {0}".format(metadata["settings"]["cbz_path"])
     if args.dry_run:
         return False, "would adopt: " + summary
 
@@ -481,13 +490,130 @@ def setup():
                         help="The .cbz this comic belongs to, when it is not beside the folder. Written relative to --root.")
     params.add_argument("-n", "--dry-run", action='store_true', default=False,
                         help="Show the metadata that would be written without writing it.")
+    params.add_argument("--migrate", action='store_true',
+                        help="Rewrite every metadata file under --root in the current shape, pulling "
+                             "the saved command apart into the settings block that replaced it. Safe "
+                             "to run twice.")
     params.add_argument("--force", action='store_true', default=False,
                         help="Overwrite metadata that is already there.")
     return params.parse_args(), params
 
 
+def migrate_metadata(old):
+    #schema 1 wrote the resume command three times over - as a list, as a string, and again inside every
+    #run entry - with no plain value anywhere for things like prefix. this pulls the command apart into
+    #the settings block that replaced it, so the facts have one home and editing one is enough.
+    if old.get("schema", 1) >= 2:
+        return None
+
+    argv = old.get("resume_argv")
+    if not argv and old.get("resume_command_line"):
+        argv = shlex.split(old["resume_command_line"])
+        while argv and (argv[0].startswith('python') or argv[0].endswith('.py')):
+            argv.pop(0)
+    settings = argv_to_settings(argv)
+
+    #a comic marked ended has no resume command at all, so everything has to come from the flat keys
+    if not settings["url"]:
+        settings["url"] = old.get("source_url") or old.get("last_page_url")
+    if not settings["output"]:
+        settings["output"] = old.get("output_folder")
+    if not settings["cbz_path"]:
+        settings["cbz_path"] = old.get("archive_path")
+    if settings["increment"] is None:
+        for key in ("resume_page_number", "last_page_number", "page_count"):
+            if old.get(key) is not None:
+                settings["increment"] = old[key]
+                break
+    settings["ended"] = bool(old.get("ended", False))
+
+    #run history keeps the argv that is the actual record of what ran, and loses the rendered command
+    #and the option dump that said the same thing twice more
+    runs = [{k: v for k, v in run.items() if k not in ("command_line", "options")}
+            for run in old.get("runs", [])]
+
+    fresh = {
+        "schema": 2,
+        "generator": old.get("generator", "adopt_comic.py"),
+        "generator_version": old.get("generator_version"),
+        "created": old.get("created", now_stamp()),
+        "updated": now_stamp(),
+        "settings": settings,
+        "state": {
+            "site": old.get("site"),
+            "page_count": old.get("page_count"),
+            "completed": bool(old.get("completed", False)),
+            "image_xpath": old.get("image_xpath"),
+            "next_xpath": old.get("next_xpath"),
+            "last_image_url": old.get("last_image_url"),
+            "last_image_file": old.get("last_image_file"),
+        },
+        "history": {
+            "first_page_url": old.get("first_page_url"),
+            "first_page_number": old.get("first_page_number"),
+            "adopted": bool(old.get("adopted", False)),
+            "runs": runs,
+        },
+    }
+    if old.get("adopted_from"):
+        fresh["history"]["adopted_from"] = old["adopted_from"]
+    return fresh
+
+
+def migrate_library(root, dry_run=False):
+    #rewrites every sidecar under root in the current shape. safe to run twice: a file already in the
+    #new shape is left exactly as it is rather than being rewritten with a new timestamp.
+    done, already, failed = 0, 0, []
+    for current, dirs, files in os.walk(root):
+        dirs[:] = sorted(d for d in dirs if not d.startswith('.'))
+        if metadata_file not in files:
+            continue
+        dirs[:] = []
+        path = os.path.join(current, metadata_file)
+        name = os.path.relpath(current, root).replace(os.sep, '/')
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                old = json.load(f)
+            fresh = migrate_metadata(old)
+        except (ValueError, OSError, AttributeError) as error:
+            failed.append((name, str(error)))
+            print("  PROBLEM  {0:<42} {1}".format(name[:42], error))
+            continue
+        if fresh is None:
+            already += 1
+            continue
+        settings = fresh["settings"]
+        note = "page {0}{1}{2}".format(settings["increment"],
+                                       ", prefix" if settings["prefix"] else "",
+                                       ", ended" if settings["ended"] else "")
+        if dry_run:
+            print("  would    {0:<42} {1}".format(name[:42], note))
+        else:
+            try:
+                with open(path, 'w', encoding='utf-8') as f:
+                    json.dump(fresh, f, indent=2)
+                    f.write('\n')
+            except OSError as error:
+                failed.append((name, str(error)))
+                print("  PROBLEM  {0:<42} {1}".format(name[:42], error))
+                continue
+            print("  migrated {0:<42} {1}".format(name[:42], note))
+        done += 1
+    print()
+    print("{0} {1}, {2} already current, {3} with problems.".format(
+        done, "would be migrated" if dry_run else "migrated", already, len(failed)))
+    return 2 if failed else 0
+
+
 def main():
     args, params = setup()
+
+    if args.migrate:
+        if not os.path.isdir(args.root):
+            print("ERROR: {0} is not a folder.".format(args.root))
+            return 2
+        print("Migrating metadata under {0}:".format(os.path.abspath(args.root)))
+        return migrate_library(args.root, args.dry_run)
 
     if args.report or args.scan:
         rows = survey(args.root, args.all)
@@ -551,7 +677,7 @@ def main():
         return 1 if failed else 0
 
     if not args.path:
-        params.error("a comic folder or .cbz is required unless --scan, --report or --read-report is used")
+        params.error("a comic folder or .cbz is required unless --scan, --report, --read-report or --migrate is used")
 
     ok, message = adopt_one(args)
     if ok:

@@ -1,4 +1,4 @@
-#a small script to go through a webcomic and download all of the pages. #Written by AChillVamp. #V 3.8
+#a small script to go through a webcomic and download all of the pages. #Written by AChillVamp. #V 3.9
 
 import sys
 
@@ -23,7 +23,6 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from time import sleep
-from urllib.parse import urlsplit
 
 #global vars
 custom_args = [
@@ -51,15 +50,13 @@ element_names = [
                  '//*[@class="col-sm-12 comic-holder"]/a/img', #AWARE
                  '//*[@id="comicimg"]', #How MG Works
                  '//*[@id="maintxt"]/img', #Double-U Tea F, GotF, ATH
+                 '//*[@id="strip"]//img', #Megatokyo
                  '//*[@id="strip"]', #Questionable Content
                  '/html/body/main/div/div/div[1]/img', #VickiFox
                  '/html/body/div[2]/div[2]/div[1]/div[2]/center/a/img', #SatW
                  '/html/body/table/tbody/tr[2]/td/table/tbody/tr/td/center/img', #DMFA
                  '/html/body/div[3]/div[1]/div[1]/img[2]', #CaptainSNES
                  '/html/body/div[1]/div[1]/div[1]/div/div[2]/img', #LICD
-                 #last of the id based guesses because it reaches any depth: megatokyo buries the strip
-                 #eight elements inside #comic, so every path above that uses a child step misses it
-                 '//*[@id="comic"]//img', #Megatokyo
                  '//*[@id="last-path-for-happy-code"]']
 next_ele_names = [
                   #'//*[@rel="next"]',
@@ -75,6 +72,7 @@ next_ele_names = [
                   '//*[@class="navi-next"]', #consessioncomic
                   '//*[@class="col-sm-12 comic-holder"]/a', #AWARE
                   '//*[@id="maintxt"]/a[img[@src="next.gif"]]', #Double-U Tea F, GotF
+                  '//*[@id="strip"]//a', #MegaTokyo
                   '//*[@id="strip"]', #Questionable Content
                   '//*[@id="forwardOne"]', #Sequential Art
                   #SatW wraps the comic image in a link to the PREVIOUS page, so matching the image
@@ -133,9 +131,9 @@ except ValueError:
 #which is only useful when working out why a particular site misbehaves.
 browser_images = os.environ.get("MIRROR_BROWSER_IMAGES", "") not in ("", "0", "no", "false")
 
-#identities of the pages already in the output folder when the run started, used to notice a next link
-#that is walking the comic backwards through pages it already has
-existing_keys = set()
+#the pages already in the output folder when the run started, mapped to the number each sits at, so a
+#next link walking the comic backwards can be told from a re-scrape walking forward over known pages
+existing_pages = {}
 #files dropped because a newer spelling of the same page replaced them. the archive is told, so it does
 #not end up holding the page under both names.
 superseded = []
@@ -160,6 +158,9 @@ scrape_state = {
     "last_image_src": None,
     "last_image_file": None,
     "pages_saved": 0,
+    #where the last saved page sits according to the pages already held, so the next one can be checked
+    #for having moved backwards rather than forwards
+    "last_known_number": None,
 }
 
 def setup():
@@ -195,8 +196,8 @@ def setup():
 
     #what the comic already holds, read before anything is saved, so a backwards next link is caught
     #against the pages of earlier runs rather than only the ones this run has written
-    global existing_keys
-    existing_keys = folder_keys(output_folder(args))
+    global existing_pages
+    existing_pages = folder_pages(output_folder(args))
 
     #the first page is fetched before the main loop begins, which puts it outside the error handling
     #that wraps the loop. left unguarded, a site that will not load ends the run with an unhandled
@@ -306,21 +307,36 @@ def build_driver(args):
 
 
 def page_key(name):
-    #what makes two filenames the same page, ignoring how each happened to be named. the leading number
-    #moves whenever a comic is renumbered, and an extension has been appended to names that already had
-    #one, so '0742_a-page.png.png' and 'a-page.png' are the same page under different spellings.
-    stem = re.sub(r'^\d{3,}[_.]', '', name)
+    #what makes two filenames the same page, ignoring how each happened to be named: the '0742_' this
+    #script adds in front moves whenever a comic is renumbered, and an extension has been appended to
+    #names that already had one. so '0742_a-page.png.png' and 'a-page.png' are one page.
+    #a number followed by a dot is NOT stripped - for a comic whose pages the site names '0005.gif',
+    #that number is the only thing telling one page from another.
+    stem = re.sub(r'^\d{3,}_', '', name)
     stem = re.sub(r'\.(png|jpe?g|gif|webp)\.(png|jpe?g|gif|webp)$', r'.\1', stem, flags=re.I)
     return stem.lower()
 
 
-def folder_keys(folder):
-    #page identities already on disk, so a page can be recognised however it was named last time
+def page_number(name):
+    #the page number a filename carries, from the prefix this script adds or from a name that is just
+    #the number. none when the name says nothing about where the page sits.
+    found = re.match(r'^(\d+)[_.]', name)
+    return int(found.group(1)) if found else None
+
+
+def folder_pages(folder):
+    #what is on disk already, as page identity to page number, so a page is recognised however it was
+    #named last time and its position is known
+    held = {}
     try:
-        return {page_key(f) for f in os.listdir(folder)
-                if f != metadata_file and os.path.isfile(os.path.join(folder, f))}
+        names = os.listdir(folder)
     except OSError:
-        return set()
+        return held
+    for name in names:
+        if name == metadata_file or not os.path.isfile(os.path.join(folder, name)):
+            continue
+        held.setdefault(page_key(name), page_number(name))
+    return held
 
 
 def drop_superseded(folder, increment, keeping):
@@ -350,22 +366,6 @@ def drop_superseded(folder, increment, keeping):
             continue
         superseded.append(name)
         print("Dropped {0}, superseded by {1}.".format(name, keeping))
-
-
-def left_the_comic(before, after):
-    #some comics end by pointing their next button at the front page rather than removing it, so the
-    #link still matches and still works. climbing out of the folder the pages live in is never forward
-    #progress, which tells the two apart without needing to know the site.
-    try:
-        was, now = urlsplit(before), urlsplit(after)
-    except ValueError:
-        return False
-    if was.netloc != now.netloc:
-        #a different host is left alone: comics do move, and guessing wrong would end a run early
-        return False
-    here = was.path.rsplit('/', 1)[0] + '/'
-    there = now.path.rsplit('/', 1)[0] + '/'
-    return len(there) < len(here) and here.startswith(there)
 
 
 def now_stamp():
@@ -669,12 +669,16 @@ def img_save(driver, increment, file_format, args):
 
     #a backwards next link looks exactly like a working one page by page: every url is new, so the loop
     #check never fires, and the comic re-saves itself under fresh numbers until it runs out of archive.
-    #the page after the first is the earliest this can be seen, and one page of overlap is enough to see
-    #it, so the check runs once rather than on every page of a long run.
-    if args.direction_check and scrape_state["pages_saved"] == 1 and page_key(image) in existing_keys:
+    #recognising the page is not enough on its own, because re-scraping from an earlier point walks
+    #forward over pages that are all already held. what separates the two is which way the numbers go.
+    sits_at = existing_pages.get(page_key(image))
+    came_from = scrape_state["last_known_number"]
+    if (args.direction_check and sits_at is not None and came_from is not None
+            and sits_at < came_from):
         raise MirrorError(
-            "{0} is a page this comic already has, so the next link is going backwards rather than "
-            "forwards. Fix the next element for this site before running it again.".format(image),
+            "{0} is page {1} of this comic and the page before it was {2}, so the next link is going "
+            "backwards rather than forwards. Fix the next element for this site before running it "
+            "again.".format(image, sits_at, came_from),
             EXIT_BACKWARDS, "next link runs backwards")
 
     #the page a resume starts on gets saved a second time, under whatever name the site uses now
@@ -700,8 +704,12 @@ def img_save(driver, increment, file_format, args):
     scrape_state["last_increment"] = increment
     scrape_state["last_image_src"] = src
     scrape_state["last_image_file"] = image
-    #so a page saved this run is recognised as already held if the comic later doubles back
-    existing_keys.add(page_key(image))
+    #remembered so the next page can be compared against where this one sits, and so a page saved this
+    #run is recognised as held if the comic doubles back onto it later
+    if sits_at is None:
+        sits_at = page_number(image)
+    scrape_state["last_known_number"] = sits_at
+    existing_pages.setdefault(page_key(image), sits_at)
     scrape_state["pages_saved"] += 1
     visited_urls.add(current_url)
     metadata_save(driver, args)
@@ -801,14 +809,6 @@ if __name__ == "__main__":
             if current_url == driver.current_url: 
                 print("Reached last page since pressing Next goes to the same page!")
                 stop_reason = "next goes to the same page"
-                completed = True
-                break
-            if left_the_comic(current_url, driver.current_url):
-                #the next button is still there on the last page of some comics, pointing at the front
-                #page. following it lands somewhere with no comic on it, which would otherwise be
-                #reported as the site having changed its layout.
-                print("Reached last page since Next leaves the comic for {0}.".format(driver.current_url))
-                stop_reason = "next link left the comic"
                 completed = True
                 break
             if driver.current_url in visited_urls:

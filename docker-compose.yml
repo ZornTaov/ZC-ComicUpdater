@@ -33,7 +33,7 @@ services:
       # Point it at the folder holding the three scripts. Uncomment only once that folder really has
       # them in it: an empty or missing path here mounts an empty /app and nothing will start.
       #
-      # - /share/Container/ComicScraper:/app:ro
+      - /share/Container/ComicScraper:/app:ro
 
     # chromium wants more than docker's default 64m of shared memory
     shm_size: 512m

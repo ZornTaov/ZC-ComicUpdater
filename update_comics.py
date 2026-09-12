@@ -18,6 +18,17 @@ metadata_file = "mirror_metadata.json"
 #a comic marked this way is meant to be left alone for good, so it is counted rather than listed.
 #anything skipped for any other reason is a problem, and gets named.
 ended_reason = "marked as ended"
+#print() writes its text and its newline separately, so two comics finishing at once could tear each
+#other's lines in half. everything a worker prints goes through here instead: one line, one write.
+print_lock = threading.Lock()
+
+
+def say(line):
+    with print_lock:
+        sys.stdout.write(line + chr(10))
+        sys.stdout.flush()
+
+
 lock_file = ".update_comics.lock"
 
 #mirror_base's exit codes, so the summary can say what actually went wrong
@@ -217,7 +228,7 @@ def still_running(runnable, every, stop):
             gained = folder_pages(comic.folder) - comic.before
             so_far = ", +{0} page(s)".format(gained) if gained > 0 else ""
             parts.append("{0} ({1:.0f}s{2})".format(comic.name, now - comic.started_at, so_far))
-        print("  ...     still going: {0}".format("; ".join(parts)), flush=True)
+        say("  ...     still going: {0}".format("; ".join(parts)))
 
 
 def page_count(comic):
@@ -255,7 +266,7 @@ def run_comic(comic, args):
     command = [sys.executable, args.script] + comic.argv
     started = time.time()
     comic.started_at = started
-    print("  start   {0}".format(comic.name), flush=True)
+    say("  start   {0}".format(comic.name))
     #a new process group is what makes it possible to take the browser down with the script on a timeout
     grouping = {}
     if os.name == 'nt':
@@ -429,14 +440,14 @@ def run_once(args):
                 for future in as_completed(waiting):
                     comic = future.result()
                     done += 1
-                    print("[{0}/{1}] {2:<40} {3} ({4:.0f}s)".format(
-                        done, len(runnable), comic.name, describe(comic), comic.elapsed), flush=True)
+                    say("[{0}/{1}] {2:<40} {3} ({4:.0f}s)".format(
+                        done, len(runnable), comic.name, describe(comic), comic.elapsed))
         else:
             for comic in runnable:
                 done += 1
                 run_comic(comic, args)
-                print("[{0}/{1}] {2:<40} {3} ({4:.0f}s)".format(
-                    done, len(runnable), comic.name, describe(comic), comic.elapsed), flush=True)
+                say("[{0}/{1}] {2:<40} {3} ({4:.0f}s)".format(
+                    done, len(runnable), comic.name, describe(comic), comic.elapsed))
     finally:
         stop_watching.set()
         try:

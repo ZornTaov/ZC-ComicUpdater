@@ -171,9 +171,14 @@ An updater run summarises what each comic did, including the exit code from `mir
 | 3 | no image found on the page — usually a site redesign |
 | 4 | a download failed after retries |
 | 5 | the browser or driver would not start |
+| 6 | a page never finished loading |
+| 7 | something unexpected, printed with the error |
 
 Code 3 on a comic that used to work is the one to look at: the site has changed its markup and the
-saved XPath no longer matches.
+saved XPath no longer matches. Code 6 is usually transient and worth simply retrying.
+
+A comic that stalls is reported as each comic finishes rather than in the order they started, so
+one slow site no longer holds back the log lines for everything that overtook it.
 
 ## Running in Docker
 
@@ -239,6 +244,9 @@ comic's saved resume command:
 - `MIRROR_BROWSER_BINARY`
 - `MIRROR_DRIVER_BINARY`
 - `MIRROR_BROWSER_ARGS`
+- `MIRROR_PAGE_TIMEOUT` — seconds to let a page load before giving up, 60 by default. Selenium
+  has no limit of its own, so without this a site that never finishes loading stalls the run and
+  holds up every comic queued behind it. Raise it for a site that really is just slow.
 
 ## How the archives stay cheap to sync
 

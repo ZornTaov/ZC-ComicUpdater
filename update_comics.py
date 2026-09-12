@@ -1,6 +1,6 @@
 #runs mirror_base.py over every comic in a library folder, resuming each one from its saved metadata.
 #meant to be driven by a timer, so it isolates failures, caps how long any one comic can run, and finishes
-#with a summary of what moved. #V 1.1
+#with a summary of what moved. #V 1.2
 
 import argparse
 import json
@@ -10,7 +10,7 @@ import signal
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 metadata_file = "mirror_metadata.json"
@@ -24,6 +24,8 @@ exit_reasons = {
     3: "image element not found (site layout changed?)",
     4: "download failed",
     5: "webdriver would not start",
+    6: "page load timed out (slow or unresponsive site)",
+    7: "unexpected error",
 }
 
 
@@ -372,16 +374,21 @@ def run_once(args):
         done = 0
         if args.jobs > 1:
             with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-                for comic in pool.map(lambda c: run_comic(c, args), runnable):
+                #reported as each one finishes rather than in the order they were started. mapping in
+                #order means one slow comic holds back the lines for every comic that overtook it, which
+                #reads as though nothing else is running at all.
+                waiting = [pool.submit(run_comic, comic, args) for comic in runnable]
+                for future in as_completed(waiting):
+                    comic = future.result()
                     done += 1
                     print("[{0}/{1}] {2:<40} {3} ({4:.0f}s)".format(
-                        done, len(runnable), comic.name, describe(comic), comic.elapsed))
+                        done, len(runnable), comic.name, describe(comic), comic.elapsed), flush=True)
         else:
             for comic in runnable:
                 done += 1
                 run_comic(comic, args)
                 print("[{0}/{1}] {2:<40} {3} ({4:.0f}s)".format(
-                    done, len(runnable), comic.name, describe(comic), comic.elapsed))
+                    done, len(runnable), comic.name, describe(comic), comic.elapsed), flush=True)
     finally:
         try:
             os.remove(lock)

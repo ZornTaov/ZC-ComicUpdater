@@ -1,4 +1,4 @@
-#a small script to go through a webcomic and download all of the pages. #Written by AChillVamp. #V 3.5
+#a small script to go through a webcomic and download all of the pages. #Written by AChillVamp. #V 3.6
 
 import sys
 
@@ -104,6 +104,18 @@ EXIT_USAGE = 2
 EXIT_NO_IMAGE = 3
 EXIT_DOWNLOAD = 4
 EXIT_DRIVER = 5
+EXIT_TIMEOUT = 6
+EXIT_UNEXPECTED = 7
+
+#how long to let one page load before giving up on it. selenium otherwise waits for the page to finish
+#loading with no limit of its own, and the only thing that eventually breaks the wait is its internal
+#http timeout, which surfaces as an unhandled error rather than something this script can report.
+#a machine and network concern rather than a per-comic one, so it comes from the environment and stays
+#out of the saved settings.
+try:
+    page_timeout = float(os.environ.get("MIRROR_PAGE_TIMEOUT", "60"))
+except ValueError:
+    page_timeout = 60.0
 
 
 class MirrorError(Exception):
@@ -157,8 +169,23 @@ def setup():
 
     driver = build_driver(args)
 
+    #the first page is fetched before the main loop begins, which puts it outside the error handling
+    #that wraps the loop. left unguarded, a site that will not load ends the run with an unhandled
+    #traceback and python's own exit 1 - the same code as being interrupted, so a batch run reports a
+    #stalled site as though someone had stopped it by hand.
+    try:
+        driver.get(args.URL)
+    except se.TimeoutException:
+        print("\nERROR: {0} did not finish loading within {1:.0f}s. Raise MIRROR_PAGE_TIMEOUT if this "
+              "site is simply slow.".format(args.URL, page_timeout))
+        quit_quietly(driver)
+        sys.exit(EXIT_TIMEOUT)
+    except se.WebDriverException as error:
+        print("\nERROR: Could not open {0}: {1}".format(args.URL, error))
+        quit_quietly(driver)
+        sys.exit(EXIT_DRIVER)
+
     #configurable vars
-    driver.get(args.URL)
     increment = args.increment
     #driver.maximize_window()
     current_url = driver.current_url
@@ -167,6 +194,15 @@ def setup():
     verbose = args.verbose
 
     return driver, increment, format, args
+
+
+def quit_quietly(driver):
+    #a browser that stopped answering cannot be closed politely, and saying so beats hanging or
+    #raising a second error on top of whatever went wrong first
+    try:
+        driver.quit()
+    except Exception as error:
+        print("WARNING: The browser did not shut down cleanly: {0}".format(type(error).__name__))
 
 
 def build_driver(args):
@@ -207,11 +243,23 @@ def build_driver(args):
 
     try:
         if args.firefox:
-            return webdriver.Firefox(options=options, service=service) if service else webdriver.Firefox(options=options)
-        return webdriver.Chrome(options=options, service=service) if service else webdriver.Chrome(options=options)
+            driver = webdriver.Firefox(options=options, service=service) if service else webdriver.Firefox(options=options)
+        else:
+            driver = webdriver.Chrome(options=options, service=service) if service else webdriver.Chrome(options=options)
     except se.WebDriverException as error:
         print("\nERROR: Could not start the webdriver: {0}".format(error))
         sys.exit(EXIT_DRIVER)
+
+    #without these a page that never finishes loading stalls the whole run. a comic that hangs holds up
+    #every comic queued behind it, so the limit matters more to a batch than to a single scrape.
+    if page_timeout > 0:
+        try:
+            driver.set_page_load_timeout(page_timeout)
+            driver.set_script_timeout(page_timeout)
+        except se.WebDriverException:
+            #an older driver may not accept them; the run is still worth attempting
+            pass
+    return driver
 
 
 def now_stamp():
@@ -635,6 +683,18 @@ if __name__ == "__main__":
         stop_reason = "exited by user"
         exit_code = EXIT_INTERRUPTED
         print("\nProgram exited by user.")
+    except se.TimeoutException:
+        #a page that never loads. reported on its own so a slow site is not mistaken for a broken one
+        stop_reason = "page load timed out"
+        exit_code = EXIT_TIMEOUT
+        print("\nERROR: A page took longer than {0:.0f}s to load, so the run stopped. Raise "
+              "MIRROR_PAGE_TIMEOUT if this site is simply slow.".format(page_timeout))
+    except Exception as error:
+        #anything else would otherwise leave python to print a traceback and exit 1, which a batch run
+        #cannot tell apart from being interrupted. the error is still shown, just with its own code.
+        stop_reason = "unexpected error"
+        exit_code = EXIT_UNEXPECTED
+        print("\nERROR: Unexpected {0}: {1}".format(type(error).__name__, error))
     finally:
         print("The last page was at {0}.".format(current_url))
 
@@ -654,7 +714,7 @@ if __name__ == "__main__":
             except (OSError, zipfile.BadZipFile) as error:
                 print("\nWARNING: Could not update the cbz: {0}".format(error))
 
-        driver.quit()
+        quit_quietly(driver)
         print("Task Completed.")
 
     sys.exit(exit_code)

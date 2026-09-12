@@ -15,6 +15,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 metadata_file = "mirror_metadata.json"
+#a comic marked this way is meant to be left alone for good, so it is counted rather than listed.
+#anything skipped for any other reason is a problem, and gets named.
+ended_reason = "marked as ended"
 lock_file = ".update_comics.lock"
 
 #mirror_base's exit codes, so the summary can say what actually went wrong
@@ -347,6 +350,17 @@ def setup():
     return args
 
 
+def report_skipped(comics):
+    #ended comics are the bulk of a settled library and saying so a hundred times buries the one comic
+    #that was skipped because something is actually wrong with it
+    ended = [c for c in comics if c.skipped == ended_reason]
+    problems = [c for c in comics if c.skipped and c.skipped != ended_reason]
+    if ended:
+        print("  {0} comic(s) left alone as ended.".format(len(ended)))
+    for comic in problems:
+        print("  {0:<40} SKIPPED: {1}".format(comic.name, comic.skipped))
+
+
 def run_once(args):
     comics = find_comics(args.root, args.max_depth)
     if args.only:
@@ -366,7 +380,7 @@ def run_once(args):
         if comic.skipped:
             continue
         if (comic.metadata.get("settings") or {}).get("ended", comic.metadata.get("ended")):
-            comic.skipped = "marked as ended"
+            comic.skipped = ended_reason
             continue
         comic.argv = resume_argv(comic)
         if not comic.argv:
@@ -380,12 +394,10 @@ def run_once(args):
 
     if args.dry_run:
         print("Would update {0} of {1} comic(s) in {2}:".format(len(runnable), len(comics), args.root))
-        for comic in comics:
-            if comic.skipped:
-                print("  {0:<40} skipped ({1})".format(comic.name, comic.skipped))
-            else:
-                rendered = subprocess.list2cmdline(comic.argv) if os.name == 'nt' else shlex.join(comic.argv)
-                print("  {0:<40} {1}".format(comic.name, rendered))
+        for comic in runnable:
+            rendered = subprocess.list2cmdline(comic.argv) if os.name == 'nt' else shlex.join(comic.argv)
+            print("  {0:<40} {1}".format(comic.name, rendered))
+        report_skipped(comics)
         return 0
 
     lock, held_by = take_lock(args.root)
@@ -437,6 +449,10 @@ def run_once(args):
         time.time() - started, len(gained), len(runnable) - len(gained) - len(failed), len(failed), len(skipped)))
     for comic in gained:
         print("  {0:<40} +{1} page(s), now {2}".format(comic.name, comic.gained, comic.after))
+    #named here too, since a comic that never ran is easy to miss among the ones that did
+    for comic in skipped:
+        if comic.skipped != ended_reason:
+            print("  {0:<40} SKIPPED: {1}".format(comic.name, comic.skipped))
     if failed:
         print()
         print("Failures:")

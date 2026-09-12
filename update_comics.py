@@ -1,6 +1,6 @@
 #runs mirror_base.py over every comic in a library folder, resuming each one from its saved metadata.
 #meant to be driven by a timer, so it isolates failures, caps how long any one comic can run, and finishes
-#with a summary of what moved. #V 1.2
+#with a summary of what moved. #V 1.3
 
 import argparse
 import json
@@ -8,6 +8,7 @@ import os
 import shlex
 import signal
 import subprocess
+import threading
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -55,6 +56,8 @@ class Comic:
         self.before = count or 0
         self.after = self.before
         self.skipped = None
+        #when this comic's process started, so a run in progress can say what it is still waiting on
+        self.started_at = None
         #set when the saved command pointed at where this comic used to live
         self.moved_from = None
 
@@ -193,6 +196,23 @@ def resume_argv(comic):
     return argv
 
 
+def still_running(runnable, every, stop):
+    #a comic with hundreds of pages to fetch can hold the log still for minutes, which looks exactly
+    #like the whole run having wedged. this says what is in flight, for how long, and how far it has
+    #got - counted from the folder, since the scraper's own output is not readable until it exits.
+    while not stop.wait(every):
+        busy = [c for c in runnable if c.started_at and c.code is None]
+        if not busy:
+            continue
+        now = time.time()
+        parts = []
+        for comic in sorted(busy, key=lambda c: c.started_at):
+            gained = folder_pages(comic.folder) - comic.before
+            so_far = ", +{0} page(s)".format(gained) if gained > 0 else ""
+            parts.append("{0} ({1:.0f}s{2})".format(comic.name, now - comic.started_at, so_far))
+        print("  ...     still going: {0}".format("; ".join(parts)), flush=True)
+
+
 def page_count(comic):
     #read the count back from the metadata the run just wrote, falling back to counting the folder
     try:
@@ -227,6 +247,8 @@ def run_comic(comic, args):
     #reusing one process would try the previous comic's paths, and a crash would take the whole run with it
     command = [sys.executable, args.script] + comic.argv
     started = time.time()
+    comic.started_at = started
+    print("  start   {0}".format(comic.name), flush=True)
     #a new process group is what makes it possible to take the browser down with the script on a timeout
     grouping = {}
     if os.name == 'nt':
@@ -310,6 +332,9 @@ def setup():
                         help="How many folders deep to look for comics. Lets a library group comics by author or site. Defaults to 5.")
     params.add_argument("--schedule", default=None, metavar="HH:MM",
                         help="Stay running and start an update at this local time every day. Without it the update runs once and exits.")
+    params.add_argument("--progress", type=int, default=60, metavar="SECONDS",
+                        help="While a run is going, say every so often which comics are still going "
+                             "and how far they have got. Defaults to 60 seconds; 0 turns it off.")
     params.add_argument("--now", action='store_true', default=False,
                         help="Update once straight away, then settle into --schedule. Without --schedule "
                              "this is what happens anyway. Useful for a container that should not sit "
@@ -369,6 +394,13 @@ def run_once(args):
         return 2
 
     started = time.time()
+    #a daemon so a ctrl-c or a docker stop is never held up waiting for the next tick
+    stop_watching = threading.Event()
+    watcher = None
+    if args.progress > 0:
+        watcher = threading.Thread(target=still_running,
+                                   args=(runnable, args.progress, stop_watching), daemon=True)
+        watcher.start()
     try:
         print("Updating {0} comic(s) in {1}.".format(len(runnable), args.root))
         done = 0
@@ -390,6 +422,7 @@ def run_once(args):
                 print("[{0}/{1}] {2:<40} {3} ({4:.0f}s)".format(
                     done, len(runnable), comic.name, describe(comic), comic.elapsed), flush=True)
     finally:
+        stop_watching.set()
         try:
             os.remove(lock)
         except OSError:

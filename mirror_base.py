@@ -71,7 +71,10 @@ next_ele_names = [
                   '//*[@id="maintxt"]/a[img[@src="next.gif"]]', #Double-U Tea F, GotF
                   '//*[@id="strip"]', #Questionable Content
                   '//*[@id="forwardOne"]', #Sequential Art
-                  '/html/body/div[2]/div[2]/div[1]/div[2]/center/a/img', #SatW
+                  #SatW wraps the comic image in a link to the PREVIOUS page, so matching the image
+                  #here walks the comic backwards, re-saving every page it already had. the nav
+                  #anchor is the real next link, and is absent on the newest page, which ends the run
+                  '/html/body/div[2]/div[2]/div[1]/div[1]/a[4]', #SatW
                   '//*[contains(translate(@title,"NEXT","next"), "next")]',
                   '//*[contains(translate(@src,"NEXT","next"), "next")]',
                   '//a[contains(translate(text(),"NEXT","next"), "next")]',

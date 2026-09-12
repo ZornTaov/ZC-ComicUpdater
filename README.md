@@ -173,6 +173,7 @@ An updater run summarises what each comic did, including the exit code from `mir
 | 5 | the browser or driver would not start |
 | 6 | a page never finished loading |
 | 7 | something unexpected, printed with the error |
+| 8 | the next link is running backwards through pages already held |
 
 Code 3 on a comic that used to work is the one to look at: the site has changed its markup and the
 saved XPath no longer matches. Code 6 is usually transient and worth simply retrying.
@@ -326,6 +327,17 @@ python update_comics.py "D:/Comics" --only MyComic --dry-run
   happens, since many themes wrap the image in a link to the next page and the newest page has no next
   page — the search runs again rather than giving up.
 - `-m` and `-n` let you supply the XPaths yourself for a site the guesses do not cover.
+- Some comics wrap the page image in a link to the **previous** page, and some keep a next
+  button on the last page pointing at the front page. Both make a scrape walk somewhere it
+  should not: the first re-downloads the whole archive backwards under fresh numbers, the second
+  looks like the site changed its layout. A run stops with code 8 if the page after the first is
+  one the comic already holds, and treats a next link that climbs out of the comic's own folder
+  as the end. `--no-direction-check` turns the first off for a comic that genuinely reuses its
+  filenames.
+- A page keeps one filename. Resuming re-saves the page it starts on, and if the name that lands
+  differs from the one already there, the newer name wins and the older file is dropped from the
+  folder and from the archive. That matters for comics whose pages were numbered by hand, or
+  saved when an extension was appended to names that already had one.
 - Be considerate: this drives a real browser against someone's site. `-w` sets a wait between pages.
 - The browser is only ever asked for element attributes, never for rendered pixels, so it does not
   load images and does not wait for the load event. That makes a page that a browser renders

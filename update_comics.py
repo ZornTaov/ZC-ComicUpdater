@@ -30,6 +30,7 @@ exit_reasons = {
     5: "webdriver would not start",
     6: "page load timed out (slow or unresponsive site)",
     7: "unexpected error",
+    8: "next link runs backwards (check the site's next element)",
 }
 
 
@@ -122,6 +123,9 @@ def settings_to_argv(settings):
     #on by default, so only its absence is worth saying out loud
     if settings.get("cbz") is False:
         argv.append("--no-cbz")
+    #also on by default, so only turning it off is worth saying
+    if settings.get("direction_check") is False:
+        argv.append("--no-direction-check")
     if settings.get("cbz_path"):
         argv += ["--cbz-path", settings["cbz_path"]]
     argv.append(url)

@@ -1,4 +1,4 @@
-#a small script to go through a webcomic and download all of the pages. #Written by AChillVamp. #V 3.7
+#a small script to go through a webcomic and download all of the pages. #Written by AChillVamp. #V 3.8
 
 import sys
 
@@ -13,6 +13,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import selenium.common.exceptions as se
 import os
+import re
 import requests
 import argparse
 import json
@@ -22,6 +23,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from time import sleep
+from urllib.parse import urlsplit
 
 #global vars
 custom_args = [
@@ -32,6 +34,7 @@ element_names = [
                  '//*[@id="page"]/img[1]',
                  '//*[@id="comic"]/a/img',
                  '//*[@id="comic"]/div/img', #ExterminatusNow
+                 '//img[@alt="Comic goes here."]', #Furthia High
                  '/html/body/div/div[3]/main/section/article/div[5]/div/div/div/div/div/div/figure/div/div/img', #Scrap & Topheavy
                  '//*[@id="content"]/article/img|//*[@id="content"]/article/a/img', #TwoKinds
                  '//*[@class="comic"]',
@@ -54,6 +57,9 @@ element_names = [
                  '/html/body/table/tbody/tr[2]/td/table/tbody/tr/td/center/img', #DMFA
                  '/html/body/div[3]/div[1]/div[1]/img[2]', #CaptainSNES
                  '/html/body/div[1]/div[1]/div[1]/div/div[2]/img', #LICD
+                 #last of the id based guesses because it reaches any depth: megatokyo buries the strip
+                 #eight elements inside #comic, so every path above that uses a child step misses it
+                 '//*[@id="comic"]//img', #Megatokyo
                  '//*[@id="last-path-for-happy-code"]']
 next_ele_names = [
                   #'//*[@rel="next"]',
@@ -109,6 +115,7 @@ EXIT_DOWNLOAD = 4
 EXIT_DRIVER = 5
 EXIT_TIMEOUT = 6
 EXIT_UNEXPECTED = 7
+EXIT_BACKWARDS = 8
 
 #how long to let one page load before giving up on it. selenium otherwise waits for the page to finish
 #loading with no limit of its own, and the only thing that eventually breaks the wait is its internal
@@ -125,6 +132,13 @@ except ValueError:
 #the page its own chance to stall the load. set MIRROR_BROWSER_IMAGES=1 to let it load them anyway,
 #which is only useful when working out why a particular site misbehaves.
 browser_images = os.environ.get("MIRROR_BROWSER_IMAGES", "") not in ("", "0", "no", "false")
+
+#identities of the pages already in the output folder when the run started, used to notice a next link
+#that is walking the comic backwards through pages it already has
+existing_keys = set()
+#files dropped because a newer spelling of the same page replaced them. the archive is told, so it does
+#not end up holding the page under both names.
+superseded = []
 
 
 class MirrorError(Exception):
@@ -169,6 +183,7 @@ def setup():
     params.add_argument("-v","--verbose",action='store_true',help="Output verbose logging for debugging.")
     params.add_argument("-w","--waittime",type=int,help="Time to wait before clicking next",default=0)
     params.add_argument("--cbz",action=argparse.BooleanOptionalAction,help="Packs the pages into a .cbz beside the output folder once the run finishes, adding only the pages the archive does not already hold. On by default.",default=True)
+    params.add_argument("--direction-check",action=argparse.BooleanOptionalAction,default=True,help="Stop if the page after the first turns out to be one the comic already has, which means the next link is running backwards. On by default; turn it off only for a comic that genuinely reuses its filenames.")
     params.add_argument("--cbz-path",type=str,default=None,help="Where this comic's .cbz lives. Left off, an archive already beside the output folder is used, otherwise a library laid out as Uncompressed/<comic> files it as CBZs/<comic>.cbz, and failing both it goes beside the folder.")
     
     args = params.parse_args(len(sys.argv) == 1 and custom_args or None)
@@ -177,6 +192,11 @@ def setup():
     run_id = uuid.uuid4().hex
 
     driver = build_driver(args)
+
+    #what the comic already holds, read before anything is saved, so a backwards next link is caught
+    #against the pages of earlier runs rather than only the ones this run has written
+    global existing_keys
+    existing_keys = folder_keys(output_folder(args))
 
     #the first page is fetched before the main loop begins, which puts it outside the error handling
     #that wraps the loop. left unguarded, a site that will not load ends the run with an unhandled
@@ -285,6 +305,69 @@ def build_driver(args):
     return driver
 
 
+def page_key(name):
+    #what makes two filenames the same page, ignoring how each happened to be named. the leading number
+    #moves whenever a comic is renumbered, and an extension has been appended to names that already had
+    #one, so '0742_a-page.png.png' and 'a-page.png' are the same page under different spellings.
+    stem = re.sub(r'^\d{3,}[_.]', '', name)
+    stem = re.sub(r'\.(png|jpe?g|gif|webp)\.(png|jpe?g|gif|webp)$', r'.\1', stem, flags=re.I)
+    return stem.lower()
+
+
+def folder_keys(folder):
+    #page identities already on disk, so a page can be recognised however it was named last time
+    try:
+        return {page_key(f) for f in os.listdir(folder)
+                if f != metadata_file and os.path.isfile(os.path.join(folder, f))}
+    except OSError:
+        return set()
+
+
+def drop_superseded(folder, increment, keeping):
+    #one page should own one filename. a resume re-saves the page it starts on, and if the name that
+    #lands differs from the name already there - an extension appended twice, or a hand renumbering that
+    #kept only the number - the folder would hold that page twice and every reader would show it twice.
+    #the freshly named file wins, so the comparison never has to happen again for this comic.
+    try:
+        present = os.listdir(folder)
+    except OSError:
+        return
+    for name in present:
+        if name in (keeping, metadata_file):
+            continue
+        #the leading number is what says which page a file is, however the rest of it is spelled:
+        #'0743_a-page.png.png' and the hand renumbered '0743.png' are both page 743
+        numbered = re.match(r'^(\d{3,})[_.]', name)
+        if not numbered or int(numbered.group(1)) != int(increment):
+            continue
+        full = os.path.join(folder, name)
+        if not os.path.isfile(full):
+            continue
+        try:
+            os.remove(full)
+        except OSError as error:
+            print("WARNING: could not drop the older name {0}: {1}".format(name, error))
+            continue
+        superseded.append(name)
+        print("Dropped {0}, superseded by {1}.".format(name, keeping))
+
+
+def left_the_comic(before, after):
+    #some comics end by pointing their next button at the front page rather than removing it, so the
+    #link still matches and still works. climbing out of the folder the pages live in is never forward
+    #progress, which tells the two apart without needing to know the site.
+    try:
+        was, now = urlsplit(before), urlsplit(after)
+    except ValueError:
+        return False
+    if was.netloc != now.netloc:
+        #a different host is left alone: comics do move, and guessing wrong would end a run early
+        return False
+    here = was.path.rsplit('/', 1)[0] + '/'
+    there = now.path.rsplit('/', 1)[0] + '/'
+    return len(there) < len(here) and here.startswith(there)
+
+
 def now_stamp():
     return datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
 
@@ -321,6 +404,7 @@ def settings_from_args(args, url, increment, ended=False):
         "firefox": bool(args.firefox),
         "waittime": args.waittime,
         "cbz": bool(args.cbz),
+        "direction_check": bool(args.direction_check),
         #not a scraping option: update_comics.py reads it and leaves a finished comic alone
         "ended": bool(ended),
     }
@@ -497,14 +581,27 @@ def cbz_update(args):
         prefix = archive_prefix(zf, folder)
         existing = set(zf.namelist())
     added = [name for name in pages if prefix + name not in existing]
-    if not added:
+    #a page whose filename was replaced this run has to leave the archive under its old name too, or the
+    #comic shows that page twice for good
+    stale_pages = [prefix + name for name in superseded if prefix + name in existing]
+    if not added and not stale_pages:
         return cbz, 0
 
     with zipfile.ZipFile(cbz, 'a', zipfile.ZIP_STORED) as zf:
         meta_name = prefix + metadata_file
         last_offset = max((i.header_offset for i in zf.infolist()), default=0)
-        stale = zf.NameToInfo.get(meta_name)
         internals = all(hasattr(zf, attr) for attr in ('filelist', 'NameToInfo', 'start_dir'))
+        if internals:
+            for name in stale_pages:
+                gone = zf.NameToInfo.get(name)
+                if gone is None:
+                    continue
+                #the bytes stay where they are and simply stop being referenced, which no reader looks
+                #at; only the directory has to forget the name
+                zf.filelist.remove(gone)
+                del zf.NameToInfo[name]
+                print("Removed the superseded {0} from the archive.".format(name))
+        stale = zf.NameToInfo.get(meta_name)
         if stale is not None and internals:
             #drop the old copy from the directory so the refreshed one does not leave a duplicate entry.
             #this script always writes the metadata last, so its bytes can usually be reclaimed; in an
@@ -565,22 +662,35 @@ def img_save(driver, increment, file_format, args):
         #pad with 4 zeros for sorting purposes
         image = '{0}_{1}'.format(str(increment).zfill(4), image)
 
-    #prefix image with output folder name or url origin for folder structure
     folder = output_folder(args)
-    image = '{0}/{1}'.format(folder, image)
-    
     #creates the folder structure for the url origin if it does not exist
     if not os.path.exists(folder):
         os.makedirs(folder)
 
+    #a backwards next link looks exactly like a working one page by page: every url is new, so the loop
+    #check never fires, and the comic re-saves itself under fresh numbers until it runs out of archive.
+    #the page after the first is the earliest this can be seen, and one page of overlap is enough to see
+    #it, so the check runs once rather than on every page of a long run.
+    if args.direction_check and scrape_state["pages_saved"] == 1 and page_key(image) in existing_keys:
+        raise MirrorError(
+            "{0} is a page this comic already has, so the next link is going backwards rather than "
+            "forwards. Fix the next element for this site before running it again.".format(image),
+            EXIT_BACKWARDS, "next link runs backwards")
+
+    #the page a resume starts on gets saved a second time, under whatever name the site uses now
+    if args.prefix and scrape_state["pages_saved"] == 0:
+        drop_superseded(folder, increment, image)
+
+    #prefix image with output folder name or url origin for folder structure
+    target = '{0}/{1}'.format(folder, image)
+
     #to request the url
     req = fetch(src)
-    print('saving {0} from {1} at {2}'.format(image, src, current_url))
+    print('saving {0} from {1} at {2}'.format(target, src, current_url))
 
     #requests and downloads the content in the url
-    with open(image,'wb') as f:
+    with open(target,'wb') as f:
         f.write(req.content)
-        f.close()
 
     #track progress and rewrite the metadata each page, so it stays accurate even if the run is cut short
     if scrape_state["first_page_url"] is None:
@@ -589,7 +699,9 @@ def img_save(driver, increment, file_format, args):
     scrape_state["last_page_url"] = current_url
     scrape_state["last_increment"] = increment
     scrape_state["last_image_src"] = src
-    scrape_state["last_image_file"] = os.path.basename(image)
+    scrape_state["last_image_file"] = image
+    #so a page saved this run is recognised as already held if the comic later doubles back
+    existing_keys.add(page_key(image))
     scrape_state["pages_saved"] += 1
     visited_urls.add(current_url)
     metadata_save(driver, args)
@@ -689,6 +801,14 @@ if __name__ == "__main__":
             if current_url == driver.current_url: 
                 print("Reached last page since pressing Next goes to the same page!")
                 stop_reason = "next goes to the same page"
+                completed = True
+                break
+            if left_the_comic(current_url, driver.current_url):
+                #the next button is still there on the last page of some comics, pointing at the front
+                #page. following it lands somewhere with no comic on it, which would otherwise be
+                #reported as the site having changed its layout.
+                print("Reached last page since Next leaves the comic for {0}.".format(driver.current_url))
+                stop_reason = "next link left the comic"
                 completed = True
                 break
             if driver.current_url in visited_urls:

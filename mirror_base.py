@@ -1,4 +1,4 @@
-#a small script to go through a webcomic and download all of the pages. #Written by AChillVamp. #V 3.6
+#a small script to go through a webcomic and download all of the pages. #Written by AChillVamp. #V 3.7
 
 import sys
 
@@ -117,6 +117,12 @@ try:
 except ValueError:
     page_timeout = 60.0
 
+#the browser is only ever asked for element attributes - the pages themselves are downloaded with
+#requests - so letting it fetch images does nothing but spend bandwidth twice and give every image on
+#the page its own chance to stall the load. set MIRROR_BROWSER_IMAGES=1 to let it load them anyway,
+#which is only useful when working out why a particular site misbehaves.
+browser_images = os.environ.get("MIRROR_BROWSER_IMAGES", "") not in ("", "0", "no", "false")
+
 
 class MirrorError(Exception):
     #a scrape failure that should end the run with a specific exit code
@@ -217,14 +223,28 @@ def build_driver(args):
             options.add_argument("--headless")
         if not args.enable_javascript:
             options.set_preference("javascript.enabled", False)
+        if not browser_images:
+            options.set_preference("permissions.default.image", 2)
     else:
         options = Options()
         if args.headless:
             options.add_argument("--headless=new")
             #headless chromium falls over on the small /dev/shm found in containers and hardened services
             options.add_argument("--disable-dev-shm-usage")
+        prefs = {}
         if not args.enable_javascript:
-            options.add_experimental_option("prefs", {'profile.managed_default_content_settings.javascript': 2})
+            prefs['profile.managed_default_content_settings.javascript'] = 2
+        if not browser_images:
+            prefs['profile.managed_default_content_settings.images'] = 2
+        if prefs:
+            options.add_experimental_option("prefs", prefs)
+
+    #a page is finished being useful as soon as its html is parsed, since only attributes are read from
+    #it. waiting for the load event means waiting for every stylesheet, font and iframe as well, any one
+    #of which can hang without the page looking broken in a browser. with javascript enabled the wait is
+    #kept, because then the comic may well be inserted by a script that has not run yet.
+    if not args.enable_javascript:
+        options.page_load_strategy = 'eager'
 
     #extra browser flags for the machine this runs on, such as --no-sandbox inside a container, where
     #chromium's own sandbox has no namespaces to work with

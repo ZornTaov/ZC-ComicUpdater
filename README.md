@@ -247,6 +247,9 @@ comic's saved resume command:
 - `MIRROR_PAGE_TIMEOUT` — seconds to let a page load before giving up, 60 by default. Selenium
   has no limit of its own, so without this a site that never finishes loading stalls the run and
   holds up every comic queued behind it. Raise it for a site that really is just slow.
+- `MIRROR_BROWSER_IMAGES` — set to `1` to let the browser load images. Off by default: pages are
+  downloaded with `requests`, and only element attributes are ever read out of the browser, so
+  loading them there spends the bandwidth twice. Only useful for debugging an odd site.
 
 ## How the archives stay cheap to sync
 
@@ -324,6 +327,10 @@ python update_comics.py "D:/Comics" --only MyComic --dry-run
   page — the search runs again rather than giving up.
 - `-m` and `-n` let you supply the XPaths yourself for a site the guesses do not cover.
 - Be considerate: this drives a real browser against someone's site. `-w` sets a wait between pages.
+- The browser is only ever asked for element attributes, never for rendered pixels, so it does not
+  load images and does not wait for the load event. That makes a page that a browser renders
+  instantly, but which keeps waiting on some third party font or script, stop being able to stall a
+  run. It also roughly halves the traffic, since every page was previously fetched twice.
 
 ## Credits and license
 

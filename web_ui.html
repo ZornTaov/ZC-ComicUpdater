@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comic Updater</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e3e1dc;
+  --accent: #2f5fd0; --accent-ink: #ffffff; --ok: #217a45; --bad: #b3261e; --warn: #9a6400;
+  --run: #2f5fd0; --soft: #efeee9; --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --panel: #1f1f1d; --ink: #e9e7e2; --muted: #9b9993; --line: #33322f;
+    --accent: #7ea2ff; --accent-ink: #10131a; --ok: #62c48a; --bad: #ff8a80; --warn: #e0b04f;
+    --run: #7ea2ff; --soft: #292826;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 17px; margin: 0; }
+header .meta { color: var(--muted); font-size: 13px; }
+main { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px;
+  padding: 16px 20px 40px; max-width: 1500px; margin: 0 auto; }
+@media (max-width: 980px) { main { grid-template-columns: minmax(0, 1fr); } }
+.col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+section > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+  margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+section > h2 .grow { flex: 1; }
+button { font: inherit; border: 1px solid var(--line); background: var(--soft); color: var(--ink);
+  border-radius: 6px; padding: 5px 11px; cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.danger { color: var(--bad); }
+button.small { padding: 2px 8px; font-size: 12px; }
+button:disabled { opacity: .5; cursor: default; }
+input[type=text], input[type=number], textarea { font: inherit; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; min-height: 110px; resize: vertical; }
+.muted { color: var(--muted); }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.row + .row { margin-top: 10px; }
+label.check { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.empty { color: var(--muted); padding: 6px 0; }
+.job-title { font-weight: 600; }
+.bar { height: 6px; background: var(--soft); border-radius: 3px; overflow: hidden; margin: 8px 0 10px; }
+.bar > div { height: 100%; background: var(--accent); transition: width .4s; }
+.comic { display: grid; grid-template-columns: 78px minmax(0, 1fr) auto; gap: 2px 10px; padding: 6px 0;
+  border-top: 1px solid var(--line); align-items: baseline; }
+.comic .name { font-weight: 500; overflow-wrap: anywhere; }
+.comic .said { grid-column: 2 / 4; font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.comic .num { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tag { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+.s-running { color: var(--run); } .s-ok { color: var(--ok); } .s-failed { color: var(--bad); }
+.s-stopped { color: var(--warn); } .s-waiting { color: var(--muted); }
+.queue-item { display: flex; gap: 8px; align-items: center; padding: 5px 0; border-top: 1px solid var(--line); }
+.queue-item span { flex: 1; overflow-wrap: anywhere; }
+.table-wrap { overflow-x: auto; max-height: 560px; overflow-y: auto; border-top: 1px solid var(--line); margin-top: 10px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { position: sticky; top: 0; background: var(--panel); font-size: 12px; color: var(--muted); font-weight: 600;
+  cursor: pointer; user-select: none; white-space: nowrap; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.name { overflow-wrap: anywhere; }
+tr.ended td { color: var(--muted); }
+@media (max-width: 640px) { .wide-only { display: none; } }
+tr.problem td.name { color: var(--bad); }
+#log { font-family: var(--mono); font-size: 11.5px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px; height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+#log .t { color: var(--muted); }
+#log .bad { color: var(--bad); }
+#log .good { color: var(--ok); }
+.msg { font-size: 13px; margin-top: 8px; }
+.msg.bad { color: var(--bad); } .msg.good { color: var(--ok); }
+.history-item { border-top: 1px solid var(--line); padding: 7px 0; }
+.history-item .line { color: var(--muted); font-size: 12.5px; }
+details summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+.tail { font-family: var(--mono); font-size: 11.5px; color: var(--muted); white-space: pre-wrap; margin: 2px 0 0 88px; }
+.help { font-size: 12.5px; color: var(--muted); margin: 4px 0 8px; }
+code { font-family: var(--mono); font-size: 12px; background: var(--soft); padding: 0 4px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Comic Updater</h1>
+  <span class="meta" id="root"></span>
+  <span class="meta" id="next"></span>
+  <span class="meta" id="conn"></span>
+</header>
+
+<main>
+  <div class="col">
+    <section>
+      <h2><span class="grow">Running now</span><button class="small danger" id="stop" hidden>Stop</button></h2>
+      <div id="current"><div class="empty">Nothing running.</div></div>
+      <div id="queue"></div>
+    </section>
+
+    <section>
+      <h2><span class="grow">Library</span><button class="small" id="reload">Refresh</button></h2>
+      <div class="row">
+        <input type="text" id="filter" placeholder="Filter, e.g. Uncompressed/Snafu-Comics/*" style="flex:1; min-width: 220px">
+        <label class="check"><input type="checkbox" id="show-ended"> show ended</label>
+      </div>
+      <div class="row">
+        <button class="primary" id="update-checked" disabled>Update checked</button>
+        <button id="update-shown">Update all shown</button>
+        <span class="muted" id="count"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th style="width:28px"><input type="checkbox" id="check-all" title="Check all shown"></th>
+            <th data-sort="name">Comic</th>
+            <th data-sort="pages" style="text-align:right">Pages</th>
+            <th data-sort="updated" class="wide-only">Last run</th>
+            <th data-sort="stop_reason" class="wide-only">Result</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="comics"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section>
+      <h2>Add comics</h2>
+      <div class="help">One per line: the folder inside the library, then the first page's address.</div>
+      <textarea id="entries" spellcheck="false" placeholder="Uncompressed/Snafu-Comics/nsma https://www.snafu-comics.com/nsma/issue-1-cover"></textarea>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="prime"> prime only</label>
+        <label class="check"><input type="checkbox" id="prefix"> number pages</label>
+        <label class="check">from <input type="number" id="increment" value="1" min="0" style="width:74px"></label>
+        <label class="check"><input type="checkbox" id="javascript"> javascript</label>
+        <label class="check">wait <input type="number" id="waittime" value="0" min="0" style="width:60px">s</label>
+        <label class="check"><input type="checkbox" id="cbz" checked> make cbz</label>
+        <label class="check"><input type="checkbox" id="direction" checked> direction check</label>
+      </div>
+      <div class="help">Prime only saves the first page and checks the next link works; a later update fetches the rest.
+        The options apply to every line, so add comics that need different options separately.</div>
+      <div class="row"><button class="primary" id="add">Add to queue</button></div>
+      <div class="msg" id="add-msg"></div>
+    </section>
+
+    <section>
+      <h2><span class="grow">Log</span><label class="check" style="text-transform:none; letter-spacing:0"><input type="checkbox" id="follow" checked> follow</label></h2>
+      <div id="log"></div>
+    </section>
+
+    <section>
+      <h2>Recent</h2>
+      <div id="history"><div class="empty">Nothing has run since the updater started.</div></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+// requests go to the bare origin: an address with a password typed into it makes the browser refuse relative ones
+const api = (path) => location.origin + path;
+let seq = 0, comics = [], sortKey = "name", sortDir = 1, lastHistoryId = null;
+const checked = new Set();
+
+function esc(text) {
+  return String(text ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+function clock(seconds) {
+  seconds = Math.max(0, Math.round(seconds));
+  const h = Math.floor(seconds / 3600), m = Math.floor(seconds / 60) % 60, s = seconds % 60;
+  return h ? `${h}h ${m}m` : m ? `${m}m ${s}s` : `${s}s`;
+}
+function when(stamp) {
+  if (!stamp) return "";
+  const d = typeof stamp === "number" ? new Date(stamp * 1000) : new Date(stamp);
+  if (isNaN(d)) return String(stamp);
+  return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+async function post(path, body) {
+  const response = await fetch(api(path), { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}) });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  return data;
+}
+
+// a glob the way update_comics reads one: * crosses folders, and a bare name matches a comic's own folder
+function globTest(pattern) {
+  pattern = pattern.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  if (!pattern) return () => true;
+  if (!/[*?[]/.test(pattern)) {
+    const lower = pattern.toLowerCase();
+    return (name) => name.toLowerCase().includes(lower);
+  }
+  const source = pattern.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  const re = new RegExp("^" + source + "$", "i");
+  return (name) => re.test(name) || re.test(name.split("/").pop());
+}
+
+function shownComics() {
+  const test = globTest($("filter").value);
+  const ended = $("show-ended").checked;
+  return comics.filter((c) => (ended || !c.ended) && test(c.name)).sort((a, b) => {
+    const x = a[sortKey] ?? "", y = b[sortKey] ?? "";
+    return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y))) * sortDir;
+  });
+}
+
+function renderComics() {
+  const shown = shownComics();
+  const rows = shown.map((c) => {
+    const result = c.problem ? c.problem : c.ended ? "ended"
+      : c.exit_code === null || c.exit_code === undefined ? (c.stop_reason || "")
+      : c.exit_code === 0 ? "up to date" : `exit ${c.exit_code}: ${c.stop_reason || ""}`;
+    const bad = c.problem || (c.exit_code && c.exit_code !== 0);
+    return `<tr class="${c.ended ? "ended" : ""} ${c.problem ? "problem" : ""}">
+      <td><input type="checkbox" data-name="${esc(c.name)}" ${checked.has(c.name) ? "checked" : ""} ${c.ended || c.problem ? "disabled" : ""}></td>
+      <td class="name">${c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noreferrer" style="color:inherit">${esc(c.name)}</a>` : esc(c.name)}</td>
+      <td class="num">${c.pages ?? ""}</td>
+      <td class="muted wide-only" style="white-space:nowrap">${esc(when(c.updated))}</td>
+      <td class="wide-only ${bad ? "s-failed" : "muted"}">${esc(result)}</td>
+      <td>${c.ended || c.problem ? "" : `<button class="small" data-update="${esc(c.name)}">Update</button>`}</td>
+    </tr>`;
+  });
+  $("comics").innerHTML = rows.join("") || `<tr><td colspan="6" class="empty">No comics match.</td></tr>`;
+  const active = comics.filter((c) => !c.ended).length;
+  $("count").textContent = `${shown.length} shown · ${active} active, ${comics.length - active} ended` +
+    (checked.size ? ` · ${checked.size} checked` : "");
+  $("update-checked").disabled = checked.size === 0;
+  $("update-checked").textContent = checked.size ? `Update ${checked.size} checked` : "Update checked";
+  document.querySelectorAll("th[data-sort]").forEach((th) => {
+    th.textContent = th.textContent.replace(/ [▲▼]$/, "") + (th.dataset.sort === sortKey ? (sortDir > 0 ? " ▲" : " ▼") : "");
+  });
+}
+
+async function loadComics() {
+  try {
+    comics = await (await fetch(api("/api/comics"))).json();
+    renderComics();
+  } catch (error) {
+    $("comics").innerHTML = `<tr><td colspan="6" class="s-failed">Could not read the library: ${esc(error.message)}</td></tr>`;
+  }
+}
+
+function comicLine(c) {
+  const numbers = c.state === "waiting" ? "" :
+    `${c.gained ? "+" + c.gained + " · " : ""}${clock(c.elapsed)}`;
+  return `<div class="comic">
+    <span class="tag s-${c.state}">${c.state}</span>
+    <span class="name">${esc(c.name)}</span>
+    <span class="num">${esc(c.detail && c.state !== "ok" ? c.detail : numbers)}</span>
+    ${c.last_line ? `<span class="said" title="${esc(c.last_line)}">${esc(c.last_line)}</span>` : ""}
+  </div>${c.tail && c.tail.length ? `<div class="tail">${esc(c.tail.join("\n"))}</div>` : ""}`;
+}
+
+function renderState(state) {
+  $("root").textContent = state.root;
+  $("next").textContent = state.next_run ? `next scheduled update ${when(state.next_run)}` : "no schedule";
+  const job = state.current;
+  $("stop").hidden = !job;
+  if (job) {
+    const counts = job.counts || {};
+    const total = (job.comics || []).length;
+    const done = (counts.ok || 0) + (counts.failed || 0) + (counts.stopped || 0);
+    $("stop").disabled = job.stopping;
+    $("stop").textContent = job.stopping ? "Stopping…" : "Stop";
+    $("current").innerHTML = `<div class="job-title">${esc(job.label)}</div>
+      <div class="muted">${total ? `${done} of ${total} done` : "starting"} · ${clock(state.now - job.started)}${job.gained ? ` · +${job.gained} pages` : ""}
+        · ${state.jobs_at_once} at a time</div>
+      <div class="bar"><div style="width:${total ? (100 * done / total) : 0}%"></div></div>
+      ${(job.comics || []).filter((c) => c.state !== "ok" || c.gained).slice(0, 60).map(comicLine).join("")}
+      ${counts.ok ? `<div class="muted" style="padding-top:6px">${counts.ok - (job.comics || []).filter((c) => c.state === "ok" && c.gained).length} already up to date</div>` : ""}`;
+  } else {
+    $("current").innerHTML = `<div class="empty">Nothing running.</div>`;
+  }
+  $("queue").innerHTML = state.waiting.length ? `<div class="muted" style="margin-top:12px">Queued</div>` +
+    state.waiting.map((j) => `<div class="queue-item"><span>${esc(j.label)}</span>
+      <button class="small" data-drop="${j.id}">Remove</button></div>`).join("") : "";
+
+  $("history").innerHTML = state.history.length ? state.history.map((j) => {
+    const counts = j.counts || {};
+    const parts = [];
+    if (j.gained) parts.push(`+${j.gained} pages`);
+    if (counts.failed) parts.push(`${counts.failed} failed`);
+    if (counts.stopped) parts.push(`${counts.stopped} stopped`);
+    if (j.error) parts.push(j.error);
+    const notable = (j.comics || []).length;
+    return `<div class="history-item">
+      <div><span class="${counts.failed || j.error ? "s-failed" : ""}">${esc(j.label)}</span></div>
+      <div class="line">${when(j.finished)} · took ${clock(j.finished - j.started)}${parts.length ? " · " + esc(parts.join(", ")) : " · nothing new"}</div>
+      ${notable ? `<details><summary>${notable} comic${notable === 1 ? "" : "s"}</summary>${j.comics.map(comicLine).join("")}</details>` : ""}
+    </div>`;
+  }).join("") : `<div class="empty">Nothing has run since the updater started.</div>`;
+
+  // the library changes when a job finishes, so re-read it then rather than on every poll
+  const newest = state.history.length ? state.history[0].id : null;
+  if (newest !== lastHistoryId) {
+    if (lastHistoryId !== null) loadComics();
+    lastHistoryId = newest;
+  }
+
+  if (state.log.length) {
+    const box = $("log");
+    const html = state.log.map((l) => {
+      const cls = /ERROR|FAILED|WARNING/.test(l.text) ? "bad" : /\+\d+ page/.test(l.text) ? "good" : "";
+      const t = new Date(l.at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      return `<div class="${cls}"><span class="t">${t}</span> ${esc(l.text)}</div>`;
+    }).join("");
+    box.insertAdjacentHTML("beforeend", html);
+    while (box.childElementCount > 2000) box.firstElementChild.remove();
+    if ($("follow").checked) box.scrollTop = box.scrollHeight;
+  }
+  seq = state.seq;
+}
+
+async function poll() {
+  try {
+    const response = await fetch(api(`/api/state?since=${seq}`));
+    if (!response.ok) throw new Error(response.statusText);
+    renderState(await response.json());
+    $("conn").textContent = "";
+  } catch (error) {
+    $("conn").innerHTML = `<span class="s-failed">not connected (${esc(error.message)})</span>`;
+  }
+  setTimeout(poll, 2000);
+}
+
+async function queueUpdate(names) {
+  try {
+    await post("/api/update", { names });
+
+  } catch (error) {
+    alert("Could not start the update: " + error.message);
+  }
+}
+
+$("comics").addEventListener("change", (event) => {
+  const name = event.target.dataset.name;
+  if (!name) return;
+  event.target.checked ? checked.add(name) : checked.delete(name);
+  renderComics();
+});
+$("comics").addEventListener("click", (event) => {
+  const name = event.target.dataset.update;
+  if (name) queueUpdate([name]);
+});
+$("check-all").addEventListener("change", (event) => {
+  shownComics().filter((c) => !c.ended && !c.problem).forEach((c) => event.target.checked ? checked.add(c.name) : checked.delete(c.name));
+  renderComics();
+});
+$("update-checked").addEventListener("click", () => {
+  queueUpdate([...checked]);
+  checked.clear();
+  $("check-all").checked = false;
+  renderComics();
+});
+$("update-shown").addEventListener("click", () => {
+  const filtering = $("filter").value.trim();
+  const names = shownComics().filter((c) => !c.ended && !c.problem).map((c) => c.name);
+  if (!names.length) return;
+  if (!filtering && !confirm(`Update all ${names.length} active comics?`)) return;
+  queueUpdate(filtering ? names : []);
+});
+$("filter").addEventListener("input", renderComics);
+$("show-ended").addEventListener("change", renderComics);
+$("reload").addEventListener("click", loadComics);
+document.querySelectorAll("th[data-sort]").forEach((th) => th.addEventListener("click", () => {
+  sortDir = sortKey === th.dataset.sort ? -sortDir : 1;
+  sortKey = th.dataset.sort;
+  renderComics();
+}));
+$("queue").addEventListener("click", async (event) => {
+  const id = event.target.dataset.drop;
+  if (id) await post("/api/drop", { id: Number(id) }).catch((e) => alert(e.message));
+});
+$("stop").addEventListener("click", async () => {
+  if (confirm("Stop the running job? Pages already saved are kept, and the comic resumes from there next time.")) {
+    await post("/api/stop").catch((e) => alert(e.message));
+  }
+});
+$("add").addEventListener("click", async () => {
+  const msg = $("add-msg");
+  msg.className = "msg";
+  msg.textContent = "";
+  try {
+    const result = await post("/api/add", {
+      entries: $("entries").value,
+      prime: $("prime").checked,
+      prefix: $("prefix").checked,
+      increment: $("increment").value,
+      javascript: $("javascript").checked,
+      waittime: $("waittime").value,
+      cbz: $("cbz").checked,
+      direction_check: $("direction").checked,
+    });
+    msg.className = "msg good";
+    msg.textContent = `Queued: ${result.label}`;
+    $("entries").value = "";
+  } catch (error) {
+    msg.className = "msg bad";
+    msg.textContent = error.message;
+  }
+});
+
+loadComics();
+poll();
+</script>
+</body>
+</html>

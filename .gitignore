@@ -14,6 +14,8 @@
 !mirror_base.py
 !update_comics.py
 !adopt_comic.py
+!web_ui.py
+!web_ui.html
 
 !Dockerfile
 !docker-compose.yml

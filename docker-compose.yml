@@ -21,6 +21,14 @@ services:
       # fires at the wrong hour.
       TZ: America/Los_Angeles
 
+      # OPTIONAL: a password for the web page. Without one, anyone who can reach the port can start
+      # scrapes. The browser asks for a username too; any will do.
+      # MIRROR_WEB_PASSWORD: change-me
+
+    # the web page, at http://<nas address>:8080/. Change the left number to use another port.
+    ports:
+      - "8080:8080"
+
     volumes:
       # CHANGE ME: the library root, the folder holding CBZs/ and Uncompressed/. Always mounted at
       # /library, because comics are addressed by paths relative to it in their metadata.
@@ -30,7 +38,7 @@ services:
       # Mounted over the copies baked in at build time, so whatever .py files sit in this folder are
       # what runs. Read-only, because the container has no business rewriting its own code.
       #
-      # Point it at the folder holding the three scripts. Uncomment only once that folder really has
+      # Point it at the folder holding the scripts, along with web_ui.py and web_ui.html. Uncomment only once that folder really has
       # them in it: an empty or missing path here mounts an empty /app and nothing will start.
       #
       - /share/Container/ComicScraper:/app:ro
@@ -44,7 +52,8 @@ services:
     # --schedule keeps the container alive and runs at that local time daily.
     # Raise --jobs to update several comics at once; each one is its own browser.
     # Add "--now" to update once on startup too, rather than sitting idle until the first 03:30.
-    command: ["--schedule", "03:30", "--jobs", "2"]
+    # --web serves the page for watching runs, starting updates and adding comics; drop it to go without.
+    command: ["--schedule", "03:30", "--jobs", "2", "--web", "8080"]
 
     logging:
       driver: json-file

@@ -14,6 +14,7 @@ rewriting or re-syncing 250 MB.
 | --- | --- |
 | `mirror_base.py` | Scrapes one comic, saves the pages, appends them to its `.cbz`, writes its metadata. |
 | `update_comics.py` | Walks a library, resumes every comic from its metadata, on demand or on a schedule. |
+| `web_ui.py`, `web_ui.html` | The optional web page `update_comics.py --web` serves. |
 | `adopt_comic.py` | Writes metadata for comics you already have, so they join the rotation without re-downloading. |
 
 ## Requirements
@@ -217,6 +218,47 @@ saved XPath no longer matches. Code 6 is usually transient and worth simply retr
 A comic that stalls is reported as each comic finishes rather than in the order they started, so
 one slow site no longer holds back the log lines for everything that overtook it.
 
+## The web page
+
+```sh
+python update_comics.py "D:/Comics" --web 8080
+python update_comics.py "D:/Comics" --schedule 03:30 --web 8080
+```
+
+Then open `http://localhost:8080/`, or the NAS's address from anywhere on your network. The page
+shows:
+
+- **Running now**: every comic in the current job, the pages it has gained so far, how long it has
+  been going, and the last line its scraper printed. **Stop** kills the job; pages already saved are
+  kept, and the metadata resumes from where it stopped.
+- **Queued**: jobs waiting their turn, each removable. Everything goes through one queue, whether it
+  was started from the page, by the schedule or by an `update-now` file, so two runs never collide.
+- **Library**: every comic with its page count and how its last run ended. Filter it with a name or a
+  wildcard such as `Uncompressed/Snafu-Comics/*`, then update the checked comics, everything shown,
+  or one comic from its own row.
+- **Add comics**: one comic per line, the folder then the first page's address:
+
+  ```text
+  Uncompressed/Snafu-Comics/nsma https://www.snafu-comics.com/nsma/issue-1-cover
+  Uncompressed/Snafu-Comics/gg https://www.snafu-comics.com/gg/gg-p1-2
+  ```
+
+  Folders are inside the library, and the archive goes to `CBZs/` as usual. Tick **prime only** to
+  save just the first page of each, or leave it off to scrape the whole comic. A full scrape has no
+  time limit, since a new comic can run to thousands of pages; a stalled page still ends on its own,
+  and anything else can be stopped. The options apply to every line, so add comics that need
+  different options as separate batches. A folder that is already a comic is refused.
+- **Log** and **Recent**: the updater's output as it happens, and what the last jobs did.
+
+With `--web` and no `--schedule`, the updater stays running and only does what the page or an
+`update-now` file asks.
+
+There is no login unless you set `MIRROR_WEB_PASSWORD`, in which case the browser asks for it (any
+username). Without one, anyone who can reach the port can start scrapes, so keep the port off the
+internet. The page's actions only accept JSON, so a link or form on another site cannot trigger them.
+
+`web_ui.html` is read fresh on every page load, so editing it needs no restart.
+
 ## Running in Docker
 
 The image pins Chromium and a matching ChromeDriver together, so a host update cannot break the pair.
@@ -246,8 +288,8 @@ with a permission error about a home directory, run it as `HOME=/tmp DOCKER_CONF
 ### Changing the scripts without rebuilding
 
 Rebuilding an image to change one line is miserable, especially when the build has to happen over
-ssh. Uncomment the second volume in `docker-compose.yml` and point it at the folder holding the three
-scripts:
+ssh. Uncomment the second volume in `docker-compose.yml` and point it at the folder holding the
+scripts and `web_ui.html`:
 
 ```yaml
       - /share/Container/ComicScraper:/app:ro
@@ -259,8 +301,8 @@ Edit them over a file share, and:
 - **`mirror_base.py` needs nothing at all.** Every comic is launched as a fresh
   `python /app/mirror_base.py …` subprocess, so the next comic to run picks up the new file. Even a
   scheduled run already in progress will use it for the comics it has not reached yet.
-- **`update_comics.py` needs a container restart**, since it is the long-running process. The Restart
-  button in Container Station is enough; no ssh.
+- **`update_comics.py` and `web_ui.py` need a container restart**, since they are the long-running
+  process. The Restart button in Container Station is enough; no ssh. `web_ui.html` needs nothing.
 - **Adopting a new comic needs nothing.** The library is re-scanned at the start of every scheduled
   run, so a `mirror_metadata.json` written today joins tonight's run by itself.
 

@@ -1,6 +1,6 @@
 #runs mirror_base.py over every comic in a library folder, resuming each one from its saved metadata.
 #meant to be driven by a timer, so it isolates failures, caps how long any one comic can run, and finishes
-#with a summary of what moved. #V 1.3
+#with a summary of what moved. #V 1.4
 
 import argparse
 import copy
@@ -32,6 +32,8 @@ def say(line):
 
 
 lock_file = ".update_comics.lock"
+#the code a comic gets when it is stopped by hand rather than failing on its own
+stopped_code = 130
 #dropping a file of this name into the library root starts an update without waiting for the schedule,
 #which is the whole interface a container needs: anything that can reach the share can make the file.
 #either spelling counts, since windows hides the extension on a new text document
@@ -83,6 +85,10 @@ class Comic:
         self.started_at = None
         #set when the saved command pointed at where this comic used to live
         self.moved_from = None
+        #the running scraper and the last thing it said, so a run in progress can be watched and stopped
+        self.process = None
+        self.last_line = None
+        self.stopped = False
 
     @property
     def gained(self):
@@ -273,6 +279,11 @@ def run_comic(comic, args):
     #reusing one process would try the previous comic's paths, and a crash would take the whole run with it
     command = [sys.executable, args.script] + comic.argv
     started = time.time()
+    cancel = getattr(args, "cancel", None)
+    if cancel is not None and cancel.is_set():
+        #stopped before its turn came, so it never starts at all
+        comic.stopped, comic.code = True, stopped_code
+        return comic
     comic.started_at = started
     say("  start   {0}".format(comic.name))
     #a new process group is what makes it possible to take the browser down with the script on a timeout
@@ -283,20 +294,36 @@ def run_comic(comic, args):
         grouping["start_new_session"] = True
 
     try:
+        #unbuffered, or python holds a piped child's output back in blocks and a live view sees nothing for minutes
         process = subprocess.Popen(command, cwd=args.root, stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT, text=True, errors='replace', **grouping)
+                                   stderr=subprocess.STDOUT, text=True, errors='replace',
+                                   env=dict(os.environ, PYTHONUNBUFFERED="1"), **grouping)
     except OSError as error:
         comic.code, comic.output = 5, "could not start {0}: {1}".format(args.script, error)
         comic.elapsed = time.time() - started
         return comic
 
+    #read as it arrives rather than all at the end, so the last line can be shown while a long scrape runs
+    comic.process = process
+    said = []
+
+    def listen():
+        for line in process.stdout:
+            said.append(line)
+            if line.strip():
+                comic.last_line = line.rstrip()
+
+    listener = threading.Thread(target=listen, daemon=True)
+    listener.start()
     try:
-        comic.output = process.communicate(timeout=args.timeout)[0] or ""
-        comic.code = process.returncode
+        process.wait(timeout=args.timeout or None)
+        comic.code = stopped_code if comic.stopped else process.returncode
     except subprocess.TimeoutExpired:
         kill_tree(process)
-        comic.output = "timed out after {0}s".format(args.timeout)
+        said.append("timed out after {0}s\n".format(args.timeout))
         comic.code = 124
+    listener.join(timeout=15)
+    comic.output = "".join(said)
 
     comic.elapsed = time.time() - started
     counted = page_count(comic)
@@ -310,6 +337,8 @@ def describe(comic):
         return "skipped ({0})".format(comic.skipped)
     if comic.code == 124:
         return "TIMED OUT after {0:.0f}s".format(comic.elapsed)
+    if comic.stopped:
+        return "stopped"
     if comic.ok:
         return "up to date" if not comic.gained else "+{0} page{1}".format(
             comic.gained, "" if comic.gained == 1 else "s")
@@ -365,6 +394,13 @@ def setup():
                         help="Update once straight away, then settle into --schedule. Without --schedule "
                              "this is what happens anyway. Useful for a container that should not sit "
                              "idle until the small hours the first time it starts.")
+    params.add_argument("--web", type=int, default=None, metavar="PORT",
+                        help="Serve a page on this port for watching runs, starting updates and adding new "
+                             "comics. Keeps running even without --schedule. Set MIRROR_WEB_PASSWORD to "
+                             "require a password.")
+    params.add_argument("--web-host", default="0.0.0.0", metavar="ADDRESS",
+                        help="Address the page listens on. Defaults to every interface; 127.0.0.1 keeps it "
+                             "to this machine.")
     args = params.parse_args()
 
     args.root = os.path.abspath(args.root)
@@ -384,7 +420,8 @@ def report_skipped(comics):
         print("  {0:<40} SKIPPED: {1}".format(comic.name, comic.skipped))
 
 
-def run_once(args):
+def select_comics(args):
+    #the comics a run covers and, of those, the ones it will actually start
     comics = find_comics(args.root, args.max_depth)
     if args.only:
         #match either the full path within the library or just the folder name, so a nested comic can be
@@ -400,7 +437,7 @@ def run_once(args):
             print("WARNING: no comic named {0} in {1}.".format(name, args.root))
     if not comics:
         print("No comics with a {0} found in {1}.".format(metadata_file, args.root))
-        return 0
+        return [], []
 
     #a comic marked as ended in its metadata is finished for good, so there is nothing to check
     for comic in comics:
@@ -418,7 +455,13 @@ def run_once(args):
         if comic.moved_from:
             print("NOTE: {0} still had --output {1} from an earlier layout; using its own folder.".format(
                 comic.name, comic.moved_from))
+    return comics, runnable
 
+
+def run_once(args):
+    comics, runnable = select_comics(args)
+    if not comics:
+        return 0
     if args.dry_run:
         print("Would update {0} of {1} comic(s) in {2}:".format(len(runnable), len(comics), args.root))
         for comic in runnable:
@@ -426,7 +469,10 @@ def run_once(args):
             print("  {0:<40} {1}".format(comic.name, rendered))
         report_skipped(comics)
         return 0
+    return run_batch(comics, runnable, args)
 
+
+def run_batch(comics, runnable, args, doing="Updating"):
     lock, held_by = take_lock(args.root)
     if lock is None:
         print("ERROR: {0}".format(held_by))
@@ -441,7 +487,7 @@ def run_once(args):
                                    args=(runnable, args.progress, stop_watching), daemon=True)
         watcher.start()
     try:
-        print("Updating {0} comic(s) in {1}.".format(len(runnable), args.root))
+        print("{0} {1} comic(s) in {2}.".format(doing, len(runnable), args.root))
         done = 0
         if args.jobs > 1:
             with ThreadPoolExecutor(max_workers=args.jobs) as pool:
@@ -468,12 +514,14 @@ def run_once(args):
             pass
 
     gained = [c for c in runnable if c.ok and c.gained]
-    failed = [c for c in runnable if not c.ok]
+    stopped = [c for c in runnable if c.stopped]
+    failed = [c for c in runnable if not c.ok and not c.stopped]
     skipped = [c for c in comics if c.skipped]
 
     print()
-    print("Finished in {0:.0f}s: {1} updated, {2} already current, {3} failed, {4} skipped.".format(
-        time.time() - started, len(gained), len(runnable) - len(gained) - len(failed), len(failed), len(skipped)))
+    print("Finished in {0:.0f}s: {1} updated, {2} already current, {3} failed, {4} skipped{5}.".format(
+        time.time() - started, len(gained), len(runnable) - len(gained) - len(failed) - len(stopped),
+        len(failed), len(skipped), ", {0} stopped".format(len(stopped)) if stopped else ""))
     for comic in gained:
         print("  {0:<40} +{1} page(s), now {2}".format(comic.name, comic.gained, comic.after))
     #named here too, since a comic that never ran is easy to miss among the ones that did
@@ -562,48 +610,73 @@ def main():
     if not os.path.exists(args.script):
         print("ERROR: could not find {0}.".format(args.script))
         return 2
-    if not args.schedule:
+    if not args.schedule and args.web is None:
         return run_once(args)
 
-    try:
-        hour, minute = parse_schedule(args.schedule)
-    except ValueError:
-        print("ERROR: --schedule wants a 24 hour time like 03:30, not {0}.".format(args.schedule))
-        return 2
+    hour = minute = None
+    if args.schedule:
+        try:
+            hour, minute = parse_schedule(args.schedule)
+        except ValueError:
+            print("ERROR: --schedule wants a 24 hour time like 03:30, not {0}.".format(args.schedule))
+            return 2
 
     #python gets no default signal handling as pid 1, so without this a docker stop would sit through its
     #whole kill timeout instead of shutting down and releasing the lock
     signal.signal(signal.SIGTERM, lambda *ignored: sys.exit(0))
+
+    web = None
+    if args.web is not None:
+        import web_ui
+        try:
+            web = web_ui.start(args, sys.modules[__name__])
+        except OSError as error:
+            print("ERROR: could not serve the web page on port {0}: {1}".format(args.web, error))
+            return 2
+
+    def update(names, why):
+        #with the page running, every update goes through its queue, so one started there and one started
+        #by the clock take turns instead of colliding over the lock
+        if web is not None:
+            web.submit_update(names, why)
+            return
+        chosen = copy.copy(args)
+        if names:
+            chosen.only = names
+        print("{0}; updating {1}.".format(why, ", ".join(names) if names else "everything"), flush=True)
+        run_once(chosen)
+
     zone = local_zone()
-    if not os.environ.get("TZ"):
-        print("WARNING: TZ is not set, so this container is running on {0}. Set TZ to your own timezone "
-              "or the update will run at the wrong hour.".format(zone))
-    print("Updating every day at {0:02d}:{1:02d} {2}.".format(hour, minute, zone), flush=True)
+    if args.schedule:
+        if not os.environ.get("TZ"):
+            print("WARNING: TZ is not set, so this container is running on {0}. Set TZ to your own timezone "
+                  "or the update will run at the wrong hour.".format(zone))
+        print("Updating every day at {0:02d}:{1:02d} {2}.".format(hour, minute, zone), flush=True)
     print("To update sooner, put a file named {0} in {1}; list comic folders in it, one per line, to update "
           "only those.".format(trigger_files[0], args.root), flush=True)
     if args.now:
         #a fresh container would otherwise do nothing at all until the first scheduled hour came round,
         #which makes it hard to tell a working setup from a broken one
-        print("Running once now before waiting for the schedule.", flush=True)
-        run_once(args)
+        update([], "Running once now before waiting for the schedule")
     while True:
-        target = next_run(hour, minute)
-        wait = (target - datetime.now()).total_seconds()
-        #the clock is printed rather than just the gap, so a wrong timezone is obvious at a glance
-        print("It is now {0} {2}; next update at {1} ({3:.1f} hours away).".format(
-            datetime.now().strftime("%Y-%m-%d %H:%M"), target.strftime("%Y-%m-%d %H:%M"),
-            zone, wait / 3600), flush=True)
+        if args.schedule:
+            target = next_run(hour, minute)
+            wait = (target - datetime.now()).total_seconds()
+            #the clock is printed rather than just the gap, so a wrong timezone is obvious at a glance
+            print("It is now {0} {2}; next update at {1} ({3:.1f} hours away).".format(
+                datetime.now().strftime("%Y-%m-%d %H:%M"), target.strftime("%Y-%m-%d %H:%M"),
+                zone, wait / 3600), flush=True)
+        else:
+            #no schedule, so the page and the trigger file are the only things that start anything
+            target = datetime.now() + timedelta(days=365)
+        if web is not None:
+            web.next_run = target if args.schedule else None
         wanted = wait_until(target, args.root)
         if wanted is None:
-            run_once(args)
-            continue
-        #a triggered run is limited to the comics the file names, or everything when it names none
-        triggered = copy.copy(args)
-        if wanted:
-            triggered.only = wanted
-        print("Found an update-now file; updating {0} now.".format(", ".join(wanted) if wanted else "everything"),
-              flush=True)
-        run_once(triggered)
+            update([], "Scheduled update")
+        else:
+            #a triggered run is limited to the comics the file names, or everything when it names none
+            update(wanted, "Found an update-now file")
 
 
 if __name__ == "__main__":

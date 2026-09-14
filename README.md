@@ -186,7 +186,11 @@ empty file updates everything; otherwise list comic folders in it, one per line,
 # lines starting with # are ignored
 Uncompressed/Snafu-Comics/nsma
 gg
+Uncompressed/Snafu-Comics/*
 ```
+
+Wildcards work, and `*` reaches into subfolders, so `Uncompressed/Snafu-Comics/*` is every comic under
+that folder however deeply it is nested. The same patterns work with `--only`.
 
 That is the whole interface to a running container: anything that can write to the library share can
 start a run, with no SSH and no restart. Paired with `--prime`, adding a batch of new comics is: prime

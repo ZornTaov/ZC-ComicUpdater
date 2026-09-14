@@ -4,6 +4,7 @@
 
 import argparse
 import copy
+import fnmatch
 import json
 import os
 import shlex
@@ -348,7 +349,7 @@ def setup():
     params.add_argument("-t", "--timeout", type=int, default=1800,
                         help="Seconds any one comic may run before it is killed. Defaults to 1800.")
     params.add_argument("-o", "--only", action='append', default=None,
-                        help="Update only the named comic folder. May be repeated.")
+                        help="Update only the named comic folder. May be repeated, and takes wildcards: \"Group/*\" is every comic under Group, however deep.")
     params.add_argument("-n", "--dry-run", action='store_true', default=False,
                         help="List what would run, and the command each comic would use, without running anything.")
     params.add_argument("--script", default=None,
@@ -387,10 +388,14 @@ def run_once(args):
     comics = find_comics(args.root, args.max_depth)
     if args.only:
         #match either the full path within the library or just the folder name, so a nested comic can be
-        #named either way
-        wanted = set(args.only)
-        comics = [c for c in comics if wanted & {c.name, os.path.basename(c.folder)}]
-        missing = wanted - {c.name for c in comics} - {os.path.basename(c.folder) for c in comics}
+        #named either way. wildcards work too, and * crosses folders, so Group/* takes every comic under Group
+        wanted = [w.replace(chr(92), '/').strip('/') for w in args.only]
+
+        def matches(comic, pattern):
+            return any(fnmatch.fnmatch(name, pattern) for name in (comic.name, os.path.basename(comic.folder)))
+
+        missing = [w for w in wanted if not any(matches(c, w) for c in comics)]
+        comics = [c for c in comics if any(matches(c, w) for w in wanted)]
         for name in sorted(missing):
             print("WARNING: no comic named {0} in {1}.".format(name, args.root))
     if not comics:

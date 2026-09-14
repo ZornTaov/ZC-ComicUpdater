@@ -3,6 +3,7 @@
 #with a summary of what moved. #V 1.3
 
 import argparse
+import copy
 import json
 import os
 import shlex
@@ -30,6 +31,12 @@ def say(line):
 
 
 lock_file = ".update_comics.lock"
+#dropping a file of this name into the library root starts an update without waiting for the schedule,
+#which is the whole interface a container needs: anything that can reach the share can make the file.
+#either spelling counts, since windows hides the extension on a new text document
+trigger_files = ("update-now", "update-now.txt")
+#how often a scheduled wait looks for one
+trigger_poll = 30
 
 #mirror_base's exit codes, so the summary can say what actually went wrong
 exit_reasons = {
@@ -503,6 +510,45 @@ def local_zone():
     return datetime.now().astimezone().tzname() or time.tzname[0]
 
 
+def take_trigger(root):
+    #returns the comics a trigger file asks for (an empty list meaning all of them), or None when there is
+    #no trigger. the file is removed first, so a run that fails is not started again every half minute
+    for name in trigger_files:
+        path = os.path.join(root, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, 'r', encoding='utf-8-sig') as f:
+                wanted = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+            os.remove(path)
+        except (OSError, UnicodeDecodeError) as error:
+            #left in place it would fire on every poll, so it is reported once and then ignored until replaced
+            key = (path, os.path.getmtime(path) if os.path.exists(path) else None)
+            if key in ignored_triggers:
+                continue
+            ignored_triggers.add(key)
+            print("WARNING: could not read and remove {0}, so it is being ignored: {1}".format(path, error),
+                  flush=True)
+            continue
+        return [w.replace('\\', '/').strip('/') for w in wanted]
+    return None
+
+
+ignored_triggers = set()
+
+
+def wait_until(target, root):
+    #sleeps towards the scheduled time in short steps, returning early with the comics a trigger file names
+    while True:
+        left = (target - datetime.now()).total_seconds()
+        if left <= 0:
+            return None
+        time.sleep(min(left, trigger_poll))
+        wanted = take_trigger(root)
+        if wanted is not None:
+            return wanted
+
+
 def main():
     args = setup()
     if not os.path.isdir(args.root):
@@ -528,6 +574,8 @@ def main():
         print("WARNING: TZ is not set, so this container is running on {0}. Set TZ to your own timezone "
               "or the update will run at the wrong hour.".format(zone))
     print("Updating every day at {0:02d}:{1:02d} {2}.".format(hour, minute, zone), flush=True)
+    print("To update sooner, put a file named {0} in {1}; list comic folders in it, one per line, to update "
+          "only those.".format(trigger_files[0], args.root), flush=True)
     if args.now:
         #a fresh container would otherwise do nothing at all until the first scheduled hour came round,
         #which makes it hard to tell a working setup from a broken one
@@ -540,8 +588,17 @@ def main():
         print("It is now {0} {2}; next update at {1} ({3:.1f} hours away).".format(
             datetime.now().strftime("%Y-%m-%d %H:%M"), target.strftime("%Y-%m-%d %H:%M"),
             zone, wait / 3600), flush=True)
-        time.sleep(wait)
-        run_once(args)
+        wanted = wait_until(target, args.root)
+        if wanted is None:
+            run_once(args)
+            continue
+        #a triggered run is limited to the comics the file names, or everything when it names none
+        triggered = copy.copy(args)
+        if wanted:
+            triggered.only = wanted
+        print("Found an update-now file; updating {0} now.".format(", ".join(wanted) if wanted else "everything"),
+              flush=True)
+        run_once(triggered)
 
 
 if __name__ == "__main__":

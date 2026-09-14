@@ -68,6 +68,7 @@ next_ele_names = [
                   '//*[@class="comic-nav-img comic-nav-img-next"]',
                   '//*[@alt="Next comic"]',
                   '//*[@id="btnNext"]',
+                  '//*[@class="cc-next"]', #Snafu Comics
                   '//*[@class="navi navi-next"]', #ExterminatusNow
                   '//*[@class="navi-next"]', #consessioncomic
                   '//*[@class="col-sm-12 comic-holder"]/a', #AWARE
@@ -186,6 +187,7 @@ def setup():
     params.add_argument("--cbz",action=argparse.BooleanOptionalAction,help="Packs the pages into a .cbz beside the output folder once the run finishes, adding only the pages the archive does not already hold. On by default.",default=True)
     params.add_argument("--direction-check",action=argparse.BooleanOptionalAction,default=True,help="Stop if the page after the first turns out to be one the comic already has, which means the next link is running backwards. On by default; turn it off only for a comic that genuinely reuses its filenames.")
     params.add_argument("--cbz-path",type=str,default=None,help="Where this comic's .cbz lives. Left off, an archive already beside the output folder is used, otherwise a library laid out as Uncompressed/<comic> files it as CBZs/<comic>.cbz, and failing both it goes beside the folder.")
+    params.add_argument("--prime",action='store_true',default=False,help="Save only the first page, check the next link works, write the metadata and archive, then stop. The comic is then ready for update_comics to download the rest, which is far quicker run on the machine holding the library than over a network share.")
     
     args = params.parse_args(len(sys.argv) == 1 and custom_args or None)
     arg_parser = params
@@ -193,11 +195,6 @@ def setup():
     run_id = uuid.uuid4().hex
 
     driver = build_driver(args)
-
-    #what the comic already holds, read before anything is saved, so a backwards next link is caught
-    #against the pages of earlier runs rather than only the ones this run has written
-    global existing_pages
-    existing_pages = folder_pages(output_folder(args))
 
     #the first page is fetched before the main loop begins, which puts it outside the error handling
     #that wraps the loop. left unguarded, a site that will not load ends the run with an unhandled
@@ -222,6 +219,11 @@ def setup():
     #image format being saved. png, jpg, etc. Program will always save gif's as gifs, so no need to specify.
     format = "png"
     verbose = args.verbose
+
+    #what the comic already holds, read before anything is saved, so a backwards next link is caught
+    #against the pages of earlier runs rather than only the ones this run has written
+    global existing_pages
+    existing_pages = folder_pages(output_folder(args))
 
     return driver, increment, format, args
 
@@ -816,6 +818,13 @@ if __name__ == "__main__":
                 print("Reached a page that was already saved this run, so the comic has looped.")
                 stop_reason = "looped back to an already saved page"
                 completed = True
+                break
+            if args.prime:
+                #the next link has been found and followed, so the metadata resumes on the second page and the
+                #rest of the comic is left for update_comics, wherever that runs
+                print("Primed: saved the first page, and the next link leads to {0}. update_comics will "
+                      "download the rest.".format(driver.current_url))
+                stop_reason = "primed"
                 break
             increment += 1
     except MirrorError as error:

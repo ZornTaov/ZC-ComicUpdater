@@ -50,12 +50,27 @@ Useful flags:
     --no-cbz            save pages only, no archive
     --no-headless       show the browser window, for working out why a site misbehaves
 -v, --verbose           log every step
+    --prime             save the first page, check the next link, then stop
 ```
 
 `--prefix` matters more than it looks. Many comics change their filename scheme partway through
 their run — a date stamp becomes `NAME_0421.jpg` — and once that happens the files no longer sort
 into reading order. A prefix pins the order to the order you downloaded them in, which is the order
 the comic was published in.
+
+### Priming comics to download elsewhere
+
+Scraping over a network share is slow, since every page is written across the network. `--prime`
+saves only the first page, follows the next link once to prove it works, writes the metadata and
+archive, and stops:
+
+```sh
+python mirror_base.py --prime -o "Q:/Comics/Uncompressed/MyComic" "https://example.com/comic/first-page/"
+```
+
+The metadata resumes on the second page, so the next `update_comics.py` run, on the machine that holds
+the library, downloads the rest. If priming reports there is no next button, the comic either has one
+page or needs its next element added before it is worth queueing.
 
 ## Library layout
 
@@ -160,6 +175,23 @@ may be repeated.
 `--schedule HH:MM` keeps the process alive and starts an update at that local time daily. It prints
 the wall clock and time zone it believes it is in when it starts, because getting that wrong is the
 easiest way to have updates fire twelve hours from where you wanted them.
+
+### Starting an update without waiting
+
+While `--schedule` is waiting, it looks for a file named `update-now` (or `update-now.txt`) in the
+library root every 30 seconds. When one appears it is deleted and an update starts straight away. An
+empty file updates everything; otherwise list comic folders in it, one per line, to update only those:
+
+```text
+# lines starting with # are ignored
+Uncompressed/Snafu-Comics/nsma
+gg
+```
+
+That is the whole interface to a running container: anything that can write to the library share can
+start a run, with no SSH and no restart. Paired with `--prime`, adding a batch of new comics is: prime
+them from your own machine, drop an `update-now.txt` naming them, and let the container do the bulk
+download. Its progress shows in the container log as usual.
 
 An updater run summarises what each comic did, including the exit code from `mirror_base.py`:
 

@@ -248,6 +248,13 @@ shows:
   time limit, since a new comic can run to thousands of pages; a stalled page still ends on its own,
   and anything else can be stopped. The options apply to every line, so add comics that need
   different options as separate batches. A folder that is already a comic is refused.
+- **Edit** on any comic opens its settings: the page the next update starts from, its page number,
+  the archive path, the scraping options, and whether it has ended. Beside them are the pages held, the
+  last file saved, where the last run stopped and why, and recent runs. So a comic that stopped on a
+  broken page can be pointed at the page after it and set going again with **Save and update now**.
+  A comic being scraped cannot be edited, since the run rewrites its metadata after every page. A save
+  is refused if the file has changed since you opened it. Every change is recorded under
+  `history.edits` in the metadata.
 - **Log** and **Recent**: the updater's output as it happens, and what the last jobs did.
 
 With `--web` and no `--schedule`, the updater stays running and only does what the page or an

@@ -84,6 +84,30 @@ tr.problem td.name { color: var(--bad); }
 details summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
 .tail { font-family: var(--mono); font-size: 11.5px; color: var(--muted); white-space: pre-wrap; margin: 2px 0 0 88px; }
 .help { font-size: 12.5px; color: var(--muted); margin: 4px 0 8px; }
+dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink);
+  padding: 0; width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
+dialog[open] { display: flex; overflow: hidden; }
+#edit-form { display: flex; flex-direction: column; min-height: 0; width: 100%; }
+.dlg-body { flex: 1; min-height: 0; }
+dialog::backdrop { background: rgba(0, 0, 0, .45); }
+.dlg-head { display: flex; align-items: baseline; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.dlg-head h3 { margin: 0; font-size: 16px; flex: 1; overflow-wrap: anywhere; }
+.dlg-body { padding: 14px 18px; overflow: auto; }
+.dlg-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px;
+  padding: 12px 18px; border-top: 1px solid var(--line); }
+.dlg-foot .msg { flex: 1; margin: 0; }
+.field { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 4px 12px; align-items: center; margin-bottom: 10px; }
+.field > label { color: var(--muted); font-size: 13px; }
+.field input[type=text] { width: 100%; }
+.field .note { grid-column: 2; font-size: 12px; color: var(--muted); }
+@media (max-width: 560px) { .field { grid-template-columns: minmax(0, 1fr); } .field .note { grid-column: 1; } }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; font-size: 12.5px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 4px 0 14px; }
+.facts dt { color: var(--muted); } .facts dd { margin: 0; overflow-wrap: anywhere; }
+.facts a, .runs a { color: inherit; }
+.runs { width: 100%; font-size: 12px; }
+.runs td, .runs th { padding: 3px 6px; position: static; cursor: default; }
+.link { background: none; border: none; color: var(--accent); padding: 0; font-size: 12px; cursor: pointer; }
 code { font-family: var(--mono); font-size: 12px; background: var(--soft); padding: 0 4px; border-radius: 4px; }
 </style>
 </head>
@@ -162,6 +186,56 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
   </div>
 </main>
 
+<dialog id="editor">
+  <form method="dialog" id="edit-form">
+    <div class="dlg-head"><h3 id="edit-name"></h3><span class="muted" id="edit-updated"></span></div>
+    <div class="dlg-body">
+      <dl class="facts" id="edit-facts"></dl>
+      <div class="field">
+        <label for="e-url">Start from</label>
+        <input type="text" id="e-url" spellcheck="false" autofocus>
+        <div class="note">The next update loads this page, saves it, and carries on from there.
+          <span id="e-url-hints"></span></div>
+      </div>
+      <div class="field">
+        <label for="e-increment">Page number</label>
+        <input type="number" id="e-increment" min="0" style="width:110px">
+        <div class="note">What that page is counted as. Only shows in filenames with numbering on.
+          <button type="button" class="link" id="e-next-number"></button></div>
+      </div>
+      <div class="field">
+        <label for="e-cbz_path">Archive</label>
+        <input type="text" id="e-cbz_path" spellcheck="false" placeholder="default: CBZs/… beside the Uncompressed folder">
+      </div>
+      <div class="field">
+        <label for="e-waittime">Wait before next</label>
+        <span><input type="number" id="e-waittime" min="0" style="width:80px"> seconds</span>
+      </div>
+      <div class="field">
+        <label>Options</label>
+        <div class="row">
+          <label class="check"><input type="checkbox" id="e-prefix"> number pages</label>
+          <label class="check"><input type="checkbox" id="e-javascript"> javascript</label>
+          <label class="check"><input type="checkbox" id="e-firefox"> firefox</label>
+          <label class="check"><input type="checkbox" id="e-cbz"> make cbz</label>
+          <label class="check"><input type="checkbox" id="e-direction_check"> direction check</label>
+        </div>
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <label class="check"><input type="checkbox" id="e-ended"> ended, leave it alone</label>
+      </div>
+      <details id="edit-runs-box"><summary>Recent runs and edits</summary><div id="edit-runs"></div></details>
+    </div>
+    <div class="dlg-foot">
+      <div class="msg" id="edit-msg"></div>
+      <button type="button" id="edit-cancel">Close</button>
+      <button type="button" id="edit-save">Save</button>
+      <button type="button" class="primary" id="edit-save-update">Save and update now</button>
+    </div>
+  </form>
+</dialog>
+
 <script>
 const $ = (id) => document.getElementById(id);
 // requests go to the bare origin: an address with a password typed into it makes the browser refuse relative ones
@@ -226,7 +300,8 @@ function renderComics() {
       <td class="num">${c.pages ?? ""}</td>
       <td class="muted wide-only" style="white-space:nowrap">${esc(when(c.updated))}</td>
       <td class="wide-only ${bad ? "s-failed" : "muted"}">${esc(result)}</td>
-      <td>${c.ended || c.problem ? "" : `<button class="small" data-update="${esc(c.name)}">Update</button>`}</td>
+      <td style="white-space:nowrap">${c.problem ? "" : `<button class="small" data-edit="${esc(c.name)}">Edit</button>`}
+        ${c.ended || c.problem ? "" : `<button class="small" data-update="${esc(c.name)}">Update</button>`}</td>
     </tr>`;
   });
   $("comics").innerHTML = rows.join("") || `<tr><td colspan="6" class="empty">No comics match.</td></tr>`;
@@ -350,7 +425,87 @@ $("comics").addEventListener("change", (event) => {
 $("comics").addEventListener("click", (event) => {
   const name = event.target.dataset.update;
   if (name) queueUpdate([name]);
+  if (event.target.dataset.edit) openEditor(event.target.dataset.edit);
 });
+
+// ---- metadata editor ----
+const flags = ["prefix", "javascript", "firefox", "cbz", "direction_check", "ended"];
+let editing = null;
+
+function link(url) {
+  return url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(url)}</a>` : `<span class="muted">none</span>`;
+}
+
+async function openEditor(name) {
+  const msg = $("edit-msg");
+  msg.className = "msg"; msg.textContent = "";
+  let detail;
+  try {
+    const response = await fetch(api(`/api/comic?name=${encodeURIComponent(name)}`));
+    detail = await response.json();
+    if (!response.ok) throw new Error(detail.error || response.statusText);
+  } catch (error) {
+    alert("Could not open " + name + ": " + error.message);
+    return;
+  }
+  editing = detail;
+  const s = detail.settings, st = detail.state, last = detail.runs[0] || {};
+  $("edit-name").textContent = detail.name;
+  $("edit-updated").textContent = detail.updated ? "saved " + when(detail.updated) : "";
+  $("edit-facts").innerHTML = `
+    <dt>Pages held</dt><dd>${detail.pages_in_folder}${st.page_count != null && st.page_count !== detail.pages_in_folder ? ` (metadata says ${st.page_count})` : ""}</dd>
+    <dt>Last saved file</dt><dd>${esc(st.last_image_file || "") || '<span class="muted">none</span>'}</dd>
+    <dt>Last run ended</dt><dd>${last.stop_reason ? esc(last.stop_reason) + (last.exit_code ? ` (exit ${last.exit_code})` : "") + " at " + link(last.last_url) : '<span class="muted">never run</span>'}</dd>
+    <dt>First page</dt><dd>${link(detail.first_page_url)}</dd>`;
+  $("e-url").value = s.url || "";
+  $("e-url-hints").innerHTML = s.url ? ` <a href="${esc(s.url)}" target="_blank" rel="noreferrer" class="link">open it</a>` : "";
+  $("e-increment").value = s.increment ?? "";
+  $("e-cbz_path").value = s.cbz_path || "";
+  $("e-waittime").value = s.waittime || 0;
+  flags.forEach((key) => { $("e-" + key).checked = key === "cbz" || key === "direction_check" ? s[key] !== false : !!s[key]; });
+  const next = detail.pages_in_folder + 1;
+  $("e-next-number").textContent = `use ${next}, the number after the pages held`;
+  $("e-next-number").onclick = () => { $("e-increment").value = next; };
+
+  const runs = detail.runs.map((r) => `<tr><td>${esc(when(r.started))}</td><td class="num">${r.pages_saved ?? ""}</td>
+    <td>${esc(r.stop_reason || "")}${r.exit_code ? " (exit " + r.exit_code + ")" : ""}</td>
+    <td>${r.last_page_number ?? ""}</td><td>${link(r.last_url)}</td></tr>`).join("");
+  const edits = detail.edits.map((e) => `<div class="history-item line">${esc(when(e.at))}: ${esc(Object.entries(e.changed)
+    .map(([key, pair]) => `${key} ${JSON.stringify(pair[0])} → ${JSON.stringify(pair[1])}`).join(", "))}</div>`).join("");
+  $("edit-runs").innerHTML = (runs ? `<div class="table-wrap" style="max-height:none"><table class="runs"><thead><tr><th>Started</th>
+    <th>Saved</th><th>Ended</th><th>At #</th><th>Last page</th></tr></thead><tbody>${runs}</tbody></table></div>` : "") +
+    (edits ? `<div class="muted" style="margin-top:10px">Edits</div>${edits}` : "");
+  $("edit-runs-box").hidden = !runs && !edits;
+
+  const busy = detail.running;
+  ["edit-save", "edit-save-update"].forEach((id) => { $(id).disabled = busy; });
+  if (busy) { msg.className = "msg bad"; msg.textContent = "Being scraped right now; stop it or wait to edit."; }
+  $("editor").showModal();
+}
+
+async function saveEditor(updateAfter) {
+  const msg = $("edit-msg");
+  msg.className = "msg"; msg.textContent = "Saving…";
+  const settings = {
+    url: $("e-url").value, increment: $("e-increment").value, cbz_path: $("e-cbz_path").value,
+    waittime: $("e-waittime").value,
+  };
+  flags.forEach((key) => { settings[key] = $("e-" + key).checked; });
+  try {
+    const result = await post("/api/settings", { name: editing.name, updated: editing.updated, settings, update_after: updateAfter });
+    msg.className = "msg good";
+    msg.textContent = (result.saved ? "Saved." : "Nothing changed.") + (result.queued ? " Update queued." : "");
+    if (result.updated) editing.updated = result.updated;
+    loadComics();
+    if (updateAfter) setTimeout(() => $("editor").close(), 700);
+  } catch (error) {
+    msg.className = "msg bad";
+    msg.textContent = error.message;
+  }
+}
+$("edit-save").addEventListener("click", () => saveEditor(false));
+$("edit-save-update").addEventListener("click", () => saveEditor(true));
+$("edit-cancel").addEventListener("click", () => $("editor").close());
 $("check-all").addEventListener("change", (event) => {
   shownComics().filter((c) => !c.ended && !c.problem).forEach((c) => event.target.checked ? checked.add(c.name) : checked.delete(c.name));
   renderComics();

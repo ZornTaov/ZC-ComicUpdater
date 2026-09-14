@@ -500,6 +500,9 @@ def metadata_save(driver, args, completed=False, exit_code=None):
     kept_from = old_history.get("adopted_from", previous.get("adopted_from"))
     if kept_from:
         metadata["history"]["adopted_from"] = kept_from
+    #changes made by hand through the web page, kept so a later look can tell a setting was edited
+    if old_history.get("edits"):
+        metadata["history"]["edits"] = old_history["edits"]
 
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=2)

@@ -16,6 +16,22 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
+#the settings a person may change from the page, and what each one has to be. output is left out on
+#purpose: a comic's folder is what says where it lives, and update_comics ignores a stored output anyway
+editable = {
+    "url": "url",
+    "increment": "count",
+    "cbz_path": "text",
+    "prefix": "flag",
+    "javascript": "flag",
+    "firefox": "flag",
+    "waittime": "count",
+    "cbz": "flag",
+    "direction_check": "flag",
+    "ended": "flag",
+}
+max_edits = 50
+
 page_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web_ui.html")
 
 
@@ -245,6 +261,126 @@ def library_view(args, uc):
     return rows
 
 
+def find_comic(args, uc, name):
+    for comic in uc.find_comics(args.root, args.max_depth):
+        if comic.name == name:
+            return comic
+    return None
+
+
+def is_running(runner, name):
+    job = runner.current
+    return bool(job) and any(c.name == name and c.started_at and c.code is None for c in job.comics)
+
+
+def read_metadata(path):
+    with open(path, "r", encoding="utf-8") as f:
+        metadata = json.load(f)
+    if metadata.get("schema", 1) < 2:
+        #an old sidecar is brought up to date first, so the edit lands in the one place a run reads it
+        import adopt_comic
+        metadata = adopt_comic.migrate_metadata(metadata) or metadata
+    return metadata
+
+
+def comic_detail(args, uc, runner, name):
+    comic = find_comic(args, uc, name)
+    if comic is None:
+        return None, "no comic named {0}".format(name)
+    path = os.path.join(comic.folder, uc.metadata_file)
+    try:
+        metadata = read_metadata(path)
+    except (OSError, ValueError) as error:
+        return None, "could not read {0}: {1}".format(path, error)
+    history = metadata.get("history") or {}
+    runs = history.get("runs") or []
+    return {
+        "name": comic.name,
+        "updated": metadata.get("updated"),
+        "settings": metadata.get("settings") or {},
+        "state": metadata.get("state") or {},
+        "first_page_url": history.get("first_page_url"),
+        "runs": [{key: run.get(key) for key in ("started", "start_url", "start_page_number", "last_url",
+                                                "last_page_number", "pages_saved", "stop_reason", "exit_code")}
+                 for run in runs[-8:]][::-1],
+        "edits": (history.get("edits") or [])[-8:][::-1],
+        "pages_in_folder": uc.folder_pages(comic.folder),
+        "running": is_running(runner, comic.name),
+    }, None
+
+
+def clean_settings(given):
+    #checks each value the page sent, so a typo turns into a message rather than a comic that will not run
+    cleaned, problems = {}, []
+    for key, kind in editable.items():
+        if key not in given:
+            continue
+        value = given[key]
+        if kind == "flag":
+            cleaned[key] = bool(value)
+        elif kind == "count":
+            try:
+                number = int(str(value).strip() or 0)
+                if number < 0:
+                    raise ValueError
+                cleaned[key] = number
+            except ValueError:
+                problems.append("{0} must be a whole number, 0 or more".format(key))
+        elif kind == "url":
+            text = str(value or "").strip()
+            if not re.match(r"^https?://\S+$", text):
+                problems.append("the start page must be a full http(s) address")
+            else:
+                cleaned[key] = text
+        else:
+            text = str(value or "").strip()
+            cleaned[key] = text or None
+    return cleaned, problems
+
+
+def save_settings(args, uc, runner, name, given, expected_updated):
+    comic = find_comic(args, uc, name)
+    if comic is None:
+        return 404, {"error": "no comic named {0}".format(name)}
+    #a running scrape rewrites this file after every page, and would quietly put back whatever it started with
+    if is_running(runner, comic.name):
+        return 409, {"error": "{0} is being scraped right now; stop it or wait for it to finish".format(name)}
+    cleaned, problems = clean_settings(given)
+    if problems:
+        return 400, {"error": "; ".join(problems)}
+
+    path = os.path.join(comic.folder, uc.metadata_file)
+    try:
+        metadata = read_metadata(path)
+    except (OSError, ValueError) as error:
+        return 500, {"error": "could not read {0}: {1}".format(path, error)}
+    if expected_updated and metadata.get("updated") != expected_updated:
+        return 409, {"error": "the metadata changed since it was opened (a run may have written it). "
+                              "Reopen it and make the change again."}
+
+    settings = dict(metadata.get("settings") or {})
+    changed = {key: [settings.get(key), value] for key, value in cleaned.items() if settings.get(key) != value}
+    if not changed:
+        return 200, {"saved": False, "message": "nothing changed"}
+    settings.update(cleaned)
+    metadata["settings"] = settings
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    metadata["updated"] = stamp
+    history = metadata.setdefault("history", {})
+    history["edits"] = (history.get("edits") or [])[-(max_edits - 1):] + [{"at": stamp, "changed": changed}]
+
+    #written beside the real file and swapped in, so a crash part way never leaves half a metadata file
+    spare = path + ".editing"
+    with open(spare, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+        f.write("\n")
+    os.replace(spare, path)
+    print("Edited {0}: {1}".format(comic.name, ", ".join(
+        "{0} {1} -> {2}".format(key, json.dumps(old), json.dumps(new)) for key, (old, new) in changed.items())),
+        flush=True)
+    return 200, {"saved": True, "changed": changed, "updated": stamp}
+
+
 def clean_folder(text):
     #a folder inside the library, never outside it
     folder = text.strip().strip('"').replace(chr(92), "/").strip("/")
@@ -341,6 +477,10 @@ def make_handler(runner, args, uc, tee):
                 })
             elif where.path == "/api/comics":
                 self.reply(library_view(args, uc))
+            elif where.path == "/api/comic":
+                name = (parse_qs(where.query).get("name") or [""])[0]
+                detail, problem = comic_detail(args, uc, runner, name)
+                self.reply(detail if detail else {"error": problem}, 200 if detail else 404)
             else:
                 self.reply({"error": "not found"}, 404)
 
@@ -385,6 +525,14 @@ def make_handler(runner, args, uc, tee):
                 else:
                     job = runner.submit_add(entries, options)
                     self.reply({"queued": job.id, "label": job.label})
+            elif path == "/api/settings":
+                name = str(body.get("name") or "")
+                status, result = save_settings(args, uc, runner, name, body.get("settings") or {},
+                                               body.get("updated"))
+                if status == 200 and body.get("update_after"):
+                    job = runner.submit_update([name], "Edited on the web page")
+                    result["queued"] = job.label
+                self.reply(result, status)
             elif path == "/api/stop":
                 self.reply({"stopping": runner.stop()})
             elif path == "/api/drop":

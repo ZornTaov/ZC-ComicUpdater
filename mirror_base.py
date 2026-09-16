@@ -148,6 +148,17 @@ def load_element_paths():
 
 load_element_paths()
 
+#links back to the first page, used by --index when it is not told where a comic starts. only ever
+#followed once, before the walk begins
+first_ele_names = [
+                   '//*[@rel="first"]',
+                   '//*[@class="comic-nav-base comic-nav-first"]', #ComicPress, which kemono.cafe uses
+                   '//*[@class="navi navi-first"]',
+                   '//*[@class="comic-nav-first"]',
+                   '//*[@title="First"]',
+                   '//*[@alt="First"]',
+                   '//a[contains(translate(text(),"FIRST","first"), "first")]']
+
 #the xpaths that matched this comic, cached so each page does not repeat the whole search. kept in their
 #own variables rather than written back into the lists above, so a re-search still has every candidate.
 image_xpath = None
@@ -248,6 +259,9 @@ def setup():
     params.add_argument("--cbz",action=argparse.BooleanOptionalAction,help="Packs the pages into a .cbz beside the output folder once the run finishes, adding only the pages the archive does not already hold. On by default.",default=True)
     params.add_argument("--direction-check",action=argparse.BooleanOptionalAction,default=True,help="Stop if the page after the first turns out to be one the comic already has, which means the next link is running backwards. On by default; turn it off only for a comic that genuinely reuses its filenames.")
     params.add_argument("--cbz-path",type=str,default=None,help="Where this comic's .cbz lives. Left off, an archive already beside the output folder is used, otherwise a library laid out as Uncompressed/<comic> files it as CBZs/<comic>.cbz, and failing both it goes beside the folder.")
+    params.add_argument("--index",type=str,default=None,metavar="FILE",help="Walk the comic without downloading anything and write one line per page - its address, its image and its title - to this file. Used to work out which saved file came from which page. An existing file is carried on from where it stopped.")
+    params.add_argument("--index-first",action='store_true',default=False,help="With --index, follow the comic's first-page link before walking, for a comic whose beginning was never recorded.")
+    params.add_argument("--index-limit",type=int,default=0,metavar="PAGES",help="With --index, stop after this many pages. 0 means the whole comic.")
     params.add_argument("--check",action='store_true',default=False,help="Load the page, report which of the known image and next element paths match it, and stop. Suggests paths for a site that matches none, which is the first step in adding a comic the script does not know yet.")
     params.add_argument("--prime",action='store_true',default=False,help="Save only the first page, check the next link works, write the metadata and archive, then stop. The comic is then ready for update_comics to download the rest, which is far quicker run on the machine holding the library than over a network share.")
     
@@ -386,6 +400,99 @@ def check_page(driver):
 def describe_guess(guess):
     return ", ".join("{0}={1}".format(key, guess[key]) for key in ("tag", "size", "alt", "class", "id", "href")
                      if guess.get(key))
+
+
+def index_name(src, file_format="png"):
+    #the name img_save would give this image, so a line in the index can be matched against a saved file
+    name = src[src.rfind("/") + 1:]
+    if "gif" in src:
+        file_format = "gif"
+    return name if name.lower().endswith(file_format) else "{0}.{1}".format(name, file_format)
+
+
+def index_read(path):
+    #what an earlier attempt already got through, so a walk that stopped can be carried on
+    done = []
+    if not os.path.exists(path):
+        return done
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    done.append(json.loads(line))
+    except (ValueError, OSError) as error:
+        raise MirrorError("could not read the index at {0}: {1}".format(path, error),
+                          EXIT_USAGE, "unreadable index")
+    return done
+
+
+def go_to_first(driver):
+    for element in first_ele_names:
+        if not test_next_ele_get(driver, element):
+            continue
+        was = driver.current_url
+        if next_ele_get(driver, element) and driver.current_url != was:
+            print("Followed {0} back to {1}".format(element, driver.current_url))
+            return True
+    print("No first-page link found, so the walk starts where it was pointed.")
+    return False
+
+
+def build_index(driver, args):
+    #walks the comic the way a scrape does, but saves nothing: this is only about which page is which.
+    #each line is written as it is reached, so a walk that is stopped or times out keeps what it had.
+    path = args.index
+    folder = os.path.dirname(os.path.abspath(path))
+    if folder and not os.path.isdir(folder):
+        os.makedirs(folder)
+    done = index_read(path)
+    if done:
+        print("Carrying on from page {0} of the index ({1}).".format(len(done), done[-1]["url"]))
+        driver.get(done[-1]["url"])
+        if not next(driver, args):
+            print("The page it stopped on has no next link, so the index is already complete.")
+            return len(done)
+    elif args.index_first:
+        go_to_first(driver)
+
+    at = len(done)
+    seen = {line["url"] for line in done}
+    started = datetime.now()
+    with open(path, 'a', encoding='utf-8') as out:
+        while True:
+            here = driver.current_url
+            if here in seen:
+                print("Reached a page already in the index, so the comic has looped.")
+                break
+            src = None
+            for element in ([image_xpath] if image_xpath else []) + element_names:
+                src = ele_get(driver, element)
+                if src:
+                    break
+            at += 1
+            line = {"n": at, "url": here, "src": src, "file": index_name(src) if src else None,
+                    "title": driver.title}
+            out.write(json.dumps(line) + chr(10))
+            out.flush()
+            seen.add(here)
+            if src is None:
+                print("No comic image on page {0} ({1}); it is in the index as a page with no image.".format(at, here))
+            if at % 25 == 0:
+                gone = (datetime.now() - started).total_seconds()
+                print("indexed {0} pages ({1:.0f}s, {2:.1f} a second), at {3}".format(
+                    at, gone, (at - len(done)) / gone if gone else 0, here))
+            if args.index_limit and at - len(done) >= args.index_limit:
+                print("Stopping at {0} pages, as asked.".format(args.index_limit))
+                break
+            if not next(driver, args):
+                print("No next link, so that is the end of the comic.")
+                break
+            if driver.current_url == here:
+                print("The next link stays on the same page, so that is the end of the comic.")
+                break
+    print("Index holds {0} pages, written to {1}".format(at, path))
+    return at
 
 
 def quit_quietly(driver):
@@ -960,6 +1067,24 @@ def next_ele_get(driver,element):
 
 if __name__ == "__main__":
     driver, increment, format, args = setup()
+    if args.index:
+        #a walk that records what it saw and downloads nothing
+        code = EXIT_OK
+        try:
+            build_index(driver, args)
+        except MirrorError as error:
+            print("\nERROR: {0}".format(error))
+            code = error.code
+        except se.TimeoutException:
+            print("\nERROR: a page took longer than {0:.0f}s to load. What the index has so far is kept, "
+                  "and running it again carries on from there.".format(page_timeout))
+            code = EXIT_TIMEOUT
+        except (KeyboardInterrupt, SystemExit):
+            print("\nStopped. What the index has so far is kept.")
+            code = EXIT_INTERRUPTED
+        finally:
+            quit_quietly(driver)
+        sys.exit(code)
     if args.check:
         #a look at one page, saving nothing: which known paths match, and what to add when none do
         try:

@@ -25,9 +25,9 @@ services:
       # scrapes. The browser asks for a username too; any will do.
       # MIRROR_WEB_PASSWORD: change-me
 
-    # the web page, at http://<nas address>:8080/. Change the left number to use another port.
+    # the web page, at http://<nas address>:8081/. Change the left number to use another port.
     ports:
-      - "8080:8080"
+      - "8081:8081"
 
     volumes:
       # CHANGE ME: the library root, the folder holding CBZs/ and Uncompressed/. Always mounted at
@@ -54,7 +54,7 @@ services:
     # Raise --jobs to update several comics at once; each one is its own browser.
     # Add "--now" to update once on startup too, rather than sitting idle until the first 03:30.
     # --web serves the page for watching runs, starting updates and adding comics; drop it to go without.
-    command: ["--schedule", "03:30", "--jobs", "2", "--web", "8080"]
+    command: ["--schedule", "03:30", "--jobs", "2", "--web", "8081"]
 
     logging:
       driver: json-file

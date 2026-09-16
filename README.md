@@ -368,6 +368,39 @@ snapshots on ZFS or btrfs from growing by a whole archive every time a comic upd
 Pages are stored, not deflated: they are already-compressed JPEG and PNG, so compressing them again
 costs CPU to save nothing.
 
+## Working out which file came from which page
+
+Chapters, and anything else that needs to know where a page sits in a comic, first need to know which
+saved file came from which page. A comic scraped years ago under different filenames does not record
+that, so `chapters.py` works it out:
+
+```sh
+python chapters.py index "D:/Comics/Uncompressed/MyComic"          # walk the comic, then line it up
+python chapters.py align "D:/Comics/Uncompressed/MyComic"          # line up a walk already done
+python chapters.py show  "D:/Comics/Uncompressed/MyComic"          # what the last alignment says
+```
+
+The walk follows the comic from its first page and **downloads nothing** - it only records each page's
+address, image and title. It is written as it goes, so a walk that is stopped or times out carries on
+from where it left off when run again. `--start URL` says where the comic begins, and `--first` follows
+the comic's own first-page link when its metadata only records a later page.
+
+Lining up then rests on three things, in order:
+
+1. **Filenames**, for pages never renamed.
+2. **Image sizes**, asked of the site with a HEAD request that downloads nothing. The bytes on disk are
+   the bytes the site sent, so a size nothing else shares identifies a page whose file was renamed years
+   ago. This is what makes an old comic recoverable at all.
+3. **Counting**, for the stretches between two anchors that hold the same number of each.
+
+Every placement is then checked against the site's own sizes. A size that differs proves nothing on its
+own, since a comic that changed host serves re-encoded images; a size that belongs to a **different**
+file in the folder is a real conflict and stops the alignment being called settled. Pages the comic has
+and the folder does not are listed, and do not block anything - they are a gap in the collection, not a
+misplacement.
+
+The result is cached under `config/index/`. It can be deleted at any time; the walk rebuilds it.
+
 ## Settings
 
 Settings live in a `config` folder beside the scripts, not in the library, so they survive the library

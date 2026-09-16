@@ -645,6 +645,205 @@ def plan(folder, args):
     return 0
 
 
+# ---------------- one archive per chapter ----------------
+def tidy_name(text):
+    #a label becomes part of a filename, so anything a filesystem or a reader would choke on goes
+    text = re.sub(r'[<>:"/\\|?*\x00-\x1f]', ' ', text or "")
+    text = re.sub(r'\s+', ' ', text).strip(' .')
+    return text[:70].strip() or "Chapter"
+
+
+def chapter_folder(folder, metadata, root=None, given=None):
+    #the comic's own folder inside the archive shelf: a reader that dislikes loose .cbz files in a shelf
+    #is happy with one folder per comic, which is also where the single archive already points
+    if given:
+        return given
+    cbz = (metadata.get("settings") or {}).get("cbz_path")
+    if cbz:
+        here = cbz[:-4] if cbz.lower().endswith(".cbz") else cbz
+        return here if os.path.isabs(here) or not root else os.path.join(root, here.replace('/', os.sep))
+    return os.path.abspath(folder) + "_chapters"
+
+
+def chapter_file(folder, chapter):
+    return "{0} - c{1:03d} - {2}.cbz".format(os.path.basename(os.path.abspath(folder)),
+                                             chapter["number"], tidy_name(chapter["label"]))
+
+
+def comic_info(folder, chapter, count, names):
+    #what a reader reads to know this is chapter N of a series rather than a loose pile of pictures
+    def escaped(text):
+        return (str(text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+    lines = ['<?xml version="1.0" encoding="utf-8"?>',
+             '<ComicInfo xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">',
+             '  <Series>{0}</Series>'.format(escaped(os.path.basename(os.path.abspath(folder)))),
+             '  <Number>{0}</Number>'.format(chapter["number"]),
+             '  <Count>{0}</Count>'.format(count),
+             '  <Title>{0}</Title>'.format(escaped(chapter["label"])),
+             '  <PageCount>{0}</PageCount>'.format(len(names))]
+    if chapter.get("start_url"):
+        lines.append('  <Web>{0}</Web>'.format(escaped(chapter["start_url"])))
+    lines.append('  <Notes>Made by chapters.py from pages {0} to {1}</Notes>'.format(
+        chapter["start_page"], chapter["end_page"]))
+    lines.append('</ComicInfo>')
+    return chr(10).join(lines) + chr(10)
+
+
+def chapter_contents(folder, chapters, pages):
+    #which files belong to which chapter, in reading order. a page the comic has and this folder does not
+    #simply is not there; the pages either side of it still sit in the right chapter.
+    by_page = {page["n"]: page for page in pages}
+    parcels = []
+    for chapter in chapters:
+        names = [by_page[n]["file"] for n in range(chapter["start_page"], chapter["end_page"] + 1)
+                 if by_page.get(n) and by_page[n].get("file")]
+        parcels.append((chapter, names))
+    #pages saved since the chapters were worked out belong to the chapter still being published, which is
+    #the last one. they are added in the order they were saved, which is the order they came out.
+    if parcels:
+        known = {name for _, names in parcels for name in names}
+        held = folder_pages(folder)
+        last_known = max((at for at, name in enumerate(held) if name in known), default=-1)
+        fresh = [name for name in held[last_known + 1:] if name not in known]
+        if fresh:
+            parcels[-1][1].extend(fresh)
+            print("  {0} page(s) saved since the chapters were worked out join chapter {1}".format(
+                len(fresh), parcels[-1][0]["number"]))
+    return parcels
+
+
+def already_packed(path, names, folder):
+    #an archive only needs writing again if what it holds is not what it should hold
+    if not os.path.exists(path):
+        return False
+    try:
+        with zipfile.ZipFile(path) as zf:
+            held = {info.filename: info.file_size for info in zf.infolist() if not info.filename.endswith('/')}
+    except (OSError, zipfile.BadZipFile):
+        return False
+    wanted = {}
+    for name in names:
+        try:
+            wanted[name] = os.path.getsize(os.path.join(folder, name))
+        except OSError:
+            return False
+    held.pop("ComicInfo.xml", None)
+    return held == wanted
+
+
+def pack(folder, args):
+    metadata = read_metadata(folder)
+    chapters = (metadata.get("chapters") or {}).get("list")
+    if not chapters:
+        print("ERROR: no chapters worked out for {0} yet. Run: chapters.py chapters {0} --archive ...".format(folder))
+        return 2
+    pages = joined_pages(folder, args)
+    if pages is None:
+        return 2
+    shelf = chapter_folder(folder, metadata, args.root, args.cbz_folder)
+    parcels = chapter_contents(folder, chapters, pages)
+    held = {name for _, names in parcels for name in names}
+    on_disk = set(folder_pages(folder))
+    astray = sorted(on_disk - held)
+    if astray:
+        print("ERROR: {0} file(s) belong to no chapter, so nothing was written: {1}{2}".format(
+            len(astray), astray[:5], "..." if len(astray) > 5 else ""))
+        return 1
+
+    print("{0}: {1} chapter(s) into {2}".format(folder, len(parcels), shelf))
+    todo = [(chapter, names) for chapter, names in parcels
+            if not already_packed(os.path.join(shelf, chapter_file(folder, chapter)), names, folder)]
+    print("  {0} to write, {1} already as they should be".format(len(todo), len(parcels) - len(todo)))
+    for chapter, names in parcels[:100]:
+        mark = "write" if (chapter, names) in todo else "keep "
+        print("  {0} c{1:03d} {2:<44} {3:>4} page(s)  {4}".format(
+            mark, chapter["number"], tidy_name(chapter["label"])[:44], len(names),
+            chapter_file(folder, chapter)[:60]))
+    if args.dry_run:
+        print("Nothing was written. Run it again without --dry-run.")
+        return 0
+
+    if not os.path.isdir(shelf):
+        os.makedirs(shelf)
+    written = 0
+    for chapter, names in todo:
+        path = os.path.join(shelf, chapter_file(folder, chapter))
+        spare = path + ".packing"
+        with zipfile.ZipFile(spare, 'w', zipfile.ZIP_STORED) as zf:
+            zf.writestr("ComicInfo.xml", comic_info(folder, chapter, len(parcels), names))
+            for name in names:
+                zf.write(os.path.join(folder, name), name)
+        os.replace(spare, path)
+        written += 1
+        print("  wrote {0} ({1} page(s))".format(os.path.basename(path), len(names)))
+    print("Wrote {0} chapter archive(s).".format(written))
+
+    kept = verify_chapters(folder, shelf, parcels)
+    if kept is not True:
+        return 1
+    metadata = read_metadata(folder)
+    block = metadata.setdefault("chapters", {})
+    block["folder"] = os.path.relpath(shelf, args.root).replace(os.sep, '/') if args.root else shelf
+    block["packed"] = time_stamp()
+    #the single archive is no longer the thing being kept up to date, so a scrape must stop rebuilding it
+    if args.replace:
+        metadata.setdefault("settings", {})["cbz"] = False
+    write_metadata(folder, metadata)
+
+    if args.replace:
+        return drop_single(folder, metadata, args)
+    return 0
+
+
+def verify_chapters(folder, shelf, parcels):
+    #every page has to be in exactly one chapter archive, at the size it is on disk, before the single
+    #archive that holds them all can be given up
+    seen, trouble = {}, []
+    for chapter, names in parcels:
+        path = os.path.join(shelf, chapter_file(folder, chapter))
+        try:
+            with zipfile.ZipFile(path) as zf:
+                held = {info.filename: info.file_size for info in zf.infolist()
+                        if info.filename != "ComicInfo.xml" and not info.filename.endswith('/')}
+        except (OSError, zipfile.BadZipFile) as error:
+            trouble.append("c{0:03d}: {1}".format(chapter["number"], error))
+            continue
+        for name in names:
+            size = os.path.getsize(os.path.join(folder, name))
+            if held.get(name) != size:
+                trouble.append("c{0:03d}: {1} is {2} in the archive, {3} on disk".format(
+                    chapter["number"], name, held.get(name), size))
+            if name in seen:
+                trouble.append("{0} is in both c{1:03d} and c{2:03d}".format(name, seen[name], chapter["number"]))
+            seen[name] = chapter["number"]
+    missing = sorted(set(folder_pages(folder)) - set(seen))
+    for name in missing[:5]:
+        trouble.append("{0} is in no chapter archive".format(name))
+    if trouble:
+        print("Checked the chapter archives and found {0} problem(s):".format(len(trouble)))
+        for line in trouble[:10]:
+            print("  {0}".format(line))
+        return False
+    print("Checked: all {0} page(s) are in exactly one chapter archive, at the size they are on disk.".format(
+        len(seen)))
+    return True
+
+
+def drop_single(folder, metadata, args):
+    cbz = (metadata.get("settings") or {}).get("cbz_path")
+    if not cbz:
+        return 0
+    full = cbz if os.path.isabs(cbz) else os.path.join(args.root or os.path.dirname(folder),
+                                                       cbz.replace('/', os.sep))
+    if not os.path.exists(full):
+        return 0
+    size = os.path.getsize(full)
+    os.remove(full)
+    print("Removed {0} ({1:.0f} MB); the chapter archives hold every page it held.".format(full, size / 1e6))
+    return 0
+
+
 # ---------------- fetching pages again ----------------
 def joined_pages(folder, args):
     #the alignment says which file is which page; the walk says how big the site's copy is
@@ -825,10 +1024,11 @@ def do_align(folder, args):
 def setup():
     params = argparse.ArgumentParser(
         description="Line a comic's saved files up with the pages they came from.")
-    params.add_argument("what", choices=["index", "align", "show", "chapters", "refetch", "repack"],
+    params.add_argument("what", choices=["index", "align", "show", "chapters", "pack", "refetch", "repack"],
                         help="index: walk the comic and line it up. align: line up a walk already done. "
                              "show: what the last alignment says. refetch: fetch again any page whose file "
                              "is not what the site serves. chapters: work out where the chapters start. "
+                             "pack: write one .cbz per chapter. "
                              "repack: write the .cbz afresh from the folder.")
     params.add_argument("folder", help="The comic's folder.")
     params.add_argument("--start", default=None, help="The comic's first page, when its metadata does not know.")
@@ -843,6 +1043,12 @@ def setup():
     params.add_argument("--repack", action='store_true', default=False,
                         help="With refetch, write the .cbz afresh afterwards so it holds the new copies.")
     params.add_argument("--cbz", default=None, help="The archive to repack, when the metadata does not say.")
+    params.add_argument("--cbz-folder", default=None,
+                        help="With pack, where the chapter archives go. Defaults to the comic's own folder "
+                             "inside the archive shelf.")
+    params.add_argument("--replace", action='store_true', default=False,
+                        help="With pack, remove the single archive once every page is checked to be in a "
+                             "chapter archive, and stop scrapes rebuilding it.")
     params.add_argument("--archive", default=None,
                         help="With chapters, the comic's archive page, which is read for chapter headings.")
     params.add_argument("--list", default=None,
@@ -880,6 +1086,8 @@ def main():
             print("  {0:>5}  {1:<28} {2:<6} {3}".format(page["n"], str(page["file"])[:28], page["how"] or "-",
                                                         page["url"]))
         return 0
+    if args.what == "pack":
+        return pack(folder, args)
     if args.what == "chapters":
         return plan(folder, args)
     if args.what == "refetch":

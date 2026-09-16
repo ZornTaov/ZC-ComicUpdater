@@ -401,6 +401,60 @@ misplacement.
 
 The result is cached under `config/index/`. It can be deleted at any time; the walk rebuilds it.
 
+## Chapters
+
+A comic that reads in chapters can be kept as one archive per chapter rather than a single enormous
+one, which is what most readers want and what a phone can actually open.
+
+```sh
+python chapters.py chapters "D:/Comics/Uncompressed/MyComic" --archive "https://example.com/archive/"
+python chapters.py chapters "D:/Comics/Uncompressed/MyComic"          # from the addresses themselves
+python chapters.py chapters "D:/Comics/Uncompressed/MyComic" --list starts.txt
+python chapters.py pack "D:/Comics/Uncompressed/MyComic" --root "D:/Comics" --dry-run
+```
+
+Working out where chapters start has three sources, all ending in the same list, and none of them
+writes anything without `--save`:
+
+1. **An archive page.** Its links are checked against the addresses the walk recorded, so a link is
+   *known* to be a page of this comic rather than guessed at, and chapter titles come from whatever
+   headings sit above them. Works on hand-built tables and on themed archives alike.
+2. **The addresses themselves**, for a comic that counts `/c4/p7` or `/ss/4-7`: the chapter is the
+   number that never goes down while another resets underneath it. A part that never changes is the
+   comic's own name in the path, not a chapter.
+3. **A file of chapter starts**, one address per line, each optionally followed by `|` and a title.
+
+A chapter runs until the next one starts, so filler, guest art and flash pages stay where they were
+published. Chapters are numbered in reading order whatever their labels say, which keeps a set of
+specials labelled by year from being sorted to the end.
+
+`--shift` moves every boundary, for an archive that labels a chapter after its first page.
+`--browser` loads the archive page in the browser, for a page that builds itself with javascript.
+
+### Packing
+
+```sh
+python chapters.py pack "D:/Comics/Uncompressed/MyComic" --root "D:/Comics"
+python chapters.py pack "D:/Comics/Uncompressed/MyComic" --root "D:/Comics" --replace
+```
+
+Chapter archives go in the comic's own folder inside the archive shelf, named to sort:
+
+```text
+CBZs/Chalodillo/Las_Lindas/Las_Lindas - c001 - Chapter 1.cbz
+CBZs/Chalodillo/Las_Lindas/Las_Lindas - c002 - Chapter 2.cbz
+```
+
+Each carries a `ComicInfo.xml` naming the series, the chapter number and how many there are, which is
+what Kavita, Komga and PerfectViewer read. Only chapters whose pages have changed are written again,
+so a nightly update rewrites one small archive rather than a gigabyte. Pages saved since the chapters
+were worked out join the chapter still being published.
+
+`--replace` gives up the single archive, but only after checking that **every page is in exactly one
+chapter archive at the size it is on disk**; anything short of that leaves the old archive alone and
+says why. It also turns off the single archive in the comic's settings, so a later scrape does not
+build it again.
+
 ## Settings
 
 Settings live in a `config` folder beside the scripts, not in the library, so they survive the library

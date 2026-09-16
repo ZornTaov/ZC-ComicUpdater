@@ -770,6 +770,10 @@ def already_packed(path, names, folder):
 
 def pack(folder, args):
     metadata = read_metadata(folder)
+    if (metadata.get("settings") or {}).get("cbz") is False and not args.force:
+        print("{0} is set to keep no archives (cbz is off in its settings), so nothing was written. Turn "
+              "that on, or pass --force to write them anyway.".format(folder))
+        return 0
     chapters = (metadata.get("chapters") or {}).get("list")
     if not chapters:
         print("ERROR: no chapters worked out for {0} yet. Run: chapters.py chapters {0} --archive ...".format(folder))
@@ -822,9 +826,8 @@ def pack(folder, args):
     block = metadata.setdefault("chapters", {})
     block["folder"] = os.path.relpath(shelf, args.root).replace(os.sep, '/') if args.root else shelf
     block["packed"] = time_stamp()
-    #the single archive is no longer the thing being kept up to date, so a scrape must stop rebuilding it
-    if args.replace:
-        metadata.setdefault("settings", {})["cbz"] = False
+    #nothing is turned off here: a comic that has chapters is one mirror_base leaves alone, and whether it
+    #has archives at all is the one cbz setting, the same switch as for a comic with no chapters
     write_metadata(folder, metadata)
 
     if args.replace:

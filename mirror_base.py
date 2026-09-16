@@ -502,6 +502,9 @@ def build_index(driver, args):
     return at
 
 
+#set when the comic is kept in chapters, which is what decides the shape of its archives: chapters.py
+#writes one per chapter from the folder, so this run must not build a single archive of the lot
+in_chapters = False
 #the index this comic keeps, when it has one: where it is, what it already holds, and where it is up to
 index_file = None
 index_urls = set()
@@ -517,11 +520,14 @@ def index_name(folder):
 
 
 def open_index(folder, args=None):
-    global index_file, index_urls, index_last
+    global index_file, index_urls, index_last, in_chapters
     named = None
     try:
         with open(os.path.join(folder, metadata_file), 'r', encoding='utf-8') as f:
-            named = ((json.load(f).get("history") or {}).get("index_cache"))
+            held = json.load(f)
+        named = (held.get("history") or {}).get("index_cache")
+        chapters = held.get("chapters") or {}
+        in_chapters = bool(chapters.get("list") or chapters.get("source_url"))
     except (OSError, ValueError, AttributeError):
         pass
     if not named and not (args and args.keep_index):
@@ -1250,7 +1256,10 @@ if __name__ == "__main__":
             print("Wrote metadata to {0}.".format(metadata_path))
 
         #packed last, so the archive picks up the finished metadata along with the new pages
-        if args.cbz and scrape_state["pages_saved"] > 0:
+        if in_chapters and args.cbz and scrape_state["pages_saved"] > 0:
+            print("This comic is kept in chapters, so no single archive is built; chapters.py writes one "
+                  "archive per chapter.")
+        if args.cbz and not in_chapters and scrape_state["pages_saved"] > 0:
             try:
                 cbz, added = cbz_update(args)
                 if added:

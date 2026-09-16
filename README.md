@@ -247,6 +247,11 @@ shows:
   | `Snafu-Comics/nsma` | `Snafu-Comics/nsma.cbz` | `https://www.snafu-comics.com/nsma/issue-1-cover` |
   | `MyComic` | `MyComic/MyComic.cbz` | `https://example.com/comic/first-page` |
 
+  **Make cbz** is one switch: whether this comic keeps archives at all. What shape they take is decided
+  by whether it has chapters - one archive per chapter if it does, one of the lot if it does not. Turn it
+  off and the pages are still saved, the chapters still worked out, and nothing is written until you turn
+  it back on.
+
   A **chapter list** - the comic's own archive page - is optional, and turns a new comic into one archive
   per chapter as soon as it has been scraped: the scrape records which page is which as it goes, the
   archive page is read for the boundaries, and the single archive is given up once every page is checked

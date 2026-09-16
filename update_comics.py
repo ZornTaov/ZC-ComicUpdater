@@ -425,7 +425,12 @@ def pack_chapters(comic, args):
     #no chapters worked out yet - one that was primed with a chapter list - it is how the first ones arrive
     if known.get("source_url") and (getattr(args, "refresh_chapters", True) or not known.get("list")):
         steps.append("chapters")
-    steps.append("pack")
+    #a comic set to keep no archives still has its chapters worked out and its index kept - all of that
+    #is knowledge about the comic. only the writing of archives waits for that switch to be turned on.
+    if (comic.metadata.get("settings") or {}).get("cbz") is False:
+        say("  {0:<40} chapters: worked out, but this comic keeps no archives (cbz is off)".format(comic.name))
+    else:
+        steps.append("pack")
     for what in steps:
         done = subprocess.run([sys.executable, script, what, comic.folder, "--root", args.root]
                               + (["--save"] if what == "chapters" else []),
@@ -445,6 +450,8 @@ def pack_chapters(comic, args):
                 comic.name, what, (done.stdout or done.stderr).strip().splitlines()[-1][:80]
                 if (done.stdout or done.stderr).strip() else "exit {0}".format(done.returncode)))
             return
+    if "pack" not in steps:
+        return
     wrote = [line for line in (done.stdout or "").splitlines() if line.strip().startswith("wrote ")]
     say("  {0:<40} chapters: {1}".format(comic.name, "{0} archive(s) written".format(len(wrote))
                                          if wrote else "already up to date"))

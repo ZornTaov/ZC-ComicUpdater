@@ -204,9 +204,9 @@ class Runner:
                 "prefix": options["prefix"],
                 "javascript": options["javascript"],
                 "waittime": options["waittime"],
-                #a comic being kept in chapters has no use for the single archive, so it is never built:
-                #the chapter archives are written from the folder once the pages are there
-                "cbz": options["cbz"] and not listing,
+                #one switch: whether this comic keeps archives at all. a comic with chapters keeps one
+                #per chapter instead of one of the lot, which mirror_base leaves to chapters.py
+                "cbz": options["cbz"],
                 "direction_check": options["direction_check"],
             }
             comic = uc.Comic(os.path.join(self.args.root, *folder.split("/")), {}, self.args.root)
@@ -223,6 +223,11 @@ class Runner:
         def work(job):
             chosen = self.uc.with_config(self.args)
             chosen.cancel = job.cancel
+            #a comic with a chapter list is told so before it is scraped, not after: a scrape that does not
+            #know builds the single archive it will never want, and then something has to go and delete it
+            for comic in comics:
+                if listings.get(comic.name):
+                    remember_listing(comic, listings[comic.name], make_folder=True)
             #a new comic can be thousands of pages, so only priming keeps the usual limit. a stalled page
             #still ends on its own through mirror_base's page timeout, and anything else can be stopped here
             if not options["prime"]:
@@ -230,13 +235,23 @@ class Runner:
             job.comics = comics
             code = uc.run_batch(comics, comics, chosen, "Priming" if options["prime"] else "Scraping")
             for comic in comics:
-                if not comic.ok or not listings.get(comic.name):
+                if not listings.get(comic.name):
+                    continue
+                if not comic.ok:
+                    #a comic that saved nothing leaves nothing behind but the note we just wrote, which
+                    #would otherwise make the folder look like a comic that is already in the library
+                    if not uc.folder_pages(comic.folder):
+                        try:
+                            os.remove(os.path.join(comic.folder, "mirror_metadata.json"))
+                            os.rmdir(comic.folder)
+                        except OSError:
+                            pass
                     continue
                 #a primed comic has one page and no chapters to find yet, so the archive page is written
                 #down and the chapters are worked out by the update that fetches the rest
                 remember_listing(comic, listings[comic.name])
                 if not options["prime"]:
-                    split_into_chapters(comic, listings[comic.name], chosen, self.uc)
+                    split_into_chapters(comic, listings[comic.name], chosen, self.uc, options["cbz"])
             return code
 
         verb = "Prime" if options["prime"] else "Scrape"
@@ -244,14 +259,19 @@ class Runner:
         return self.submit(Job("add", label, work))
 
 
-def remember_listing(comic, listing):
+def remember_listing(comic, listing, make_folder=False):
     #so a later run knows where this comic's chapters are listed, whoever starts it
     path = os.path.join(comic.folder, "mirror_metadata.json")
     try:
         with open(path, "r", encoding="utf-8") as f:
             metadata = json.load(f)
     except (OSError, ValueError):
-        return
+        if not make_folder:
+            return
+        #nothing there yet: the comic is about to be scraped for the first time
+        if not os.path.isdir(comic.folder):
+            os.makedirs(comic.folder)
+        metadata = {}
     block = metadata.setdefault("chapters", {})
     if block.get("source_url") == listing:
         return
@@ -262,7 +282,7 @@ def remember_listing(comic, listing):
     print("  {0}: chapters will be read from {1}".format(comic.name, listing), flush=True)
 
 
-def split_into_chapters(comic, listing, args, uc):
+def split_into_chapters(comic, listing, args, uc, keeps_archives=True):
     #a new comic that was given a chapter list: line up what was just saved, read the list, and write one
     #archive per chapter. every step says what it did, and none of them touches the pages themselves.
     script = os.path.join(os.path.dirname(os.path.abspath(args.script)), "chapters.py")
@@ -270,7 +290,9 @@ def split_into_chapters(comic, listing, args, uc):
         return
     #--replace because a comic kept in chapters keeps no single archive: the one the scrape just built
     #is given up as soon as every page is checked to be in a chapter
-    steps = [["align"], ["chapters", "--archive", listing, "--save"], ["pack", "--replace"]]
+    steps = [["align"], ["chapters", "--archive", listing, "--save"]]
+    if keeps_archives:
+        steps.append(["pack", "--replace"])
     for step in steps:
         done = subprocess.run([sys.executable, script, step[0], comic.folder, "--root", args.root]
                               + step[1:], capture_output=True, text=True, errors="replace",

@@ -255,6 +255,12 @@ shows:
   A comic being scraped cannot be edited, since the run rewrites its metadata after every page. A save
   is refused if the file has changed since you opened it. Every change is recorded under
   `history.edits` in the metadata.
+- **Element paths** opens the lists of XPaths every scrape tries, in the order it tries them: the
+  comic image, and the next-page link. Add one, note what it is for, reorder them, or turn one off.
+  **Check this page** loads any address in the scraper's own browser and says which paths match it,
+  with an **add it** button beside each; when nothing matches, it suggests paths from the page's own
+  images and links. Paths that came with the script can be turned off but not deleted, so a later
+  version of the script cannot quietly reinstate one you did not want.
 - **Log** and **Recent**: the updater's output as it happens, and what the last jobs did.
 
 With `--web` and no `--schedule`, the updater stays running and only does what the page or an
@@ -350,6 +356,37 @@ snapshots on ZFS or btrfs from growing by a whole archive every time a comic upd
 
 Pages are stored, not deflated: they are already-compressed JPEG and PNG, so compressing them again
 costs CPU to save nothing.
+
+## Element paths
+
+`mirror_base.py` ships with a list of XPaths for the comic image and a list for the next-page link, and
+tries each in order until one matches. A library can add to them without editing the script, by keeping
+an `element_paths.json` in the library folder:
+
+```json
+{
+  "image": [{ "xpath": "//img[@class=\"strip-art\"]", "note": "Odd Comic", "enabled": true }],
+  "next":  [{ "xpath": "//*[@class=\"onwards\"]", "note": "Odd Comic", "enabled": true }]
+}
+```
+
+The file decides the order and what is turned off; any path it does not mention still works and is tried
+after the ones it lists, so a path added to the script later still arrives. A file that cannot be read is
+reported and ignored rather than stopping the run.
+
+The web page edits this file, which is why it lives in the library: a container mounting its scripts
+read-only can still write there. `mirror_base.py` looks for it in the folder it was started from, then
+beside itself, and `MIRROR_ELEMENTS` overrules both — worth setting when running it by hand from
+somewhere other than the library.
+
+To work out what a new comic needs:
+
+```sh
+python mirror_base.py --check "https://example.com/comic/some-page"
+```
+
+It loads the page, says which known paths match and which one a scrape would use, and when none match,
+suggests paths from the images and links it can see. It saves nothing.
 
 ## The metadata file
 

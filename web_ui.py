@@ -1,6 +1,7 @@
 #a small web page for update_comics: watch what a run is doing, start updates, add new comics, stop things.
 #standard library only, so the container needs nothing new. started by update_comics.py --web PORT. #V 1.0
 
+import ast
 import base64
 import collections
 import copy
@@ -9,6 +10,7 @@ import itertools
 import json
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -31,6 +33,9 @@ editable = {
     "ended": "flag",
 }
 max_edits = 50
+#the file mirror_base reads its element paths from, kept in the library so the container can write to it
+element_file = "element_paths.json"
+kinds = ("image", "next")
 
 page_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web_ui.html")
 
@@ -81,6 +86,8 @@ class Job:
         self.result = None
         self.error = None
         self.cancel = threading.Event()
+        #what a check job found, read back by the page
+        self.check = None
 
 
 class Runner:
@@ -161,6 +168,30 @@ class Runner:
             label = "{0}: {1} comics".format(why, len(names))
         return self.submit(Job("update", label, work))
 
+    def submit_check(self, url):
+        #a browser is heavy enough that this waits its turn like everything else
+        def work(job):
+            command = [sys.executable, self.args.script, "--check", url]
+            print("Checking {0}".format(url), flush=True)
+            try:
+                done = subprocess.run(command, cwd=self.args.root, capture_output=True, text=True,
+                                      errors="replace", timeout=180,
+                                      env=dict(os.environ, PYTHONUNBUFFERED="1"))
+                output = (done.stdout or "") + (done.stderr or "")
+            except subprocess.SubprocessError as error:
+                job.check = {"error": str(error)}
+                return 1
+            for line in output.splitlines():
+                if line.startswith("CHECK-JSON "):
+                    job.check = json.loads(line[len("CHECK-JSON "):])
+                    break
+                print(line, flush=True)
+            else:
+                job.check = {"error": "the check said nothing useful", "output": output[-1500:]}
+            return done.returncode
+
+        return self.submit(Job("check", "Check {0}".format(url), work))
+
     def submit_add(self, entries, options):
         uc = self.uc
         comics = []
@@ -224,6 +255,9 @@ def job_view(job, uc, live=False):
     view = {"id": job.id, "kind": job.kind, "label": job.label, "created": job.created,
             "started": job.started, "finished": job.finished, "error": job.error,
             "stopping": job.cancel.is_set()}
+    if job.kind == "check":
+        view["check"] = job.check
+        return view
     if job.started is None:
         return view
     comics = [comic_view(comic, uc, live) for comic in job.comics]
@@ -259,6 +293,114 @@ def library_view(args, uc):
             "problem": comic.skipped,
         })
     return rows
+
+
+def shipped_paths(script):
+    #the lists as mirror_base has them, with the comment beside each one, which is usually the name of the
+    #comic it was added for. the values are read as python rather than scanned for, because an xpath is
+    #full of brackets and quotes of its own; the comments, which python throws away, are matched after.
+    lists = {"image": [], "next": []}
+    names = {"element_names": "image", "next_ele_names": "next"}
+    try:
+        with open(script, "r", encoding="utf-8") as f:
+            source = f.read()
+        tree = ast.parse(source)
+    except (OSError, SyntaxError):
+        return lists
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.List):
+            continue
+        for target in node.targets:
+            kind = names.get(getattr(target, "id", None))
+            if not kind:
+                continue
+            for item in node.value.elts:
+                if isinstance(item, ast.Constant) and isinstance(item.value, str):
+                    lists[kind].append({"xpath": item.value, "note": ""})
+    notes = {}
+    for line in source.splitlines():
+        found = re.match(r"^\s*'(.*)'\s*,?\s*#\s*(.+?)\s*$", line)
+        if found:
+            notes[found.group(1)] = found.group(2)
+    for entries in lists.values():
+        for entry in entries:
+            entry["note"] = notes.get(entry["xpath"], "")
+    return lists
+
+
+def element_settings(args, uc):
+    #what the page shows: everything mirror_base would try, in the order it would try it, marked with where
+    #it came from. the built-in list is the base, and the saved file says what was reordered, added or
+    #turned off - so a path added to the script later still turns up here.
+    path = os.path.join(args.root, element_file)
+    saved = {}
+    problem = None
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8-sig") as f:
+                saved = json.load(f)
+        except (OSError, ValueError) as error:
+            problem = "could not read {0}: {1}".format(path, error)
+    shipped = shipped_paths(args.script)
+    lists = {}
+    for kind in kinds:
+        from_script = {entry["xpath"]: entry.get("note", "") for entry in shipped[kind]}
+        seen, ordered = set(), []
+        for entry in saved.get(kind) or []:
+            xpath = (entry or {}).get("xpath")
+            if not xpath or xpath in seen:
+                continue
+            seen.add(xpath)
+            ordered.append({"xpath": xpath, "note": entry.get("note") or from_script.get(xpath, ""),
+                            "enabled": entry.get("enabled", True), "shipped": xpath in from_script})
+        #anything the file never mentioned is still live, and mirror_base puts it after what the file lists
+        ordered += [{"xpath": entry["xpath"], "note": entry.get("note", ""), "enabled": True, "shipped": True}
+                    for entry in shipped[kind] if entry["xpath"] not in seen]
+        lists[kind] = ordered
+    return {"path": path, "saved": bool(saved), "problem": problem,
+            "image": lists["image"], "next": lists["next"]}
+
+
+def save_elements(args, uc, given):
+    cleaned, problems = {}, []
+    for kind in kinds:
+        entries, seen = [], set()
+        for entry in given.get(kind) or []:
+            xpath = str((entry or {}).get("xpath") or "").strip()
+            if not xpath:
+                continue
+            if not xpath.startswith(("/", "(", ".")):
+                problems.append("{0}: {1} does not look like an xpath".format(kind, xpath[:60]))
+                continue
+            if xpath in seen:
+                problems.append("{0}: {1} is listed twice".format(kind, xpath[:60]))
+                continue
+            seen.add(xpath)
+            entries.append({"xpath": xpath, "note": str(entry.get("note") or "").strip(),
+                            "enabled": entry.get("enabled", True) is not False})
+        if not [entry for entry in entries if entry["enabled"]]:
+            problems.append("{0}: at least one path has to be left on".format(kind))
+        cleaned[kind] = entries
+    if problems:
+        return 400, {"error": "; ".join(problems)}
+
+    path = os.path.join(args.root, element_file)
+    body = {"note": "Element paths for mirror_base.py. The order here is the order they are tried; "
+                    "anything not listed is added after them.",
+            "updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    body.update(cleaned)
+    spare = path + ".editing"
+    try:
+        with open(spare, "w", encoding="utf-8") as f:
+            json.dump(body, f, indent=2)
+            f.write("\n")
+        os.replace(spare, path)
+    except OSError as error:
+        return 500, {"error": "could not write {0}: {1}".format(path, error)}
+    print("Saved {0}: {1} image path(s), {2} next path(s)".format(
+        path, len([e for e in cleaned["image"] if e["enabled"]]),
+        len([e for e in cleaned["next"] if e["enabled"]])), flush=True)
+    return 200, {"saved": True, "path": path}
 
 
 def find_comic(args, uc, name):
@@ -475,6 +617,8 @@ def make_handler(runner, args, uc, tee):
                     "log": [{"seq": s, "at": at, "text": text} for s, at, text in lines],
                     "seq": seq,
                 })
+            elif where.path == "/api/elements":
+                self.reply(element_settings(args, uc))
             elif where.path == "/api/comics":
                 self.reply(library_view(args, uc))
             elif where.path == "/api/comic":
@@ -533,6 +677,16 @@ def make_handler(runner, args, uc, tee):
                     job = runner.submit_update([name], "Edited on the web page")
                     result["queued"] = job.label
                 self.reply(result, status)
+            elif path == "/api/elements":
+                status, result = save_elements(args, uc, body)
+                self.reply(result, status)
+            elif path == "/api/check":
+                url = str(body.get("url") or "").strip()
+                if not re.match(r"^https?://\S+$", url):
+                    self.reply({"error": "that is not a full http(s) address"}, 400)
+                else:
+                    job = runner.submit_check(url)
+                    self.reply({"queued": job.id, "label": job.label})
             elif path == "/api/stop":
                 self.reply({"stopping": runner.stop()})
             elif path == "/api/drop":

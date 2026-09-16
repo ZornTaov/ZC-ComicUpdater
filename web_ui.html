@@ -90,8 +90,10 @@ dialog[open] { display: flex; overflow: hidden; }
 #edit-form { display: flex; flex-direction: column; min-height: 0; width: 100%; }
 .dlg-body { flex: 1; min-height: 0; }
 dialog::backdrop { background: rgba(0, 0, 0, .45); }
-.dlg-head { display: flex; align-items: baseline; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
-.dlg-head h3 { margin: 0; font-size: 16px; flex: 1; overflow-wrap: anywhere; }
+.dlg-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 14px 18px;
+  border-bottom: 1px solid var(--line); }
+.dlg-head h3 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.dlg-head > span { flex: 1 1 200px; min-width: 0; text-align: right; overflow-wrap: anywhere; font-size: 12px; }
 .dlg-body { padding: 14px 18px; overflow: auto; }
 .dlg-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px;
   padding: 12px 18px; border-top: 1px solid var(--line); }
@@ -108,6 +110,25 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .runs { width: 100%; font-size: 12px; }
 .runs td, .runs th { padding: 3px 6px; position: static; cursor: default; }
 .link { background: none; border: none; color: var(--accent); padding: 0; font-size: 12px; cursor: pointer; }
+#elements { width: min(900px, calc(100vw - 32px)); }
+.ep { display: grid; grid-template-columns: auto minmax(0, 1fr) 150px auto; gap: 6px; align-items: center;
+  padding: 3px 0; }
+.ep input[type=text] { width: 100%; font-family: var(--mono); font-size: 12px; padding: 3px 6px; }
+.ep .note-in { font-family: inherit; }
+.ep.off input[type=text] { opacity: .45; text-decoration: line-through; }
+.ep .moves { display: flex; gap: 2px; }
+.ep .moves button { padding: 1px 6px; font-size: 11px; line-height: 1.4; }
+@media (max-width: 620px) { .ep { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .ep .note-in { grid-column: 2 / 4; } }
+.ep-list { max-height: 300px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 8px; background: var(--bg); }
+.ep-head { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 6px; }
+.ep-head h4 { margin: 0; font-size: 13px; }
+.check-box { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+.check-result { margin-top: 10px; font-size: 12.5px; }
+.check-result .hit { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; padding: 3px 0; }
+.check-result code { overflow-wrap: anywhere; }
+.first { font-size: 11px; font-weight: 600; color: var(--ok); text-transform: uppercase; }
 code { font-family: var(--mono); font-size: 12px; background: var(--soft); padding: 0 4px; border-radius: 4px; }
 </style>
 </head>
@@ -156,7 +177,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
 
   <div class="col">
     <section>
-      <h2>Add comics</h2>
+      <h2><span class="grow">Add comics</span><button class="small" id="open-elements">Element paths</button></h2>
       <div class="help">One per line: the folder inside the library, then the first page's address.</div>
       <textarea id="entries" spellcheck="false" placeholder="Uncompressed/Snafu-Comics/nsma https://www.snafu-comics.com/nsma/issue-1-cover"></textarea>
       <div class="row">
@@ -185,6 +206,32 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
     </section>
   </div>
 </main>
+
+<dialog id="elements">
+  <form method="dialog">
+    <div class="dlg-head"><h3>Element paths</h3><span class="muted" id="ep-path"></span></div>
+    <div class="dlg-body">
+      <div class="help">Every comic is scraped by trying these in order: the first that matches a page is the
+        one used. Paths that came with the script can be turned off but not deleted, so an update to the
+        script cannot quietly put back one you did not want. Order matters when two match the same page.</div>
+      <div class="check-box">
+        <div class="row">
+          <input type="text" id="check-url" placeholder="https://example.com/comic/some-page" style="flex:1; min-width:220px">
+          <button type="button" class="primary" id="check-go">Check this page</button>
+        </div>
+        <div class="help" style="margin-bottom:0">Loads the page in the browser the scraper uses and says which
+          paths match it, or what to add when none do.</div>
+        <div class="check-result" id="check-result"></div>
+      </div>
+      <div id="ep-lists"></div>
+    </div>
+    <div class="dlg-foot">
+      <div class="msg" id="ep-msg"></div>
+      <button type="button" id="ep-cancel">Close</button>
+      <button type="button" class="primary" id="ep-save">Save</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="editor">
   <form method="dialog" id="edit-form">
@@ -374,6 +421,16 @@ function renderState(state) {
     </div>`;
   }).join("") : `<div class="empty">Nothing has run since the updater started.</div>`;
 
+  if (checkJob) {
+    const done = state.history.find((j) => j.id === checkJob.id);
+    if (done) {
+      renderCheck(done.check, checkJob.host);
+      checkJob = null;
+    } else if (state.current && state.current.id === checkJob.id) {
+      $("check-result").innerHTML = `<span class="muted">Checking ${esc($("check-url").value.trim())}…</span>`;
+    }
+  }
+
   // the library changes when a job finishes, so re-read it then rather than on every poll
   const newest = state.history.length ? state.history[0].id : null;
   if (newest !== lastHistoryId) {
@@ -503,6 +560,137 @@ async function saveEditor(updateAfter) {
     msg.textContent = error.message;
   }
 }
+// ---- element paths ----
+let paths = { image: [], next: [] };
+let checkJob = null;
+
+function renderPaths() {
+  $("ep-lists").innerHTML = ["image", "next"].map((kind) => `
+    <div class="ep-head"><h4>${kind === "image" ? "Comic image" : "Next page"} paths</h4>
+      <span class="muted">${paths[kind].filter((p) => p.enabled).length} on, ${paths[kind].length} listed</span>
+      <button type="button" class="link" data-add="${kind}">add one</button></div>
+    <div class="ep-list" data-list="${kind}">${paths[kind].map((p, at) => `
+      <div class="ep ${p.enabled ? "" : "off"}">
+        <input type="checkbox" ${p.enabled ? "checked" : ""} data-kind="${kind}" data-at="${at}" data-field="enabled"
+          title="${p.enabled ? "in use" : "turned off"}">
+        <input type="text" value="${esc(p.xpath)}" data-kind="${kind}" data-at="${at}" data-field="xpath" spellcheck="false">
+        <input type="text" class="note-in" value="${esc(p.note || "")}" placeholder="note, e.g. the comic"
+          data-kind="${kind}" data-at="${at}" data-field="note">
+        <span class="moves">
+          <button type="button" data-move="up" data-kind="${kind}" data-at="${at}" ${at === 0 ? "disabled" : ""} title="earlier">↑</button>
+          <button type="button" data-move="down" data-kind="${kind}" data-at="${at}" ${at === paths[kind].length - 1 ? "disabled" : ""} title="later">↓</button>
+          ${p.shipped ? `<button type="button" disabled title="came with the script">✕</button>`
+            : `<button type="button" data-drop-path="1" data-kind="${kind}" data-at="${at}" title="remove">✕</button>`}
+        </span>
+      </div>`).join("")}</div>`).join("");
+}
+
+async function openElements() {
+  $("ep-msg").className = "msg"; $("ep-msg").textContent = "";
+  try {
+    const data = await (await fetch(api("/api/elements"))).json();
+    paths = { image: data.image, next: data.next };
+    $("ep-path").textContent = data.problem ? data.problem : data.path + (data.saved ? "" : " (not written yet)");
+    renderPaths();
+    $("elements").showModal();
+  } catch (error) {
+    alert("Could not read the element paths: " + error.message);
+  }
+}
+
+$("ep-lists").addEventListener("input", (event) => {
+  const { kind, at, field } = event.target.dataset;
+  if (!field) return;
+  paths[kind][at][field] = field === "enabled" ? event.target.checked : event.target.value;
+  if (field === "enabled") renderPaths();
+});
+$("ep-lists").addEventListener("click", (event) => {
+  const d = event.target.dataset;
+  if (d.move) {
+    const at = Number(d.at), to = d.move === "up" ? at - 1 : at + 1;
+    const list = paths[d.kind];
+    [list[at], list[to]] = [list[to], list[at]];
+    renderPaths();
+  } else if (d.dropPath) {
+    paths[d.kind].splice(Number(d.at), 1);
+    renderPaths();
+  } else if (d.add) {
+    paths[d.add].unshift({ xpath: "", note: "", enabled: true, shipped: false });
+    renderPaths();
+    $("ep-lists").querySelector(`[data-list="${d.add}"] input[type=text]`).focus();
+  }
+});
+$("ep-save").addEventListener("click", async () => {
+  const msg = $("ep-msg");
+  msg.className = "msg"; msg.textContent = "Saving…";
+  try {
+    await post("/api/elements", { image: paths.image, next: paths.next });
+    msg.className = "msg good";
+    msg.textContent = "Saved. The next comic to run uses these.";
+  } catch (error) {
+    msg.className = "msg bad";
+    msg.textContent = error.message;
+  }
+});
+$("ep-cancel").addEventListener("click", () => $("elements").close());
+$("open-elements").addEventListener("click", openElements);
+
+function addPath(kind, xpath, note) {
+  paths[kind].unshift({ xpath, note: note || "", enabled: true, shipped: false });
+  renderPaths();
+  $("ep-msg").className = "msg";
+  $("ep-msg").textContent = `Added to the top of the ${kind === "image" ? "comic image" : "next page"} paths. Save to keep it.`;
+}
+
+function hit(kind, xpath, detail, first) {
+  const already = paths[kind].some((p) => p.xpath === xpath);
+  return `<div class="hit">${first ? `<span class="first">used</span>` : ""}<code>${esc(xpath)}</code>
+    <span class="muted">${esc(detail || "")}</span>
+    ${already ? "" : `<button type="button" class="link" data-add-path="${esc(xpath)}" data-add-kind="${kind}">add it</button>`}</div>`;
+}
+
+function renderCheck(found, host) {
+  if (!found) return;
+  if (found.error) {
+    $("check-result").innerHTML = `<div class="s-failed">${esc(found.error)}</div>`;
+    return;
+  }
+  const parts = [`<div class="muted">${esc(found.title || "")}</div>`];
+  ["image", "next"].forEach((kind) => {
+    const label = kind === "image" ? "Comic image" : "Next page";
+    const hits = found[kind] || [];
+    if (hits.length) {
+      parts.push(`<div style="margin-top:8px"><b>${label}</b>: ${hits.length} match${hits.length === 1 ? "" : "es"}</div>` +
+        hits.map((h, at) => hit(kind, h.xpath, h.src || (h.found && (h.found.href || h.found.title || h.found.class)) || "", at === 0)).join(""));
+    } else {
+      const guesses = (found.suggestions || {})[kind] || [];
+      parts.push(`<div style="margin-top:8px"><b>${label}</b>: <span class="s-failed">nothing matched</span>${guesses.length ? ", but this is on the page:" : ""}</div>` +
+        guesses.filter((g) => g.suggested).map((g) => hit(kind, g.suggested,
+          [g.tag, g.size, g.alt, g.href].filter(Boolean).join(" · "), false)).join(""));
+    }
+  });
+  $("check-result").innerHTML = parts.join("");
+  $("check-result").dataset.host = host || "";
+}
+
+$("check-go").addEventListener("click", async () => {
+  const url = $("check-url").value.trim();
+  $("check-result").innerHTML = `<span class="muted">Checking… a browser has to start, so give it a moment.</span>`;
+  try {
+    const result = await post("/api/check", { url });
+    checkJob = { id: result.queued, host: (url.split("/")[2] || "") };
+  } catch (error) {
+    $("check-result").innerHTML = `<div class="s-failed">${esc(error.message)}</div>`;
+  }
+});
+$("check-result").addEventListener("click", (event) => {
+  const xpath = event.target.dataset.addPath;
+  if (xpath) {
+    addPath(event.target.dataset.addKind, xpath, $("check-result").dataset.host);
+    event.target.replaceWith(document.createTextNode("added"));
+  }
+});
+
 $("edit-save").addEventListener("click", () => saveEditor(false));
 $("edit-save-update").addEventListener("click", () => saveEditor(true));
 $("edit-cancel").addEventListener("click", () => $("editor").close());

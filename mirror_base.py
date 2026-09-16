@@ -88,6 +88,56 @@ next_ele_names = [
                   '//*[@id="Next_"]',
                   '//*[@class="nav-next "]',
                   '//*[@id="last-path-for-happy-code"]']
+#the two lists above are the ones this script ships with. a library can add to them, put them in a
+#different order or turn one off without editing this file, by keeping an element_paths.json beside its
+#comics - which is what the web page writes. anything the file does not mention keeps working, so a new
+#entry shipped here later still arrives.
+element_file = "element_paths.json"
+
+
+def element_paths_file():
+    #the library's own file comes first: update_comics runs every scrape from the library folder, so that
+    #is where a file shared by every comic belongs. the copy beside this script is the fallback for
+    #running it by hand from somewhere else, and MIRROR_ELEMENTS overrules both.
+    named = os.environ.get("MIRROR_ELEMENTS")
+    if named:
+        return named
+    beside_library = os.path.join(os.getcwd(), element_file)
+    if os.path.exists(beside_library):
+        return beside_library
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), element_file)
+
+
+def merge_paths(shipped, saved):
+    #the file decides the order, and which are turned off; anything it never mentions is added at the end
+    known, ordered = set(), []
+    for entry in saved or []:
+        xpath = (entry or {}).get("xpath")
+        if not xpath or xpath in known:
+            continue
+        known.add(xpath)
+        if entry.get("enabled", True):
+            ordered.append(xpath)
+    return ordered + [xpath for xpath in shipped if xpath not in known]
+
+
+def load_element_paths():
+    path = element_paths_file()
+    if not os.path.exists(path):
+        return
+    global element_names, next_ele_names
+    try:
+        with open(path, 'r', encoding='utf-8-sig') as f:
+            saved = json.load(f)
+        element_names = merge_paths(element_names, saved.get("image"))
+        next_ele_names = merge_paths(next_ele_names, saved.get("next"))
+    except (ValueError, OSError, AttributeError, TypeError) as error:
+        #a broken file must not stop every comic in the library, so the built-in lists carry on alone
+        print("WARNING: ignoring {0}: {1}".format(path, error))
+
+
+load_element_paths()
+
 #the xpaths that matched this comic, cached so each page does not repeat the whole search. kept in their
 #own variables rather than written back into the lists above, so a re-search still has every candidate.
 image_xpath = None
@@ -166,6 +216,7 @@ scrape_state = {
 
 def setup():
     global current_url
+    global browser_images
     global verbose
     global arg_parser
     global run_start
@@ -187,12 +238,19 @@ def setup():
     params.add_argument("--cbz",action=argparse.BooleanOptionalAction,help="Packs the pages into a .cbz beside the output folder once the run finishes, adding only the pages the archive does not already hold. On by default.",default=True)
     params.add_argument("--direction-check",action=argparse.BooleanOptionalAction,default=True,help="Stop if the page after the first turns out to be one the comic already has, which means the next link is running backwards. On by default; turn it off only for a comic that genuinely reuses its filenames.")
     params.add_argument("--cbz-path",type=str,default=None,help="Where this comic's .cbz lives. Left off, an archive already beside the output folder is used, otherwise a library laid out as Uncompressed/<comic> files it as CBZs/<comic>.cbz, and failing both it goes beside the folder.")
+    params.add_argument("--check",action='store_true',default=False,help="Load the page, report which of the known image and next element paths match it, and stop. Suggests paths for a site that matches none, which is the first step in adding a comic the script does not know yet.")
     params.add_argument("--prime",action='store_true',default=False,help="Save only the first page, check the next link works, write the metadata and archive, then stop. The comic is then ready for update_comics to download the rest, which is far quicker run on the machine holding the library than over a network share.")
     
     args = params.parse_args(len(sys.argv) == 1 and custom_args or None)
     arg_parser = params
     run_start = now_stamp()
     run_id = uuid.uuid4().hex
+
+    if args.check:
+        #one page, looked at once: worth loading it the way a browser really would, since a site that
+        #builds its page with javascript shows nothing useful otherwise
+        browser_images = True
+        args.enable_javascript = True
 
     driver = build_driver(args)
 
@@ -226,6 +284,98 @@ def setup():
     existing_pages = folder_pages(output_folder(args))
 
     return driver, increment, format, args
+
+
+def describe_element(driver, element):
+    #enough to tell two matches apart when neither is the one that was wanted
+    try:
+        tag = element.tag_name
+        bits = {"tag": tag}
+        for name in ("id", "class", "alt", "title", "rel", "src", "href"):
+            value = element.get_attribute(name)
+            if value:
+                bits[name] = value[:200]
+        if tag == "img":
+            size = element.size
+            bits["size"] = "{0:.0f}x{1:.0f}".format(size.get("width", 0), size.get("height", 0))
+        return bits
+    except se.WebDriverException:
+        return {}
+
+
+def suggest_paths(driver):
+    #for a site nothing matched: the big images, and the links that look like a next button
+    images, links = [], []
+    try:
+        for found in driver.find_elements(By.TAG_NAME, 'img')[:80]:
+            size = found.size
+            area = size.get("width", 0) * size.get("height", 0)
+            if area < 40000: #smaller than 200x200 is a button or an avatar, not a comic page
+                continue
+            bits = describe_element(driver, found)
+            bits["area"] = area
+            bits["suggested"] = ('//*[@id="{0}"]'.format(bits["id"]) if bits.get("id") else
+                                 '//img[@alt="{0}"]'.format(bits["alt"]) if bits.get("alt") else
+                                 '//*[@class="{0}"]/img'.format(bits["class"]) if bits.get("class") else None)
+            images.append(bits)
+        spare = []
+        for found in driver.find_elements(By.TAG_NAME, 'a')[:200]:
+            label = found.text or ""
+            described = label + " " + " ".join(
+                str(found.get_attribute(name) or "") for name in ("title", "rel", "class", "id"))
+            bits = describe_element(driver, found)
+            bits["suggested"] = ('//*[@id="{0}"]'.format(bits["id"]) if bits.get("id") else
+                                 '//*[@class="{0}"]'.format(bits["class"]) if bits.get("class") else None)
+            if not bits.get("suggested") or not bits.get("href"):
+                continue
+            if "next" in described.lower() or ">" in label or "→" in label or "»" in label:
+                links.append(bits)
+            elif 0 < len(label.strip()) <= 20:
+                #plenty of comics label the link something else entirely - onwards, forward, an arrow -
+                #so short links are kept as a second best rather than leaving the list empty
+                spare.append(bits)
+        links = links or spare
+    except se.WebDriverException as error:
+        print("could not look over the page: {0}".format(error))
+    images.sort(key=lambda bits: -bits.get("area", 0))
+    return images[:5], links[:5]
+
+
+def check_page(driver):
+    #every path that matches, in the order a scrape would try them, so it is clear which one would win
+    found = {"url": driver.current_url, "title": driver.title, "image": [], "next": []}
+    for element in element_names:
+        src = ele_get(driver, element)
+        if src:
+            found["image"].append({"xpath": element, "src": src})
+    for element in next_ele_names:
+        if test_next_ele_get(driver, element):
+            try:
+                bits = describe_element(driver, driver.find_element(By.XPATH, element))
+            except se.WebDriverException:
+                bits = {}
+            found["next"].append({"xpath": element, "found": bits})
+    if not found["image"] or not found["next"]:
+        images, links = suggest_paths(driver)
+        found["suggestions"] = {"image": images, "next": links}
+
+    print("Checked {0}".format(found["url"]))
+    for kind in ("image", "next"):
+        if found[kind]:
+            print("  {0}: {1} of the known paths match; a scrape would use {2}".format(
+                kind, len(found[kind]), found[kind][0]["xpath"]))
+        else:
+            print("  {0}: nothing matched".format(kind))
+            for guess in found.get("suggestions", {}).get(kind, []):
+                print("    maybe {0}  ({1})".format(guess.get("suggested"), describe_guess(guess)))
+    #a machine readable copy on one line, for the web page to read back
+    print("CHECK-JSON {0}".format(json.dumps(found)))
+    return found
+
+
+def describe_guess(guess):
+    return ", ".join("{0}={1}".format(key, guess[key]) for key in ("tag", "size", "alt", "class", "id", "href")
+                     if guess.get(key))
 
 
 def quit_quietly(driver):
@@ -800,6 +950,13 @@ def next_ele_get(driver,element):
 
 if __name__ == "__main__":
     driver, increment, format, args = setup()
+    if args.check:
+        #a look at one page, saving nothing: which known paths match, and what to add when none do
+        try:
+            check_page(driver)
+            sys.exit(EXIT_OK)
+        finally:
+            quit_quietly(driver)
     completed = False
     exit_code = EXIT_OK
     try:

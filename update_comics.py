@@ -392,13 +392,23 @@ def run_comic(comic, args):
     if counted is not None:
         comic.after = counted
     #only worth doing when the comic actually gained something, and only for a comic that is in chapters
+    known = comic.metadata.get("chapters") or {}
     if (comic.ok and comic.gained and getattr(args, "pack_chapters", True)
-            and (comic.metadata.get("chapters") or {}).get("list")):
+            and (known.get("list") or known.get("source_url"))):
         try:
             pack_chapters(comic, args)
         except (OSError, subprocess.SubprocessError) as error:
             say("  {0:<40} chapters: could not be written ({1})".format(comic.name, error))
     return comic
+
+
+def read_chapters(comic):
+    #read fresh, because the step before this one may have just written them
+    try:
+        with open(os.path.join(comic.folder, metadata_file), 'r', encoding='utf-8') as f:
+            return json.load(f).get("chapters")
+    except (OSError, ValueError):
+        return None
 
 
 def pack_chapters(comic, args):
@@ -411,7 +421,9 @@ def pack_chapters(comic, args):
     #a new chapter usually begins on one of those pages and could not have been placed before they existed
     steps = ["align"]
     known = comic.metadata.get("chapters") or {}
-    if getattr(args, "refresh_chapters", True) and known.get("source") == "archive" and known.get("source_url"):
+    #reading the archive page again is how a new chapter is found; for a comic that has a page to read but
+    #no chapters worked out yet - one that was primed with a chapter list - it is how the first ones arrive
+    if known.get("source_url") and (getattr(args, "refresh_chapters", True) or not known.get("list")):
         steps.append("chapters")
     steps.append("pack")
     for what in steps:
@@ -419,6 +431,9 @@ def pack_chapters(comic, args):
                               + (["--save"] if what == "chapters" else []),
                               capture_output=True, text=True, errors='replace',
                               env=dict(os.environ, PYTHONUNBUFFERED="1"), timeout=args.timeout or None)
+        if what == "pack" and not (read_chapters(comic) or {}).get("list"):
+            say("  {0:<40} chapters: none could be worked out, so nothing was packed".format(comic.name))
+            return
         if what == "chapters":
             #a refusal here is a decision to make by hand, not a failure: the pages are saved either way
             for line in (done.stdout or "").splitlines():

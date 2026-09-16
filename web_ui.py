@@ -204,7 +204,9 @@ class Runner:
                 "prefix": options["prefix"],
                 "javascript": options["javascript"],
                 "waittime": options["waittime"],
-                "cbz": options["cbz"],
+                #a comic being kept in chapters has no use for the single archive, so it is never built:
+                #the chapter archives are written from the folder once the pages are there
+                "cbz": options["cbz"] and not listing,
                 "direction_check": options["direction_check"],
             }
             comic = uc.Comic(os.path.join(self.args.root, *folder.split("/")), {}, self.args.root)
@@ -228,13 +230,36 @@ class Runner:
             job.comics = comics
             code = uc.run_batch(comics, comics, chosen, "Priming" if options["prime"] else "Scraping")
             for comic in comics:
-                if comic.ok and not options["prime"] and listings.get(comic.name):
+                if not comic.ok or not listings.get(comic.name):
+                    continue
+                #a primed comic has one page and no chapters to find yet, so the archive page is written
+                #down and the chapters are worked out by the update that fetches the rest
+                remember_listing(comic, listings[comic.name])
+                if not options["prime"]:
                     split_into_chapters(comic, listings[comic.name], chosen, self.uc)
             return code
 
         verb = "Prime" if options["prime"] else "Scrape"
         label = "{0} {1}".format(verb, comics[0].name if len(comics) == 1 else "{0} new comics".format(len(comics)))
         return self.submit(Job("add", label, work))
+
+
+def remember_listing(comic, listing):
+    #so a later run knows where this comic's chapters are listed, whoever starts it
+    path = os.path.join(comic.folder, "mirror_metadata.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+    except (OSError, ValueError):
+        return
+    block = metadata.setdefault("chapters", {})
+    if block.get("source_url") == listing:
+        return
+    block["source"] = "archive"
+    block["source_url"] = listing
+    block.setdefault("list", [])
+    write_json(path, metadata)
+    print("  {0}: chapters will be read from {1}".format(comic.name, listing), flush=True)
 
 
 def split_into_chapters(comic, listing, args, uc):

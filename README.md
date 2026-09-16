@@ -448,9 +448,13 @@ writes anything without `--save`:
 1. **An archive page.** Its links are checked against the addresses the walk recorded, so a link is
    *known* to be a page of this comic rather than guessed at, and chapter titles come from whatever
    headings sit above them. Works on hand-built tables and on themed archives alike.
-2. **The addresses themselves**, for a comic that counts `/c4/p7` or `/ss/4-7`: the chapter is the
-   number that never goes down while another resets underneath it. A part that never changes is the
-   comic's own name in the path, not a chapter.
+2. **The addresses themselves**, for a comic that counts `/c4/p7`, `/ss/4-7` or
+   `/comic/issue-4-page-7`: every number in the address is tried as the chapter, and whichever reads best
+   wins. A chapter counts up from where a comic starts counting, which is what keeps a date from being
+   read as a chapter a year. A page whose address does not follow the shape the rest use - a one-off
+   slug, a typo on the site - stays in the chapter it sits in rather than becoming one, and each chapter
+   is named by what most of its pages say. `--urls` forces this even for a comic that remembers an
+   archive page.
 3. **A file of chapter starts**, one address per line, each optionally followed by `|` and a title.
 
 A chapter runs until the next one starts, so filler, guest art and flash pages stay where they were

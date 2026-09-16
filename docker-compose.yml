@@ -36,12 +36,13 @@ services:
 
       # OPTIONAL, and the reason to want it is that editing a script should not cost an image build.
       # Mounted over the copies baked in at build time, so whatever .py files sit in this folder are
-      # what runs. Read-only, because the container has no business rewriting its own code.
+      # what runs. Writable, because the settings and the element paths live in its config folder and
+      # the web page saves them there.
       #
       # Point it at the folder holding the scripts, along with web_ui.py and web_ui.html. Uncomment only once that folder really has
       # them in it: an empty or missing path here mounts an empty /app and nothing will start.
       #
-      - /share/Container/ComicScraper:/app:ro
+      - /share/Container/ComicScraper:/app
 
     # chromium wants more than docker's default 64m of shared memory
     shm_size: 512m

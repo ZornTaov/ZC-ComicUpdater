@@ -31,6 +31,64 @@ def say(line):
         sys.stdout.flush()
 
 
+#settings that describe the setup rather than any one comic, kept beside the scripts so a container can
+#edit them without writing into the library. every one of them can still be given on the command line,
+#and what is given there wins.
+config_file = "ComicScraper.json"
+config_defaults = {
+    #where a library keeps its pages and its archives, as folder names inside the library
+    "pages_folder": "Uncompressed",
+    "cbz_folder": "CBZs",
+    #the same things --jobs, --timeout and the rest set, for a setup that would otherwise pass them every time
+    "jobs": 1,
+    "timeout": 1800,
+    "progress": 60,
+    "max_depth": 5,
+    "schedule": None,
+    #what the web page's add form starts with ticked
+    "add_defaults": {"prime": False, "prefix": False, "increment": 1, "javascript": False,
+                     "waittime": 0, "cbz": True, "direction_check": True},
+}
+
+
+def config_folder():
+    return os.environ.get("MIRROR_CONFIG") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "config")
+
+
+def config_path():
+    return os.path.join(config_folder(), config_file)
+
+
+#the settings files already complained about, so a broken one is not reported before every run
+warned_about = set()
+
+
+def load_config(quiet=False):
+    #read fresh rather than remembered, so a change through the web page reaches the next run without a restart
+    settings = dict(config_defaults)
+    settings["add_defaults"] = dict(config_defaults["add_defaults"])
+    path = config_path()
+    if not os.path.exists(path):
+        return settings
+    try:
+        with open(path, 'r', encoding='utf-8-sig') as f:
+            saved = json.load(f)
+        for key, value in (saved or {}).items():
+            if key == "add_defaults" and isinstance(value, dict):
+                settings["add_defaults"].update(value)
+            elif key in config_defaults:
+                settings[key] = value
+    except (ValueError, OSError, AttributeError) as error:
+        #a broken settings file must not stop the library updating, so the built-in values carry on. said
+        #once for each state of the file rather than on every read, which happens before every run
+        stamp = (path, os.path.getmtime(path) if os.path.exists(path) else None)
+        if stamp not in warned_about:
+            warned_about.add(stamp)
+            print("WARNING: ignoring {0}: {1}".format(path, error), flush=True)
+    return settings
+
+
 lock_file = ".update_comics.lock"
 #the code a comic gets when it is stopped by hand rather than failing on its own
 stopped_code = 130
@@ -373,9 +431,9 @@ def setup():
         description="Updates every comic in a library folder by resuming it from its mirror_metadata.json.")
     params.add_argument("root", nargs='?', default=".",
                         help="Library folder holding one directory per comic. Defaults to the working directory.")
-    params.add_argument("-j", "--jobs", type=int, default=1,
+    params.add_argument("-j", "--jobs", type=int, default=None,
                         help="How many comics to update at once. Each one runs its own browser, so raise this only as far as memory allows. Defaults to 1.")
-    params.add_argument("-t", "--timeout", type=int, default=1800,
+    params.add_argument("-t", "--timeout", type=int, default=None,
                         help="Seconds any one comic may run before it is killed. Defaults to 1800.")
     params.add_argument("-o", "--only", action='append', default=None,
                         help="Update only the named comic folder. May be repeated, and takes wildcards: \"Group/*\" is every comic under Group, however deep.")
@@ -383,11 +441,11 @@ def setup():
                         help="List what would run, and the command each comic would use, without running anything.")
     params.add_argument("--script", default=None,
                         help="Path to mirror_base.py. Defaults to the copy beside this script.")
-    params.add_argument("--max-depth", type=int, default=5,
+    params.add_argument("--max-depth", type=int, default=None,
                         help="How many folders deep to look for comics. Lets a library group comics by author or site. Defaults to 5.")
     params.add_argument("--schedule", default=None, metavar="HH:MM",
                         help="Stay running and start an update at this local time every day. Without it the update runs once and exits.")
-    params.add_argument("--progress", type=int, default=60, metavar="SECONDS",
+    params.add_argument("--progress", type=int, default=None, metavar="SECONDS",
                         help="While a run is going, say every so often which comics are still going "
                              "and how far they have got. Defaults to 60 seconds; 0 turns it off.")
     params.add_argument("--now", action='store_true', default=False,
@@ -398,10 +456,30 @@ def setup():
                         help="Serve a page on this port for watching runs, starting updates and adding new "
                              "comics. Keeps running even without --schedule. Set MIRROR_WEB_PASSWORD to "
                              "require a password.")
+    params.add_argument("--config", default=None, metavar="FOLDER",
+                        help="Folder holding {0} and element_paths.json. Defaults to a config folder beside "
+                             "this script.".format(config_file))
     params.add_argument("--web-host", default="0.0.0.0", metavar="ADDRESS",
                         help="Address the page listens on. Defaults to every interface; 127.0.0.1 keeps it "
                              "to this machine.")
     args = params.parse_args()
+
+    #which options were actually typed, so a later re-read of the settings file leaves those alone
+    args.from_command_line = {action.dest for action in params._actions
+                              if any(flag in sys.argv[1:] for flag in action.option_strings)}
+
+    #passed on to every mirror_base this starts, so the scrapes read their element paths from the same place
+    if args.config:
+        os.environ["MIRROR_CONFIG"] = os.path.abspath(args.config)
+    args.config = config_folder()
+    saved = load_config()
+    #anything not given on the command line comes from the settings file, and anything missing there from
+    #the built-in defaults. the command line wins because it is the more deliberate of the two.
+    for key in ("jobs", "timeout", "progress", "max_depth", "schedule"):
+        if getattr(args, key) is None:
+            setattr(args, key, saved[key])
+    args.pages_folder = saved["pages_folder"]
+    args.cbz_folder = saved["cbz_folder"]
 
     args.root = os.path.abspath(args.root)
     if args.script is None:
@@ -456,6 +534,19 @@ def select_comics(args):
             print("NOTE: {0} still had --output {1} from an earlier layout; using its own folder.".format(
                 comic.name, comic.moved_from))
     return comics, runnable
+
+
+def with_config(args):
+    #re-read before each run, so editing the settings does not need a restart. only the values a run uses
+    #are taken; the schedule is read once at startup because it is what the waiting loop is built around.
+    saved = load_config(quiet=True)
+    fresh = copy.copy(args)
+    for key in ("jobs", "timeout", "progress", "max_depth"):
+        if key not in getattr(args, "from_command_line", ()):
+            setattr(fresh, key, saved[key])
+    fresh.pages_folder = saved["pages_folder"]
+    fresh.cbz_folder = saved["cbz_folder"]
+    return fresh
 
 
 def run_once(args):

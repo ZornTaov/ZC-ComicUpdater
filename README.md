@@ -15,6 +15,8 @@ rewriting or re-syncing 250 MB.
 | `mirror_base.py` | Scrapes one comic, saves the pages, appends them to its `.cbz`, writes its metadata. |
 | `update_comics.py` | Walks a library, resumes every comic from its metadata, on demand or on a schedule. |
 | `web_ui.py`, `web_ui.html` | The optional web page `update_comics.py --web` serves. |
+| `config/ComicScraper.json` | Settings: where pages and archives go, and what a run defaults to. |
+| `config/element_paths.json` | The XPaths every scrape tries, when the built-in ones are not enough. |
 | `adopt_comic.py` | Writes metadata for comics you already have, so they join the rotation without re-downloading. |
 
 ## Requirements
@@ -236,18 +238,22 @@ shows:
 - **Library**: every comic with its page count and how its last run ended. Filter it with a name or a
   wildcard such as `Uncompressed/Snafu-Comics/*`, then update the checked comics, everything shown,
   or one comic from its own row.
-- **Add comics**: one comic per line, the folder then the first page's address:
+- **Add comics**: a row per comic — where its pages go, where its archive goes, and the page to start
+  from. Both folders are inside the ones named in Settings, so they are written once each:
 
-  ```text
-  Uncompressed/Snafu-Comics/nsma https://www.snafu-comics.com/nsma/issue-1-cover
-  Uncompressed/Snafu-Comics/gg https://www.snafu-comics.com/gg/gg-p1-2
-  ```
+  | Pages folder | Archive | First page |
+  | --- | --- | --- |
+  | `Snafu-Comics/nsma` | `Snafu-Comics/nsma.cbz` | `https://www.snafu-comics.com/nsma/issue-1-cover` |
+  | `MyComic` | `MyComic/MyComic.cbz` | `https://example.com/comic/first-page` |
 
-  Folders are inside the library, and the archive goes to `CBZs/` as usual. Tick **prime only** to
-  save just the first page of each, or leave it off to scrape the whole comic. A full scrape has no
-  time limit, since a new comic can run to thousands of pages; a stalled page still ends on its own,
-  and anything else can be stopped. The options apply to every line, so add comics that need
-  different options as separate batches. A folder that is already a comic is refused.
+  Leave the archive blank and it is worked out: a comic already inside a group folder gets its `.cbz`
+  beside its siblings, and a comic with no folder of its own is given one, since some readers dislike
+  archives sitting loose in a root folder. Paste a list to fill in several rows at once, splitting on
+  `|`, tabs or spaces. Tick **prime only** to save just the first page of each, or leave it off to
+  scrape the whole comic. A full scrape has no time limit, since a new comic can run to thousands of
+  pages; a stalled page still ends on its own, and anything else can be stopped. The options apply to
+  every row, so add comics that need different options as separate batches. A folder that is already a
+  comic is refused.
 - **Edit** on any comic opens its settings: the page the next update starts from, its page number,
   the archive path, the scraping options, and whether it has ended. Beside them are the pages held, the
   last file saved, where the last run stopped and why, and recent runs. So a comic that stopped on a
@@ -255,9 +261,13 @@ shows:
   A comic being scraped cannot be edited, since the run rewrites its metadata after every page. A save
   is refused if the file has changed since you opened it. Every change is recorded under
   `history.edits` in the metadata.
+- **Settings** edits `config/ComicScraper.json`: the pages and archive folders, how many comics run at
+  once, the time limit, and what the add form starts with. Anything fixed on the command line is marked
+  as such, since that wins.
 - **Element paths** opens the lists of XPaths every scrape tries, in the order it tries them: the
   comic image, and the next-page link. Add one, note what it is for, reorder them, or turn one off.
-  **Check this page** loads any address in the scraper's own browser and says which paths match it,
+  Drag a row by its handle, or use the arrows, to change the order. **Check this page** loads any
+  address in the scraper's own browser and says which paths match it,
   with an **add it** button beside each; when nothing matches, it suggests paths from the page's own
   images and links. Paths that came with the script can be turned off but not deleted, so a later
   version of the script cannot quietly reinstate one you did not want.
@@ -316,6 +326,7 @@ Edit them over a file share, and:
   scheduled run already in progress will use it for the comics it has not reached yet.
 - **`update_comics.py` and `web_ui.py` need a container restart**, since they are the long-running
   process. The Restart button in Container Station is enough; no ssh. `web_ui.html` needs nothing.
+- **Settings and element paths need nothing.** They are read from `config/` before each run.
 - **Adopting a new comic needs nothing.** The library is re-scanned at the start of every scheduled
   run, so a `mirror_metadata.json` written today joins tonight's run by itself.
 
@@ -357,11 +368,40 @@ snapshots on ZFS or btrfs from growing by a whole archive every time a comic upd
 Pages are stored, not deflated: they are already-compressed JPEG and PNG, so compressing them again
 costs CPU to save nothing.
 
+## Settings
+
+Settings live in a `config` folder beside the scripts, not in the library, so they survive the library
+moving and a container can write them without touching your comics. `--config FOLDER` points somewhere
+else, and `MIRROR_CONFIG` does the same for `mirror_base.py` on its own.
+
+`config/ComicScraper.json`, every value optional:
+
+```json
+{
+  "pages_folder": "Uncompressed",
+  "cbz_folder": "CBZs",
+  "jobs": 2,
+  "timeout": 1800,
+  "progress": 60,
+  "max_depth": 5,
+  "schedule": "03:30",
+  "add_defaults": { "prefix": false, "increment": 1, "javascript": false, "waittime": 0,
+                    "cbz": true, "direction_check": true, "prime": false }
+}
+```
+
+Anything given on the command line wins over the file, and the **Settings** button on the web page
+edits it. The file is re-read before every run, so a change takes effect on the next comic rather than
+the next restart — except `schedule`, which the waiting loop reads once when it starts.
+
+`pages_folder` and `cbz_folder` are what the **Add comics** table fills in for you, so a row only has to
+say `MyComic`, not the whole path twice.
+
 ## Element paths
 
 `mirror_base.py` ships with a list of XPaths for the comic image and a list for the next-page link, and
 tries each in order until one matches. A library can add to them without editing the script, by keeping
-an `element_paths.json` in the library folder:
+a `config/element_paths.json` beside the scripts:
 
 ```json
 {
@@ -374,10 +414,9 @@ The file decides the order and what is turned off; any path it does not mention 
 after the ones it lists, so a path added to the script later still arrives. A file that cannot be read is
 reported and ignored rather than stopping the run.
 
-The web page edits this file, which is why it lives in the library: a container mounting its scripts
-read-only can still write there. `mirror_base.py` looks for it in the folder it was started from, then
-beside itself, and `MIRROR_ELEMENTS` overrules both — worth setting when running it by hand from
-somewhere other than the library.
+`mirror_base.py` looks for it in the config folder, then in the folder it was started from and beside
+itself, so a library that kept one of these in an older place goes on working. `MIRROR_ELEMENTS` names
+the file outright.
 
 To work out what a new comic needs:
 

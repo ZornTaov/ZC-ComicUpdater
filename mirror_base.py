@@ -95,17 +95,27 @@ next_ele_names = [
 element_file = "element_paths.json"
 
 
+def config_folder():
+    #settings live beside the scripts rather than in the library: they describe the setup, not the comics.
+    #MIRROR_CONFIG names it outright, which is how update_comics passes its own --config down to here.
+    return os.environ.get("MIRROR_CONFIG") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "config")
+
+
 def element_paths_file():
-    #the library's own file comes first: update_comics runs every scrape from the library folder, so that
-    #is where a file shared by every comic belongs. the copy beside this script is the fallback for
-    #running it by hand from somewhere else, and MIRROR_ELEMENTS overrules both.
+    #MIRROR_ELEMENTS names the file outright; otherwise it is the one in the config folder. the two older
+    #places - the folder a scrape runs from, and beside this script - are still read if nothing else is
+    #there, so a library that kept its file in either goes on working.
     named = os.environ.get("MIRROR_ELEMENTS")
     if named:
         return named
-    beside_library = os.path.join(os.getcwd(), element_file)
-    if os.path.exists(beside_library):
-        return beside_library
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), element_file)
+    here = os.path.dirname(os.path.abspath(__file__))
+    for path in (os.path.join(config_folder(), element_file),
+                 os.path.join(os.getcwd(), element_file),
+                 os.path.join(here, element_file)):
+        if os.path.exists(path):
+            return path
+    return os.path.join(config_folder(), element_file)
 
 
 def merge_paths(shipped, saved):

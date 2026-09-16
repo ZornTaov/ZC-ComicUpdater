@@ -111,15 +111,28 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .runs td, .runs th { padding: 3px 6px; position: static; cursor: default; }
 .link { background: none; border: none; color: var(--accent); padding: 0; font-size: 12px; cursor: pointer; }
 #elements { width: min(900px, calc(100vw - 32px)); }
-.ep { display: grid; grid-template-columns: auto minmax(0, 1fr) 150px auto; gap: 6px; align-items: center;
-  padding: 3px 0; }
+.ep { display: grid; grid-template-columns: auto auto minmax(0, 1fr) 150px auto; gap: 6px; align-items: center;
+  padding: 3px 0; background: var(--bg); }
+.grip { cursor: grab; color: var(--muted); user-select: none; padding: 0 2px; line-height: 1; touch-action: none; }
+.ep.dragging { opacity: .4; }
+.ep.over { box-shadow: inset 0 2px 0 var(--accent); }
+.add-row { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 1.5fr) auto;
+  gap: 6px; align-items: center; padding: 3px 0; }
+.add-row input { width: 100%; font-family: var(--mono); font-size: 12px; padding: 4px 6px; }
+.add-head { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 1.5fr) auto;
+  gap: 6px; font-size: 12px; color: var(--muted); padding-bottom: 2px; }
+@media (max-width: 620px) {
+  .add-row, .add-head { grid-template-columns: minmax(0, 1fr) auto; }
+  .add-head span:nth-child(2), .add-head span:nth-child(3) { display: none; }
+  .add-row input:nth-child(2), .add-row input:nth-child(3) { grid-column: 1 / 2; }
+}
 .ep input[type=text] { width: 100%; font-family: var(--mono); font-size: 12px; padding: 3px 6px; }
 .ep .note-in { font-family: inherit; }
 .ep.off input[type=text] { opacity: .45; text-decoration: line-through; }
 .ep .moves { display: flex; gap: 2px; }
 .ep .moves button { padding: 1px 6px; font-size: 11px; line-height: 1.4; }
-@media (max-width: 620px) { .ep { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .ep .note-in { grid-column: 2 / 4; } }
+@media (max-width: 620px) { .ep { grid-template-columns: auto auto minmax(0, 1fr) auto; }
+  .ep .note-in { grid-column: 3 / 5; } }
 .ep-list { max-height: 300px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px;
   padding: 6px 8px; background: var(--bg); }
 .ep-head { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 6px; }
@@ -177,9 +190,14 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
 
   <div class="col">
     <section>
-      <h2><span class="grow">Add comics</span><button class="small" id="open-elements">Element paths</button></h2>
-      <div class="help">One per line: the folder inside the library, then the first page's address.</div>
-      <textarea id="entries" spellcheck="false" placeholder="Uncompressed/Snafu-Comics/nsma https://www.snafu-comics.com/nsma/issue-1-cover"></textarea>
+      <h2><span class="grow">Add comics</span><button class="small" id="open-config">Settings</button>
+        <button class="small" id="open-elements">Element paths</button></h2>
+      <div class="help">One row per comic. Folders are inside <span id="add-roots"></span>, and a comic with
+        no folder of its own is given one so its archive is not loose in the root. Paste a list to fill
+        several rows at once.</div>
+      <div class="add-head"><span>Pages folder</span><span>Archive</span><span>First page</span><span></span></div>
+      <div id="add-rows"></div>
+      <div class="row" style="margin-top:6px"><button type="button" class="link" id="add-more">add another row</button></div>
       <div class="row">
         <label class="check"><input type="checkbox" id="prime"> prime only</label>
         <label class="check"><input type="checkbox" id="prefix"> number pages</label>
@@ -190,7 +208,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
         <label class="check"><input type="checkbox" id="direction" checked> direction check</label>
       </div>
       <div class="help">Prime only saves the first page and checks the next link works; a later update fetches the rest.
-        The options apply to every line, so add comics that need different options separately.</div>
+        The options apply to every row, so add comics that need different options separately.</div>
       <div class="row"><button class="primary" id="add">Add to queue</button></div>
       <div class="msg" id="add-msg"></div>
     </section>
@@ -206,6 +224,51 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
     </section>
   </div>
 </main>
+
+<dialog id="config">
+  <form method="dialog">
+    <div class="dlg-head"><h3>Settings</h3><span class="muted" id="cfg-path"></span></div>
+    <div class="dlg-body">
+      <div class="help">Kept beside the scripts rather than in the library, so they survive a library move.
+        Anything passed on the command line wins over what is set here and is marked below.</div>
+      <div class="field"><label for="c-pages_folder">Pages folder</label>
+        <input type="text" id="c-pages_folder" spellcheck="false">
+        <div class="note">Inside the library, holding one folder per comic.</div></div>
+      <div class="field"><label for="c-cbz_folder">Archive folder</label>
+        <input type="text" id="c-cbz_folder" spellcheck="false">
+        <div class="note">Where .cbz files are filed, mirroring the pages folder.</div></div>
+      <div class="field"><label for="c-jobs">Comics at once</label>
+        <span><input type="number" id="c-jobs" min="1" style="width:80px"> <span class="muted" id="c-jobs-note"></span></span></div>
+      <div class="field"><label for="c-timeout">Time limit</label>
+        <span><input type="number" id="c-timeout" min="0" style="width:100px"> seconds per comic, 0 for none
+          <span class="muted" id="c-timeout-note"></span></span></div>
+      <div class="field"><label for="c-progress">Progress every</label>
+        <span><input type="number" id="c-progress" min="0" style="width:80px"> seconds, 0 to stop saying
+          <span class="muted" id="c-progress-note"></span></span></div>
+      <div class="field"><label for="c-max_depth">Folders deep</label>
+        <span><input type="number" id="c-max_depth" min="1" style="width:80px"> when looking for comics
+          <span class="muted" id="c-max_depth-note"></span></span></div>
+      <div class="field"><label for="c-schedule">Daily update</label>
+        <span><input type="text" id="c-schedule" style="width:100px" placeholder="03:30"> local time, blank for none
+          <span class="muted" id="c-schedule-note"></span></span>
+        <div class="note">Read when the updater starts, so this one waits for a restart.</div></div>
+      <div class="field"><label>Add comics starts with</label>
+        <div class="row">
+          <label class="check"><input type="checkbox" id="c-add-prime"> prime only</label>
+          <label class="check"><input type="checkbox" id="c-add-prefix"> number pages</label>
+          <label class="check"><input type="checkbox" id="c-add-javascript"> javascript</label>
+          <label class="check"><input type="checkbox" id="c-add-cbz"> make cbz</label>
+          <label class="check"><input type="checkbox" id="c-add-direction_check"> direction check</label>
+        </div>
+      </div>
+    </div>
+    <div class="dlg-foot">
+      <div class="msg" id="cfg-msg"></div>
+      <button type="button" id="cfg-cancel">Close</button>
+      <button type="button" class="primary" id="cfg-save">Save</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="elements">
   <form method="dialog">
@@ -565,12 +628,16 @@ let paths = { image: [], next: [] };
 let checkJob = null;
 
 function renderPaths() {
+  //moving a row rebuilds the lists, and a rebuilt list would otherwise jump back to the top
+  const scrolled = {};
+  $("ep-lists").querySelectorAll(".ep-list").forEach((list) => { scrolled[list.dataset.list] = list.scrollTop; });
   $("ep-lists").innerHTML = ["image", "next"].map((kind) => `
     <div class="ep-head"><h4>${kind === "image" ? "Comic image" : "Next page"} paths</h4>
       <span class="muted">${paths[kind].filter((p) => p.enabled).length} on, ${paths[kind].length} listed</span>
       <button type="button" class="link" data-add="${kind}">add one</button></div>
     <div class="ep-list" data-list="${kind}">${paths[kind].map((p, at) => `
-      <div class="ep ${p.enabled ? "" : "off"}">
+      <div class="ep ${p.enabled ? "" : "off"}" draggable="true" data-kind="${kind}" data-at="${at}">
+        <span class="grip" title="drag to move">⠿</span>
         <input type="checkbox" ${p.enabled ? "checked" : ""} data-kind="${kind}" data-at="${at}" data-field="enabled"
           title="${p.enabled ? "in use" : "turned off"}">
         <input type="text" value="${esc(p.xpath)}" data-kind="${kind}" data-at="${at}" data-field="xpath" spellcheck="false">
@@ -583,7 +650,42 @@ function renderPaths() {
             : `<button type="button" data-drop-path="1" data-kind="${kind}" data-at="${at}" title="remove">✕</button>`}
         </span>
       </div>`).join("")}</div>`).join("");
+  $("ep-lists").querySelectorAll(".ep-list").forEach((list) => {
+    if (scrolled[list.dataset.list]) list.scrollTop = scrolled[list.dataset.list];
+  });
 }
+
+// dragging a row by its grip, within its own list
+let dragging = null;
+$("ep-lists").addEventListener("dragstart", (event) => {
+  const row = event.target.closest(".ep");
+  if (!row) return;
+  dragging = { kind: row.dataset.kind, at: Number(row.dataset.at) };
+  row.classList.add("dragging");
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", "row");
+});
+$("ep-lists").addEventListener("dragover", (event) => {
+  const row = event.target.closest(".ep");
+  if (!dragging || !row || row.dataset.kind !== dragging.kind) return;
+  event.preventDefault();
+  $("ep-lists").querySelectorAll(".ep.over").forEach((other) => other.classList.remove("over"));
+  row.classList.add("over");
+});
+$("ep-lists").addEventListener("drop", (event) => {
+  const row = event.target.closest(".ep");
+  if (!dragging || !row || row.dataset.kind !== dragging.kind) return;
+  event.preventDefault();
+  const list = paths[dragging.kind];
+  const [moved] = list.splice(dragging.at, 1);
+  list.splice(Number(row.dataset.at), 0, moved);
+  dragging = null;
+  renderPaths();
+});
+$("ep-lists").addEventListener("dragend", () => {
+  dragging = null;
+  $("ep-lists").querySelectorAll(".dragging, .over").forEach((row) => row.classList.remove("dragging", "over"));
+});
 
 async function openElements() {
   $("ep-msg").className = "msg"; $("ep-msg").textContent = "";
@@ -728,13 +830,151 @@ $("stop").addEventListener("click", async () => {
     await post("/api/stop").catch((e) => alert(e.message));
   }
 });
+// ---- add comics rows ----
+let addRows = [{ folder: "", cbz: "", url: "" }];
+let config = null;
+
+function defaultCbz(folder) {
+  folder = folder.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  if (!folder) return "";
+  const parts = folder.split("/");
+  return parts.length === 1 ? `${folder}/${parts[0]}.cbz` : folder + ".cbz";
+}
+
+function renderAddRows() {
+  const focus = document.activeElement;
+  const where = focus && focus.dataset && focus.dataset.addField
+    ? [focus.dataset.at, focus.dataset.addField, focus.selectionStart] : null;
+  $("add-rows").innerHTML = addRows.map((row, at) => `
+    <div class="add-row">
+      <input type="text" value="${esc(row.folder)}" data-at="${at}" data-add-field="folder" spellcheck="false"
+        placeholder="MyComic">
+      <input type="text" value="${esc(row.cbz)}" data-at="${at}" data-add-field="cbz" spellcheck="false"
+        placeholder="${esc(defaultCbz(row.folder) || "MyComic/MyComic.cbz")}">
+      <input type="text" value="${esc(row.url)}" data-at="${at}" data-add-field="url" spellcheck="false"
+        placeholder="https://example.com/comic/first-page">
+      <button type="button" class="small" data-drop-row="${at}" ${addRows.length === 1 ? "disabled" : ""} title="remove">✕</button>
+    </div>`).join("");
+  if (where) {
+    const back = $("add-rows").querySelector(`[data-at="${where[0]}"][data-add-field="${where[1]}"]`);
+    if (back) { back.focus(); try { back.setSelectionRange(where[2], where[2]); } catch (e) {} }
+  }
+}
+
+// a pasted list fills in rows: one comic per line, its columns split by | or tab, or just spaces
+function splitPaste(text) {
+  return text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("#"))
+    .map((line) => {
+      let parts = line.includes("|") ? line.split("|") : line.includes("\t") ? line.split("\t") : line.split(/\s+/);
+      parts = parts.map((part) => part.trim()).filter(Boolean);
+      const url = parts.find((part) => /^https?:\/\//.test(part)) || "";
+      const rest = parts.filter((part) => part !== url);
+      return { folder: rest[0] || "", cbz: rest[1] || "", url };
+    });
+}
+
+$("add-rows").addEventListener("input", (event) => {
+  const { at, addField } = event.target.dataset;
+  if (!addField) return;
+  addRows[at][addField] = event.target.value;
+  if (addField === "folder") renderAddRows();
+});
+$("add-rows").addEventListener("paste", (event) => {
+  const text = (event.clipboardData || window.clipboardData).getData("text");
+  if (!/[\r\n]/.test(text.trim())) return;
+  event.preventDefault();
+  const at = Number(event.target.dataset.at);
+  const filled = splitPaste(text);
+  addRows.splice(at, addRows[at].folder || addRows[at].url ? 0 : 1, ...filled);
+  renderAddRows();
+});
+$("add-rows").addEventListener("click", (event) => {
+  const at = event.target.dataset.dropRow;
+  if (at === undefined) return;
+  addRows.splice(Number(at), 1);
+  if (!addRows.length) addRows = [{ folder: "", cbz: "", url: "" }];
+  renderAddRows();
+});
+$("add-more").addEventListener("click", () => {
+  addRows.push({ folder: "", cbz: "", url: "" });
+  renderAddRows();
+  const inputs = $("add-rows").querySelectorAll('[data-add-field="folder"]');
+  inputs[inputs.length - 1].focus();
+});
+
+// ---- settings ----
+function applyConfig(data) {
+  config = data;
+  const s = data.settings;
+  $("cfg-path").textContent = data.path + (data.saved ? "" : " (not written yet)");
+  ["pages_folder", "cbz_folder", "jobs", "timeout", "progress", "max_depth"].forEach((key) => {
+    $("c-" + key).value = s[key] ?? "";
+  });
+  $("c-schedule").value = s.schedule || "";
+  ["jobs", "timeout", "progress", "max_depth", "schedule"].forEach((key) => {
+    const note = $("c-" + key + "-note");
+    if (note) note.textContent = data.from_command_line.includes(key) ? "· set on the command line, which wins" : "";
+  });
+  Object.entries(s.add_defaults || {}).forEach(([key, value]) => {
+    const box = $("c-add-" + key);
+    if (box) box.checked = !!value;
+  });
+  $("add-roots").textContent = `${s.pages_folder}/ and ${s.cbz_folder}/`;
+  ["prime", "prefix", "javascript", "cbz", "direction"].forEach((key) => {
+    const from = s.add_defaults || {};
+    const box = $(key);
+    if (box) box.checked = !!from[key === "direction" ? "direction_check" : key];
+  });
+  if (s.add_defaults) {
+    $("increment").value = s.add_defaults.increment ?? 1;
+    $("waittime").value = s.add_defaults.waittime ?? 0;
+  }
+}
+
+async function loadConfig(open) {
+  try {
+    applyConfig(await (await fetch(api("/api/config"))).json());
+    if (open) {
+      $("cfg-msg").className = "msg"; $("cfg-msg").textContent = "";
+      $("config").showModal();
+    }
+  } catch (error) {
+    if (open) alert("Could not read the settings: " + error.message);
+  }
+}
+
+$("open-config").addEventListener("click", () => loadConfig(true));
+$("cfg-cancel").addEventListener("click", () => $("config").close());
+$("cfg-save").addEventListener("click", async () => {
+  const msg = $("cfg-msg");
+  msg.className = "msg"; msg.textContent = "Saving…";
+  const settings = { schedule: $("c-schedule").value.trim(), add_defaults: {} };
+  ["pages_folder", "cbz_folder", "jobs", "timeout", "progress", "max_depth"].forEach((key) => {
+    settings[key] = $("c-" + key).value;
+  });
+  ["prime", "prefix", "javascript", "cbz", "direction_check"].forEach((key) => {
+    settings.add_defaults[key] = $("c-add-" + key).checked;
+  });
+  settings.add_defaults.increment = Number($("increment").value) || 1;
+  settings.add_defaults.waittime = Number($("waittime").value) || 0;
+  try {
+    const result = await post("/api/config", { settings });
+    applyConfig({ ...config, settings: result.settings, saved: true, path: result.path });
+    msg.className = "msg good";
+    msg.textContent = "Saved. The next run uses these; a changed schedule waits for a restart.";
+  } catch (error) {
+    msg.className = "msg bad";
+    msg.textContent = error.message;
+  }
+});
+
 $("add").addEventListener("click", async () => {
   const msg = $("add-msg");
   msg.className = "msg";
   msg.textContent = "";
   try {
     const result = await post("/api/add", {
-      entries: $("entries").value,
+      rows: addRows,
       prime: $("prime").checked,
       prefix: $("prefix").checked,
       increment: $("increment").value,
@@ -745,13 +985,16 @@ $("add").addEventListener("click", async () => {
     });
     msg.className = "msg good";
     msg.textContent = `Queued: ${result.label}`;
-    $("entries").value = "";
+    addRows = [{ folder: "", cbz: "", url: "" }];
+    renderAddRows();
   } catch (error) {
     msg.className = "msg bad";
     msg.textContent = error.message;
   }
 });
 
+renderAddRows();
+loadConfig(false);
 loadComics();
 poll();
 </script>

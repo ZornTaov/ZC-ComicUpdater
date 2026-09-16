@@ -22,6 +22,9 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY mirror_base.py update_comics.py adopt_comic.py web_ui.py web_ui.html /app/
 
+# settings and element paths are written here, and survive an image rebuild when /app is mounted
+RUN mkdir -p /app/config
+
 # the web page, when update_comics is started with --web 8080
 EXPOSE 8080
 

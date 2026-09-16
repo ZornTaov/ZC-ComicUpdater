@@ -150,7 +150,7 @@ class Runner:
         names = list(names or [])
 
         def work(job):
-            chosen = copy.copy(self.args)
+            chosen = self.uc.with_config(self.args)
             chosen.only = names or None
             chosen.dry_run = False
             chosen.cancel = job.cancel
@@ -195,10 +195,11 @@ class Runner:
     def submit_add(self, entries, options):
         uc = self.uc
         comics = []
-        for folder, url in entries:
+        for folder, cbz_path, url in entries:
             settings = {
                 "url": url,
                 "output": folder,
+                "cbz_path": cbz_path,
                 "increment": options["increment"],
                 "prefix": options["prefix"],
                 "javascript": options["javascript"],
@@ -213,7 +214,7 @@ class Runner:
             comics.append(comic)
 
         def work(job):
-            chosen = copy.copy(self.args)
+            chosen = self.uc.with_config(self.args)
             chosen.cancel = job.cancel
             #a new comic can be thousands of pages, so only priming keeps the usual limit. a stalled page
             #still ends on its own through mirror_base's page timeout, and anything else can be stopped here
@@ -328,11 +329,21 @@ def shipped_paths(script):
     return lists
 
 
+def element_paths_path(args, uc):
+    #the config folder is where it belongs now. a file left in the library from an earlier version is still
+    #read, and saving writes the config copy, which is the one mirror_base prefers from then on.
+    path = os.path.join(uc.config_folder(), element_file)
+    if os.path.exists(path):
+        return path
+    older = os.path.join(args.root, element_file)
+    return older if os.path.exists(older) else path
+
+
 def element_settings(args, uc):
     #what the page shows: everything mirror_base would try, in the order it would try it, marked with where
     #it came from. the built-in list is the base, and the saved file says what was reordered, added or
     #turned off - so a path added to the script later still turns up here.
-    path = os.path.join(args.root, element_file)
+    path = element_paths_path(args, uc)
     saved = {}
     problem = None
     if os.path.exists(path):
@@ -384,17 +395,13 @@ def save_elements(args, uc, given):
     if problems:
         return 400, {"error": "; ".join(problems)}
 
-    path = os.path.join(args.root, element_file)
+    path = os.path.join(uc.config_folder(), element_file)
     body = {"note": "Element paths for mirror_base.py. The order here is the order they are tried; "
                     "anything not listed is added after them.",
             "updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     body.update(cleaned)
-    spare = path + ".editing"
     try:
-        with open(spare, "w", encoding="utf-8") as f:
-            json.dump(body, f, indent=2)
-            f.write("\n")
-        os.replace(spare, path)
+        write_json(path, body)
     except OSError as error:
         return 500, {"error": "could not write {0}: {1}".format(path, error)}
     print("Saved {0}: {1} image path(s), {2} next path(s)".format(
@@ -523,6 +530,83 @@ def save_settings(args, uc, runner, name, given, expected_updated):
     return 200, {"saved": True, "changed": changed, "updated": stamp}
 
 
+def write_json(path, body):
+    #written beside the real file and swapped in, so a crash part way never leaves half a file
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    spare = path + ".editing"
+    with open(spare, "w", encoding="utf-8") as f:
+        json.dump(body, f, indent=2)
+        f.write("\n")
+    os.replace(spare, path)
+
+
+def config_view(args, uc):
+    saved = uc.load_config(quiet=True)
+    return {"path": uc.config_path(), "saved": os.path.exists(uc.config_path()),
+            "settings": saved, "defaults": uc.config_defaults,
+            "restart_needed": ["schedule"], "root": args.root,
+            "from_command_line": sorted(getattr(args, "from_command_line", []))}
+
+
+def save_config(args, uc, given):
+    #only the settings that are known, so the file cannot fill up with things nothing reads
+    saved, problems = {}, []
+    for key, fallback in uc.config_defaults.items():
+        if key not in given:
+            continue
+        value = given[key]
+        if key == "add_defaults" and isinstance(value, dict):
+            saved[key] = {name: value.get(name, default) for name, default in fallback.items()}
+        elif key in ("pages_folder", "cbz_folder"):
+            folder = clean_folder(str(value or ""))
+            if folder is None:
+                problems.append("{0} has to be a folder inside the library".format(key))
+            else:
+                saved[key] = folder
+        elif key == "schedule":
+            text = str(value or "").strip()
+            if text:
+                try:
+                    uc.parse_schedule(text)
+                except ValueError:
+                    problems.append("the schedule wants a 24 hour time like 03:30")
+            saved[key] = text or None
+        else:
+            try:
+                number = int(value)
+                if number < 0:
+                    raise ValueError
+                saved[key] = number
+            except (TypeError, ValueError):
+                problems.append("{0} has to be a whole number, 0 or more".format(key))
+    if saved.get("jobs") == 0:
+        problems.append("jobs has to be at least 1")
+    if problems:
+        return 400, {"error": "; ".join(problems)}
+    try:
+        write_json(uc.config_path(), saved)
+    except OSError as error:
+        return 500, {"error": "could not write {0}: {1}".format(uc.config_path(), error)}
+    print("Saved {0}".format(uc.config_path()), flush=True)
+    return 200, {"saved": True, "path": uc.config_path(), "settings": uc.load_config(quiet=True)}
+
+
+def default_cbz(folder):
+    #readers dislike archives loose in a folder, so a comic with no folder of its own is given one. a comic
+    #already inside a group folder has one, and its archive sits beside its siblings.
+    parts = folder.split("/")
+    return "{0}/{1}.cbz".format(folder, parts[-1]) if len(parts) == 1 else folder + ".cbz"
+
+
+def under_root(root, folder):
+    #the table holds paths inside the pages or archive folder, but typing the whole thing has to work too
+    folder = folder.strip("/")
+    first = folder.split("/")[0].lower()
+    if root and first == root.strip("/").lower():
+        return folder
+    return "{0}/{1}".format(root.strip("/"), folder) if root else folder
+
+
 def clean_folder(text):
     #a folder inside the library, never outside it
     folder = text.strip().strip('"').replace(chr(92), "/").strip("/")
@@ -532,25 +616,42 @@ def clean_folder(text):
     return "/".join(parts)
 
 
-def parse_entries(text, root):
-    #one comic per line: the folder it goes in and the page it starts from, in either order
+def parse_entries(rows, args):
+    #one comic per row: where its pages go, where its archive goes, and the page to start from. the two
+    #folders are given relative to the library's pages and archive folders, since that is all that differs
+    #between one comic and the next.
     entries, problems = [], []
-    for number, raw in enumerate(text.splitlines(), 1):
-        line = raw.strip()
-        if not line or line.startswith("#"):
+    for number, row in enumerate(rows or [], 1):
+        if isinstance(row, str):
+            row = {"folder": row}
+        url = str((row or {}).get("url") or "").strip().strip('"')
+        folder = clean_folder(str(row.get("folder") or ""))
+        archive = str(row.get("cbz") or "").strip().strip('"')
+        if not url and not folder and not archive:
             continue
-        urls = re.findall(r"https?://\S+", line)
-        if len(urls) != 1:
-            problems.append("line {0}: needs exactly one http(s) address".format(number))
+        if not re.match(r"^https?://\S+$", url):
+            problems.append("row {0}: needs one http(s) address".format(number))
             continue
-        folder = clean_folder(line.replace(urls[0], " "))
         if folder is None:
-            problems.append("line {0}: needs a folder inside the library, like Uncompressed/MyComic".format(number))
+            problems.append("row {0}: needs a folder, like MyComic or Series/MyComic".format(number))
             continue
-        if os.path.exists(os.path.join(root, *folder.split("/"), "mirror_metadata.json")):
-            problems.append("line {0}: {1} is already in the library; update it instead".format(number, folder))
+        pages_at = under_root(args.pages_folder, folder)
+        archive = clean_folder(archive) if archive else None
+        if row.get("cbz") and archive is None:
+            problems.append("row {0}: the archive path is not a path inside the library".format(number))
             continue
-        entries.append((folder, urls[0].strip('"')))
+        archive_at = under_root(args.cbz_folder, archive or default_cbz(folder))
+        if not archive_at.lower().endswith(".cbz"):
+            archive_at += ".cbz"
+        if os.path.exists(os.path.join(args.root, *pages_at.split("/"), "mirror_metadata.json")):
+            problems.append("row {0}: {1} is already in the library; update it instead".format(number, pages_at))
+            continue
+        entries.append((pages_at, archive_at, url))
+    seen = set()
+    for pages_at, _, _ in entries:
+        if pages_at in seen:
+            problems.append("{0} is listed twice".format(pages_at))
+        seen.add(pages_at)
     return entries, problems
 
 
@@ -617,6 +718,8 @@ def make_handler(runner, args, uc, tee):
                     "log": [{"seq": s, "at": at, "text": text} for s, at, text in lines],
                     "seq": seq,
                 })
+            elif where.path == "/api/config":
+                self.reply(config_view(args, uc))
             elif where.path == "/api/elements":
                 self.reply(element_settings(args, uc))
             elif where.path == "/api/comics":
@@ -649,17 +752,18 @@ def make_handler(runner, args, uc, tee):
                 job = runner.submit_update(names, "Started from the web page")
                 self.reply({"queued": job.id, "label": job.label})
             elif path == "/api/add":
-                entries, problems = parse_entries(str(body.get("entries") or ""), args.root)
+                entries, problems = parse_entries(body.get("rows") or body.get("entries") or [],
+                                                  uc.with_config(args))
+                #whatever the request did not say is taken from the settings file, so adding a comic
+                #through the page and adding one any other way start from the same options
+                fallback = uc.load_config().get("add_defaults", {})
                 try:
-                    options = {
-                        "prime": bool(body.get("prime")),
-                        "prefix": bool(body.get("prefix")),
-                        "increment": int(body.get("increment") or 1),
-                        "javascript": bool(body.get("javascript")),
-                        "waittime": int(body.get("waittime") or 0),
-                        "cbz": body.get("cbz", True) is not False,
-                        "direction_check": body.get("direction_check", True) is not False,
-                    }
+                    options = {}
+                    for key in ("prime", "prefix", "javascript", "cbz", "direction_check"):
+                        options[key] = bool(body[key]) if key in body else bool(fallback.get(key))
+                    for key, floor in (("increment", 1), ("waittime", 0)):
+                        given = body.get(key, fallback.get(key, floor))
+                        options[key] = int(given if given not in ("", None) else floor)
                 except (TypeError, ValueError):
                     problems.append("the starting number and wait time must be whole numbers")
                 if problems:
@@ -676,6 +780,9 @@ def make_handler(runner, args, uc, tee):
                 if status == 200 and body.get("update_after"):
                     job = runner.submit_update([name], "Edited on the web page")
                     result["queued"] = job.label
+                self.reply(result, status)
+            elif path == "/api/config":
+                status, result = save_config(args, uc, body.get("settings") or {})
                 self.reply(result, status)
             elif path == "/api/elements":
                 status, result = save_elements(args, uc, body)

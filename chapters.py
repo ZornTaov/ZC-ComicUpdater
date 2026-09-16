@@ -55,13 +55,25 @@ def folder_pages(folder):
     return sorted(names, key=sort_key)
 
 
-def index_path(folder, root=None):
+def index_path(folder, root=None, args=None):
     #the comic's own folder decides the name, and nothing else: passing a library folder or not must never
     #change which cache a comic uses. the short tag is what keeps two comics called Extras apart.
+    if args is not None and getattr(args, "cache", None):
+        return args.cache
     full = os.path.abspath(folder)
     tag = hashlib.sha1(full.replace(os.sep, '/').lower().encode('utf-8')).hexdigest()[:8]
     name = re.sub(r'[^A-Za-z0-9._-]+', '_', os.path.basename(full)).strip('_') or "comic"
-    return os.path.join(config_folder(), "index", "{0}.{1}.jsonl".format(name, tag))
+    here = os.path.join(config_folder(), "index", "{0}.{1}.jsonl".format(name, tag))
+    if os.path.exists(here):
+        return here
+    #the same comic reached by another path - a share on one machine, a mount inside a container - hashes
+    #differently, so the comic itself says which cache is its own and that is used when it is there
+    named = ((read_metadata(folder).get("history") or {}).get("index_cache"))
+    if named:
+        elsewhere = os.path.join(config_folder(), "index", named)
+        if os.path.exists(elsewhere):
+            return elsewhere
+    return here
 
 
 def read_index(path):
@@ -295,6 +307,17 @@ def describe(folder, pages, files, aligned, how, anchors, trouble):
     return settled
 
 
+def remember_cache(folder, path):
+    #written into the comic so another machine, where this folder has a different path, still finds it
+    metadata = read_metadata(folder)
+    if not metadata:
+        return
+    history = metadata.setdefault("history", {})
+    if history.get("index_cache") != os.path.basename(path):
+        history["index_cache"] = os.path.basename(path)
+        write_metadata(folder, metadata)
+
+
 def save_alignment(path, folder, pages, aligned, how, settled):
     out = {
         "comic": folder,
@@ -369,7 +392,7 @@ def time_stamp():
 # ---------------- fetching pages again ----------------
 def joined_pages(folder, args):
     #the alignment says which file is which page; the walk says how big the site's copy is
-    cache = index_path(folder, args.root)
+    cache = index_path(folder, args.root, args)
     alignment = cache.replace(".jsonl", ".align.json")
     if not os.path.exists(alignment):
         print("ERROR: {0} has not been lined up yet. Run: chapters.py index {0}".format(folder))
@@ -490,7 +513,7 @@ def repack(folder, args):
 
 def walk(folder, args):
     #the slow part: mirror_base follows the comic from its first page, saving nothing
-    cache = index_path(folder, args.root)
+    cache = index_path(folder, args.root, args)
     start = args.start
     metadata = read_metadata(folder)
     history = metadata.get("history") or {}
@@ -526,7 +549,7 @@ def walk(folder, args):
 
 
 def do_align(folder, args):
-    cache = index_path(folder, args.root)
+    cache = index_path(folder, args.root, args)
     if not os.path.exists(cache):
         print("ERROR: no index for {0} yet. Run: chapters.py index {1}".format(folder, folder))
         return 2
@@ -536,6 +559,7 @@ def do_align(folder, args):
     aligned, how, anchors, trouble = align(pages, files, folder)
     settled = describe(folder, pages, files, aligned, how, anchors, trouble)
     where = save_alignment(cache.replace(".jsonl", ".align.json"), folder, pages, aligned, how, settled)
+    remember_cache(folder, cache)
     print("  written to {0}".format(where))
     if settled:
         save_gaps(folder, pages, aligned)
@@ -562,6 +586,8 @@ def setup():
     params.add_argument("--repack", action='store_true', default=False,
                         help="With refetch, write the .cbz afresh afterwards so it holds the new copies.")
     params.add_argument("--cbz", default=None, help="The archive to repack, when the metadata does not say.")
+    params.add_argument("--cache", default=None,
+                        help="The walk's cache file, when it is not the one in the config folder.")
     return params.parse_args()
 
 
@@ -572,7 +598,7 @@ def main():
         print("ERROR: {0} is not a folder.".format(folder))
         return 2
     if args.what == "show":
-        path = index_path(folder, args.root).replace(".jsonl", ".align.json")
+        path = index_path(folder, args.root, args).replace(".jsonl", ".align.json")
         if not os.path.exists(path):
             print("ERROR: {0} has not been lined up yet.".format(folder))
             return 2

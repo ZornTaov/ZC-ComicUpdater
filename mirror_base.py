@@ -772,7 +772,7 @@ def metadata_save(driver, args, completed=False, exit_code=None):
         metadata["history"]["edits"] = old_history["edits"]
     #what this comic is known to be missing, and which of its files were made by hand. worked out by
     #chapters.py, which takes minutes to do, so a scrape must not throw it away
-    for kept in ("gaps", "hand_made", "gaps_checked"):
+    for kept in ("gaps", "hand_made", "gaps_checked", "index_cache"):
         if old_history.get(kept) is not None:
             metadata["history"][kept] = old_history[kept]
 

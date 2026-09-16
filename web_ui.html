@@ -116,15 +116,15 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .grip { cursor: grab; color: var(--muted); user-select: none; padding: 0 2px; line-height: 1; touch-action: none; }
 .ep.dragging { opacity: .4; }
 .ep.over { box-shadow: inset 0 2px 0 var(--accent); }
-.add-row { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 1.5fr) auto;
+.add-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.3fr) auto;
   gap: 6px; align-items: center; padding: 3px 0; }
 .add-row input { width: 100%; font-family: var(--mono); font-size: 12px; padding: 4px 6px; }
-.add-head { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 1.5fr) auto;
+.add-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.3fr) auto;
   gap: 6px; font-size: 12px; color: var(--muted); padding-bottom: 2px; }
 @media (max-width: 620px) {
   .add-row, .add-head { grid-template-columns: minmax(0, 1fr) auto; }
-  .add-head span:nth-child(2), .add-head span:nth-child(3) { display: none; }
-  .add-row input:nth-child(2), .add-row input:nth-child(3) { grid-column: 1 / 2; }
+  .add-head span:nth-child(2), .add-head span:nth-child(3), .add-head span:nth-child(4) { display: none; }
+  .add-row input:nth-child(2), .add-row input:nth-child(3), .add-row input:nth-child(4) { grid-column: 1 / 2; }
 }
 .ep input[type=text] { width: 100%; font-family: var(--mono); font-size: 12px; padding: 3px 6px; }
 .ep .note-in { font-family: inherit; }
@@ -193,9 +193,11 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
       <h2><span class="grow">Add comics</span><button class="small" id="open-config">Settings</button>
         <button class="small" id="open-elements">Element paths</button></h2>
       <div class="help">One row per comic. Folders are inside <span id="add-roots"></span>, and a comic with
-        no folder of its own is given one so its archive is not loose in the root. Paste a list to fill
-        several rows at once.</div>
-      <div class="add-head"><span>Pages folder</span><span>Archive</span><span>First page</span><span></span></div>
+        no folder of its own is given one so its archive is not loose in the root. Give a chapter list -
+        the comic's archive page - and it is split into one archive per chapter as soon as it is scraped.
+        Paste a list to fill several rows at once.</div>
+      <div class="add-head"><span>Pages folder</span><span>Archive</span><span>First page</span>
+        <span>Chapter list</span><span></span></div>
       <div id="add-rows"></div>
       <div class="row" style="margin-top:6px"><button type="button" class="link" id="add-more">add another row</button></div>
       <div class="row">
@@ -831,7 +833,7 @@ $("stop").addEventListener("click", async () => {
   }
 });
 // ---- add comics rows ----
-let addRows = [{ folder: "", cbz: "", url: "" }];
+let addRows = [{ folder: "", cbz: "", url: "", chapters: "" }];
 let config = null;
 
 function defaultCbz(folder) {
@@ -853,6 +855,8 @@ function renderAddRows() {
         placeholder="${esc(defaultCbz(row.folder) || "MyComic/MyComic.cbz")}">
       <input type="text" value="${esc(row.url)}" data-at="${at}" data-add-field="url" spellcheck="false"
         placeholder="https://example.com/comic/first-page">
+      <input type="text" value="${esc(row.chapters || "")}" data-at="${at}" data-add-field="chapters" spellcheck="false"
+        placeholder="archive page, for chapters">
       <button type="button" class="small" data-drop-row="${at}" ${addRows.length === 1 ? "disabled" : ""} title="remove">✕</button>
     </div>`).join("");
   if (where) {
@@ -867,9 +871,10 @@ function splitPaste(text) {
     .map((line) => {
       let parts = line.includes("|") ? line.split("|") : line.includes("\t") ? line.split("\t") : line.split(/\s+/);
       parts = parts.map((part) => part.trim()).filter(Boolean);
-      const url = parts.find((part) => /^https?:\/\//.test(part)) || "";
-      const rest = parts.filter((part) => part !== url);
-      return { folder: rest[0] || "", cbz: rest[1] || "", url };
+      //two addresses on a line are the first page and then the chapter list; everything else is a folder
+      const urls = parts.filter((part) => /^https?:\/\//.test(part));
+      const rest = parts.filter((part) => !urls.includes(part));
+      return { folder: rest[0] || "", cbz: rest[1] || "", url: urls[0] || "", chapters: urls[1] || "" };
     });
 }
 
@@ -896,7 +901,7 @@ $("add-rows").addEventListener("click", (event) => {
   renderAddRows();
 });
 $("add-more").addEventListener("click", () => {
-  addRows.push({ folder: "", cbz: "", url: "" });
+  addRows.push({ folder: "", cbz: "", url: "", chapters: "" });
   renderAddRows();
   const inputs = $("add-rows").querySelectorAll('[data-add-field="folder"]');
   inputs[inputs.length - 1].focus();
@@ -985,7 +990,7 @@ $("add").addEventListener("click", async () => {
     });
     msg.className = "msg good";
     msg.textContent = `Queued: ${result.label}`;
-    addRows = [{ folder: "", cbz: "", url: "" }];
+    addRows = [{ folder: "", cbz: "", url: "", chapters: "" }];
     renderAddRows();
   } catch (error) {
     msg.className = "msg bad";

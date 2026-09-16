@@ -41,6 +41,8 @@ config_defaults = {
     "cbz_folder": "CBZs",
     #after a chaptered comic gains pages, line them up and write the chapter archives again
     "pack_chapters": True,
+    #and read its archive page again first, in case those pages started a new chapter
+    "refresh_chapters": True,
     #the same things --jobs, --timeout and the rest set, for a setup that would otherwise pass them every time
     "jobs": 1,
     "timeout": 1800,
@@ -405,10 +407,24 @@ def pack_chapters(comic, args):
     script = os.path.join(os.path.dirname(os.path.abspath(args.script)), "chapters.py")
     if not os.path.exists(script):
         return
-    for what in ("align", "pack"):
-        done = subprocess.run([sys.executable, script, what, comic.folder, "--root", args.root],
+    #lined up first, so the pages just saved are in the index; then the archive page is read again, since
+    #a new chapter usually begins on one of those pages and could not have been placed before they existed
+    steps = ["align"]
+    known = comic.metadata.get("chapters") or {}
+    if getattr(args, "refresh_chapters", True) and known.get("source") == "archive" and known.get("source_url"):
+        steps.append("chapters")
+    steps.append("pack")
+    for what in steps:
+        done = subprocess.run([sys.executable, script, what, comic.folder, "--root", args.root]
+                              + (["--save"] if what == "chapters" else []),
                               capture_output=True, text=True, errors='replace',
                               env=dict(os.environ, PYTHONUNBUFFERED="1"), timeout=args.timeout or None)
+        if what == "chapters":
+            #a refusal here is a decision to make by hand, not a failure: the pages are saved either way
+            for line in (done.stdout or "").splitlines():
+                if "more than before" in line or "WARNING:" in line or "because pages would move" in line:
+                    say("  {0:<40} chapters: {1}".format(comic.name, line.strip()[:110]))
+            continue
         if done.returncode != 0:
             say("  {0:<40} chapters: {1} said no ({2})".format(
                 comic.name, what, (done.stdout or done.stderr).strip().splitlines()[-1][:80]
@@ -485,6 +501,10 @@ def setup():
                         help="Serve a page on this port for watching runs, starting updates and adding new "
                              "comics. Keeps running even without --schedule. Set MIRROR_WEB_PASSWORD to "
                              "require a password.")
+    params.add_argument("--refresh-chapters", action=argparse.BooleanOptionalAction, default=None,
+                        help="Before writing a chaptered comic's archives again, read the archive page it "
+                             "remembers, in case the new pages started a chapter. On by default. A change "
+                             "that would move existing chapters is reported rather than taken.")
     params.add_argument("--pack-chapters", action=argparse.BooleanOptionalAction, default=None,
                         help="After a comic that is split into chapters gains pages, line them up and "
                              "write its chapter archives again. On unless the settings file says otherwise.")
@@ -507,7 +527,8 @@ def setup():
     saved = load_config()
     #anything not given on the command line comes from the settings file, and anything missing there from
     #the built-in defaults. the command line wins because it is the more deliberate of the two.
-    for key in ("jobs", "timeout", "progress", "max_depth", "schedule", "pack_chapters"):
+    for key in ("jobs", "timeout", "progress", "max_depth", "schedule", "pack_chapters",
+                "refresh_chapters"):
         if getattr(args, key) is None:
             setattr(args, key, saved[key])
     args.pages_folder = saved["pages_folder"]
@@ -573,7 +594,7 @@ def with_config(args):
     #are taken; the schedule is read once at startup because it is what the waiting loop is built around.
     saved = load_config(quiet=True)
     fresh = copy.copy(args)
-    for key in ("jobs", "timeout", "progress", "max_depth", "pack_chapters"):
+    for key in ("jobs", "timeout", "progress", "max_depth", "pack_chapters", "refresh_chapters"):
         if key not in getattr(args, "from_command_line", ()):
             setattr(fresh, key, saved[key])
     fresh.pages_folder = saved["pages_folder"]

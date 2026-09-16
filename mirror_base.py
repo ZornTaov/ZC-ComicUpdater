@@ -16,6 +16,7 @@ import os
 import re
 import requests
 import argparse
+import hashlib
 import json
 import shlex
 import subprocess
@@ -260,6 +261,7 @@ def setup():
     params.add_argument("--direction-check",action=argparse.BooleanOptionalAction,default=True,help="Stop if the page after the first turns out to be one the comic already has, which means the next link is running backwards. On by default; turn it off only for a comic that genuinely reuses its filenames.")
     params.add_argument("--cbz-path",type=str,default=None,help="Where this comic's .cbz lives. Left off, an archive already beside the output folder is used, otherwise a library laid out as Uncompressed/<comic> files it as CBZs/<comic>.cbz, and failing both it goes beside the folder.")
     params.add_argument("--page-source",action='store_true',default=False,help="Load the page in the browser and print its html, for a page that builds itself with javascript. Saves nothing.")
+    params.add_argument("--keep-index",action='store_true',default=False,help="Record each page saved - its address, its file and its size - in an index beside the settings, so the comic can be split into chapters later without being walked again. A comic that already has one keeps it up to date whether this is given or not.")
     params.add_argument("--index",type=str,default=None,metavar="FILE",help="Walk the comic without downloading anything and write one line per page - its address, its image and its title - to this file. Used to work out which saved file came from which page. An existing file is carried on from where it stopped.")
     params.add_argument("--index-first",action='store_true',default=False,help="With --index, follow the comic's first-page link before walking, for a comic whose beginning was never recorded.")
     params.add_argument("--index-limit",type=int,default=0,metavar="PAGES",help="With --index, stop after this many pages. 0 means the whole comic.")
@@ -310,7 +312,7 @@ def setup():
 
     #a comic that has been walked has a record of which page is which, and chapters are built on it. it is
     #kept up to date here as pages are saved, so it never has to be walked a second time.
-    open_index(output_folder(args))
+    open_index(output_folder(args), args)
 
     return driver, increment, format, args
 
@@ -506,18 +508,34 @@ index_urls = set()
 index_last = 0
 
 
-def open_index(folder):
+def index_name(folder):
+    #the same name chapters.py would pick for this comic, so the two always mean one file
+    full = os.path.abspath(folder)
+    tag = hashlib.sha1(full.replace(os.sep, '/').lower().encode('utf-8')).hexdigest()[:8]
+    stem = re.sub(r'[^A-Za-z0-9._-]+', '_', os.path.basename(full)).strip('_') or "comic"
+    return "{0}.{1}.jsonl".format(stem, tag)
+
+
+def open_index(folder, args=None):
     global index_file, index_urls, index_last
+    named = None
     try:
         with open(os.path.join(folder, metadata_file), 'r', encoding='utf-8') as f:
             named = ((json.load(f).get("history") or {}).get("index_cache"))
     except (OSError, ValueError, AttributeError):
+        pass
+    if not named and not (args and args.keep_index):
         return
-    if not named:
-        return
-    path = os.path.join(config_folder(), "index", named)
+    path = os.path.join(config_folder(), "index", named or index_name(folder))
     if not os.path.exists(path):
-        return
+        if not (args and args.keep_index):
+            return
+        #a comic being scraped from its first page can have its index built as it goes, which is the whole
+        #of what a walk would have had to do afterwards
+        if not os.path.isdir(os.path.dirname(path)):
+            os.makedirs(os.path.dirname(path))
+        open(path, 'a', encoding='utf-8').close()
+        print("Keeping an index of which page is which in {0}".format(path))
     try:
         with open(path, 'r', encoding='utf-8') as f:
             for line in f:
@@ -530,8 +548,9 @@ def open_index(folder):
     except (OSError, ValueError):
         return
     index_file = path
-    print("This comic keeps an index of which page is which ({0} pages); new pages are added to "
-          "it.".format(index_last))
+    if index_last:
+        print("This comic keeps an index of which page is which ({0} pages); new pages are added to "
+              "it.".format(index_last))
 
 
 def add_to_index(url, src, image, size, title):
@@ -812,6 +831,9 @@ def metadata_save(driver, args, completed=False, exit_code=None):
             "last_image_file": scrape_state["last_image_file"],
         },
         "history": {
+            #the index this comic keeps, named here so another machine, where this folder has a different
+            #path, still knows which one is its own
+            "index_cache": os.path.basename(index_file) if index_file else None,
             "first_page_url": first_page_url,
             "first_page_number": first_increment,
             "adopted": bool(old_history.get("adopted", previous.get("adopted", False))),
@@ -826,9 +848,12 @@ def metadata_save(driver, args, completed=False, exit_code=None):
         metadata["history"]["edits"] = old_history["edits"]
     #what this comic is known to be missing, and which of its files were made by hand. worked out by
     #chapters.py, which takes minutes to do, so a scrape must not throw it away
-    for kept in ("gaps", "hand_made", "gaps_checked", "index_cache"):
+    for kept in ("gaps", "gaps_note", "hand_made", "gaps_checked", "index_cache"):
         if old_history.get(kept) is not None:
             metadata["history"][kept] = old_history[kept]
+    if metadata["history"].get("index_cache") is None:
+        #a comic with no index says nothing rather than saying nothing twice
+        del metadata["history"]["index_cache"]
 
     #where the chapters are, worked out by chapters.py from an archive page or the addresses
     #themselves. it describes the comic rather than this run, so a scrape must leave it alone.

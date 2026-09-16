@@ -54,6 +54,7 @@ Useful flags:
     --no-headless       show the browser window, for working out why a site misbehaves
 -v, --verbose           log every step
     --prime             save the first page, check the next link, then stop
+    --keep-index        record which page is which as it saves, for chaptering later
 ```
 
 `--prefix` matters more than it looks. Many comics change their filename scheme partway through
@@ -245,6 +246,11 @@ shows:
   | --- | --- | --- |
   | `Snafu-Comics/nsma` | `Snafu-Comics/nsma.cbz` | `https://www.snafu-comics.com/nsma/issue-1-cover` |
   | `MyComic` | `MyComic/MyComic.cbz` | `https://example.com/comic/first-page` |
+
+  A **chapter list** - the comic's own archive page - is optional, and turns a new comic into one archive
+  per chapter as soon as it has been scraped: the scrape records which page is which as it goes, the
+  archive page is read for the boundaries, and the single archive is given up once every page is checked
+  to be in a chapter. Leave it blank and the comic is kept as one archive, as before.
 
   Leave the archive blank and it is worked out: a comic already inside a group folder gets its `.cbz`
   beside its siblings, and a comic with no folder of its own is given one, since some readers dislike
@@ -469,8 +475,14 @@ Set `pack_chapters` to false in the settings, or pass `--no-pack-chapters`, to d
 the index is still kept up to date either way, so `chapters.py pack` picks the pages up whenever you
 get to it.
 
-A chapter that starts after the last one the archive page listed is not noticed on its own: new pages
-join the chapter still being published until you run `chapters.py chapters ... --save` again.
+**The comic remembers where its chapters are listed.** After it gains pages, the updater reads that page
+again - after lining the new pages up, since a new chapter usually begins on one of them and could not be
+placed before they existed. A change that only adds chapters at the end is taken; one that would move a
+chapter whose archive already exists is reported and left alone, because pages would have to move between
+archives. `chapters.py chapters <folder> --save --force` takes it once you have looked.
+
+Running `chapters.py chapters <folder>` with no source at all re-reads whatever that comic remembers, so
+keeping boundaries current needs no arguments.
 
 ## Settings
 

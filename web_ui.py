@@ -194,8 +194,8 @@ class Runner:
 
     def submit_add(self, entries, options):
         uc = self.uc
-        comics = []
-        for folder, cbz_path, url in entries:
+        comics, listings = [], {}
+        for folder, cbz_path, url, listing in entries:
             settings = {
                 "url": url,
                 "output": folder,
@@ -211,6 +211,11 @@ class Runner:
             comic.argv = uc.settings_to_argv(settings)
             if options["prime"]:
                 comic.argv.insert(0, "--prime")
+            if listing:
+                #a comic that is going to be split into chapters records which page is which as it is
+                #scraped, so it never has to be walked afterwards
+                comic.argv.insert(0, "--keep-index")
+                listings[comic.name] = listing
             comics.append(comic)
 
         def work(job):
@@ -221,11 +226,37 @@ class Runner:
             if not options["prime"]:
                 chosen.timeout = 0
             job.comics = comics
-            return uc.run_batch(comics, comics, chosen, "Priming" if options["prime"] else "Scraping")
+            code = uc.run_batch(comics, comics, chosen, "Priming" if options["prime"] else "Scraping")
+            for comic in comics:
+                if comic.ok and not options["prime"] and listings.get(comic.name):
+                    split_into_chapters(comic, listings[comic.name], chosen, self.uc)
+            return code
 
         verb = "Prime" if options["prime"] else "Scrape"
         label = "{0} {1}".format(verb, comics[0].name if len(comics) == 1 else "{0} new comics".format(len(comics)))
         return self.submit(Job("add", label, work))
+
+
+def split_into_chapters(comic, listing, args, uc):
+    #a new comic that was given a chapter list: line up what was just saved, read the list, and write one
+    #archive per chapter. every step says what it did, and none of them touches the pages themselves.
+    script = os.path.join(os.path.dirname(os.path.abspath(args.script)), "chapters.py")
+    if not os.path.exists(script):
+        return
+    #--replace because a comic kept in chapters keeps no single archive: the one the scrape just built
+    #is given up as soon as every page is checked to be in a chapter
+    steps = [["align"], ["chapters", "--archive", listing, "--save"], ["pack", "--replace"]]
+    for step in steps:
+        done = subprocess.run([sys.executable, script, step[0], comic.folder, "--root", args.root]
+                              + step[1:], capture_output=True, text=True, errors="replace",
+                              env=dict(os.environ, PYTHONUNBUFFERED="1"), timeout=1800)
+        said = (done.stdout or done.stderr or "").strip().splitlines()
+        print("  {0}: {1}".format(step[0], said[-1][:120] if said else "exit {0}".format(done.returncode)),
+              flush=True)
+        if done.returncode != 0:
+            print("  {0} stopped there, so its chapters were not written. The pages are saved either "
+                  "way.".format(comic.name), flush=True)
+            return
 
 
 def comic_view(comic, uc, live):
@@ -627,7 +658,11 @@ def parse_entries(rows, args):
         url = str((row or {}).get("url") or "").strip().strip('"')
         folder = clean_folder(str(row.get("folder") or ""))
         archive = str(row.get("cbz") or "").strip().strip('"')
-        if not url and not folder and not archive:
+        listing = str(row.get("chapters") or "").strip().strip('"')
+        if not url and not folder and not archive and not listing:
+            continue
+        if listing and not re.match(r"^https?://\S+$", listing):
+            problems.append("row {0}: the chapter list has to be an http(s) address".format(number))
             continue
         if not re.match(r"^https?://\S+$", url):
             problems.append("row {0}: needs one http(s) address".format(number))
@@ -646,9 +681,9 @@ def parse_entries(rows, args):
         if os.path.exists(os.path.join(args.root, *pages_at.split("/"), "mirror_metadata.json")):
             problems.append("row {0}: {1} is already in the library; update it instead".format(number, pages_at))
             continue
-        entries.append((pages_at, archive_at, url))
+        entries.append((pages_at, archive_at, url, listing))
     seen = set()
-    for pages_at, _, _ in entries:
+    for pages_at, _, _, _ in entries:
         if pages_at in seen:
             problems.append("{0} is listed twice".format(pages_at))
         seen.add(pages_at)

@@ -618,10 +618,28 @@ def save_chapters(folder, chapters, source, source_url=None):
     return 0
 
 
+def compare_chapters(was, now):
+    #what changed, in the terms that matter: a chapter added at the end is safe to take, while one that
+    #moved or vanished means pages would leave archives that already hold them
+    was = was or []
+    older = [(c["start_page"], c.get("label")) for c in was]
+    newer = [(c["start_page"], c.get("label")) for c in now]
+    if older == newer[:len(older)]:
+        return "same" if len(newer) == len(older) else "longer", newer[len(older):]
+    moved = [old for old, fresh in zip(older, newer) if old != fresh]
+    return "changed", moved
+
+
 def plan(folder, args):
     pages = joined_pages(folder, args)
     if pages is None:
         return 2
+    metadata = read_metadata(folder)
+    known = metadata.get("chapters") or {}
+    if not args.archive and not args.list and known.get("source") == "archive" and known.get("source_url"):
+        #the comic remembers where its chapters are listed, so keeping them current needs no arguments
+        args.archive = known["source_url"]
+        print("Reading the archive this comic remembers: {0}".format(args.archive))
     listed = None
     if args.archive:
         found, listed = chapters_from_archive(args.archive, pages, args.browser, args.script)
@@ -639,10 +657,24 @@ def plan(folder, args):
         return 1
     chapters = settle_chapters(found, pages, args.shift)
     show_chapters(folder, chapters, pages, listed)
-    if args.save:
-        return save_chapters(folder, chapters, source, source_url)
-    print("  nothing saved. Run it again with --save once this looks right.")
-    return 0
+    how, what = compare_chapters(known.get("list"), chapters)
+    if known.get("list"):
+        if how == "same":
+            print("  the same chapters as before.")
+        elif how == "longer":
+            print("  {0} chapter(s) more than before: {1}".format(
+                len(what), ", ".join("{0} at page {1}".format(label, at) for at, label in what[:4])))
+        else:
+            print("  WARNING: this moves chapters that already have archives written for them: {0}{1}".format(
+                ["page {0}".format(at) for at, label in what[:4]], "..." if len(what) > 4 else ""))
+    if not args.save:
+        print("  nothing saved. Run it again with --save once this looks right.")
+        return 0
+    if how == "changed" and not args.force:
+        print("  nothing saved, because pages would move between archives that already exist. Look at it, "
+              "then run it again with --force if that is what you want.")
+        return 1
+    return save_chapters(folder, chapters, source, source_url)
 
 
 # ---------------- one archive per chapter ----------------
@@ -655,14 +687,18 @@ def tidy_name(text):
 
 def chapter_folder(folder, metadata, root=None, given=None):
     #the comic's own folder inside the archive shelf: a reader that dislikes loose .cbz files in a shelf
-    #is happy with one folder per comic, which is also where the single archive already points
+    #is happy with one folder per comic. a comic whose single archive already sits in a folder of its own
+    #name is given that folder, rather than another one nested inside it.
     if given:
         return given
     cbz = (metadata.get("settings") or {}).get("cbz_path")
-    if cbz:
-        here = cbz[:-4] if cbz.lower().endswith(".cbz") else cbz
-        return here if os.path.isabs(here) or not root else os.path.join(root, here.replace('/', os.sep))
-    return os.path.abspath(folder) + "_chapters"
+    if not cbz:
+        return os.path.abspath(folder) + "_chapters"
+    full = cbz if os.path.isabs(cbz) or not root else os.path.join(root, cbz.replace('/', os.sep))
+    name = os.path.basename(os.path.abspath(folder))
+    if os.path.basename(os.path.dirname(full)).lower() == name.lower():
+        return os.path.dirname(full)
+    return full[:-4] if full.lower().endswith(".cbz") else full
 
 
 def chapter_file(folder, chapter):
@@ -1060,6 +1096,9 @@ def setup():
     params.add_argument("--shift", type=int, default=0,
                         help="With chapters, move every boundary this many pages, for an archive that "
                              "labels a chapter after its first page rather than before it.")
+    params.add_argument("--force", action='store_true', default=False,
+                        help="With chapters and --save, take a change that moves chapters which already "
+                             "have archives, not only one that adds chapters at the end.")
     params.add_argument("--save", action='store_true', default=False,
                         help="With chapters, write what it worked out into the comic's metadata.")
     params.add_argument("--script", default=None, help="Path to mirror_base.py.")

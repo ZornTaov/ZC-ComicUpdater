@@ -308,6 +308,10 @@ def setup():
     global existing_pages
     existing_pages = folder_pages(output_folder(args))
 
+    #a comic that has been walked has a record of which page is which, and chapters are built on it. it is
+    #kept up to date here as pages are saved, so it never has to be walked a second time.
+    open_index(output_folder(args))
+
     return driver, increment, format, args
 
 
@@ -494,6 +498,55 @@ def build_index(driver, args):
                 break
     print("Index holds {0} pages, written to {1}".format(at, path))
     return at
+
+
+#the index this comic keeps, when it has one: where it is, what it already holds, and where it is up to
+index_file = None
+index_urls = set()
+index_last = 0
+
+
+def open_index(folder):
+    global index_file, index_urls, index_last
+    try:
+        with open(os.path.join(folder, metadata_file), 'r', encoding='utf-8') as f:
+            named = ((json.load(f).get("history") or {}).get("index_cache"))
+    except (OSError, ValueError, AttributeError):
+        return
+    if not named:
+        return
+    path = os.path.join(config_folder(), "index", named)
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                held = json.loads(line)
+                index_urls.add(held.get("url"))
+                index_last = max(index_last, held.get("n") or 0)
+    except (OSError, ValueError):
+        return
+    index_file = path
+    print("This comic keeps an index of which page is which ({0} pages); new pages are added to "
+          "it.".format(index_last))
+
+
+def add_to_index(url, src, image, size, title):
+    #one line per page, the same shape chapters.py writes, so nothing has to be walked again
+    global index_last
+    if not index_file or url in index_urls:
+        return
+    index_last += 1
+    index_urls.add(url)
+    try:
+        with open(index_file, 'a', encoding='utf-8') as f:
+            f.write(json.dumps({"n": index_last, "url": url, "src": src, "file": image,
+                                "title": title, "bytes": size}) + chr(10))
+    except OSError as error:
+        print("WARNING: could not add this page to the index: {0}".format(error))
 
 
 def quit_quietly(driver):
@@ -995,6 +1048,9 @@ def img_save(driver, increment, file_format, args):
     existing_pages.setdefault(page_key(image), sits_at)
     scrape_state["pages_saved"] += 1
     visited_urls.add(current_url)
+    #recorded under the name it was actually saved as, and with the size it really is, so the index needs
+    #no guessing and no asking the site afterwards
+    add_to_index(current_url, src, image, len(req.content), getattr(driver, "title", None))
     metadata_save(driver, args)
 
     return True

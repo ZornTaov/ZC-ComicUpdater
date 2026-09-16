@@ -455,6 +455,23 @@ chapter archive at the size it is on disk**; anything short of that leaves the o
 says why. It also turns off the single archive in the comic's settings, so a later scrape does not
 build it again.
 
+### Keeping chapters current
+
+Once a comic is in chapters it keeps no single archive, so the pages a nightly update fetches would
+sit in the folder and reach no archive at all. They do not have to:
+
+- **A scrape adds each page it saves to the comic's index** - its address, the name it was saved as,
+  its title and its real size - so the comic never has to be walked a second time.
+- **After a chaptered comic gains pages, the updater lines them up and writes the chapter archives
+  again**, which in practice rewrites the one chapter still being published.
+
+Set `pack_chapters` to false in the settings, or pass `--no-pack-chapters`, to do it by hand instead;
+the index is still kept up to date either way, so `chapters.py pack` picks the pages up whenever you
+get to it.
+
+A chapter that starts after the last one the archive page listed is not noticed on its own: new pages
+join the chapter still being published until you run `chapters.py chapters ... --save` again.
+
 ## Settings
 
 Settings live in a `config` folder beside the scripts, not in the library, so they survive the library

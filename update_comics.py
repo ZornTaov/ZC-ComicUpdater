@@ -39,6 +39,8 @@ config_defaults = {
     #where a library keeps its pages and its archives, as folder names inside the library
     "pages_folder": "Uncompressed",
     "cbz_folder": "CBZs",
+    #after a chaptered comic gains pages, line them up and write the chapter archives again
+    "pack_chapters": True,
     #the same things --jobs, --timeout and the rest set, for a setup that would otherwise pass them every time
     "jobs": 1,
     "timeout": 1800,
@@ -387,7 +389,34 @@ def run_comic(comic, args):
     counted = page_count(comic)
     if counted is not None:
         comic.after = counted
+    #only worth doing when the comic actually gained something, and only for a comic that is in chapters
+    if (comic.ok and comic.gained and getattr(args, "pack_chapters", True)
+            and (comic.metadata.get("chapters") or {}).get("list")):
+        try:
+            pack_chapters(comic, args)
+        except (OSError, subprocess.SubprocessError) as error:
+            say("  {0:<40} chapters: could not be written ({1})".format(comic.name, error))
     return comic
+
+
+def pack_chapters(comic, args):
+    #a comic split into chapters keeps no single archive, so the pages it just gained are not in any
+    #archive until this runs. lining up first is what puts the new pages in the index in order.
+    script = os.path.join(os.path.dirname(os.path.abspath(args.script)), "chapters.py")
+    if not os.path.exists(script):
+        return
+    for what in ("align", "pack"):
+        done = subprocess.run([sys.executable, script, what, comic.folder, "--root", args.root],
+                              capture_output=True, text=True, errors='replace',
+                              env=dict(os.environ, PYTHONUNBUFFERED="1"), timeout=args.timeout or None)
+        if done.returncode != 0:
+            say("  {0:<40} chapters: {1} said no ({2})".format(
+                comic.name, what, (done.stdout or done.stderr).strip().splitlines()[-1][:80]
+                if (done.stdout or done.stderr).strip() else "exit {0}".format(done.returncode)))
+            return
+    wrote = [line for line in (done.stdout or "").splitlines() if line.strip().startswith("wrote ")]
+    say("  {0:<40} chapters: {1}".format(comic.name, "{0} archive(s) written".format(len(wrote))
+                                         if wrote else "already up to date"))
 
 
 def describe(comic):
@@ -456,6 +485,9 @@ def setup():
                         help="Serve a page on this port for watching runs, starting updates and adding new "
                              "comics. Keeps running even without --schedule. Set MIRROR_WEB_PASSWORD to "
                              "require a password.")
+    params.add_argument("--pack-chapters", action=argparse.BooleanOptionalAction, default=None,
+                        help="After a comic that is split into chapters gains pages, line them up and "
+                             "write its chapter archives again. On unless the settings file says otherwise.")
     params.add_argument("--config", default=None, metavar="FOLDER",
                         help="Folder holding {0} and element_paths.json. Defaults to a config folder beside "
                              "this script.".format(config_file))
@@ -475,7 +507,7 @@ def setup():
     saved = load_config()
     #anything not given on the command line comes from the settings file, and anything missing there from
     #the built-in defaults. the command line wins because it is the more deliberate of the two.
-    for key in ("jobs", "timeout", "progress", "max_depth", "schedule"):
+    for key in ("jobs", "timeout", "progress", "max_depth", "schedule", "pack_chapters"):
         if getattr(args, key) is None:
             setattr(args, key, saved[key])
     args.pages_folder = saved["pages_folder"]
@@ -541,7 +573,7 @@ def with_config(args):
     #are taken; the schedule is read once at startup because it is what the waiting loop is built around.
     saved = load_config(quiet=True)
     fresh = copy.copy(args)
-    for key in ("jobs", "timeout", "progress", "max_depth"):
+    for key in ("jobs", "timeout", "progress", "max_depth", "pack_chapters"):
         if key not in getattr(args, "from_command_line", ()):
             setattr(fresh, key, saved[key])
     fresh.pages_folder = saved["pages_folder"]

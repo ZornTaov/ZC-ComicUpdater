@@ -259,6 +259,7 @@ def setup():
     params.add_argument("--cbz",action=argparse.BooleanOptionalAction,help="Packs the pages into a .cbz beside the output folder once the run finishes, adding only the pages the archive does not already hold. On by default.",default=True)
     params.add_argument("--direction-check",action=argparse.BooleanOptionalAction,default=True,help="Stop if the page after the first turns out to be one the comic already has, which means the next link is running backwards. On by default; turn it off only for a comic that genuinely reuses its filenames.")
     params.add_argument("--cbz-path",type=str,default=None,help="Where this comic's .cbz lives. Left off, an archive already beside the output folder is used, otherwise a library laid out as Uncompressed/<comic> files it as CBZs/<comic>.cbz, and failing both it goes beside the folder.")
+    params.add_argument("--page-source",action='store_true',default=False,help="Load the page in the browser and print its html, for a page that builds itself with javascript. Saves nothing.")
     params.add_argument("--index",type=str,default=None,metavar="FILE",help="Walk the comic without downloading anything and write one line per page - its address, its image and its title - to this file. Used to work out which saved file came from which page. An existing file is carried on from where it stopped.")
     params.add_argument("--index-first",action='store_true',default=False,help="With --index, follow the comic's first-page link before walking, for a comic whose beginning was never recorded.")
     params.add_argument("--index-limit",type=int,default=0,metavar="PAGES",help="With --index, stop after this many pages. 0 means the whole comic.")
@@ -776,6 +777,11 @@ def metadata_save(driver, args, completed=False, exit_code=None):
         if old_history.get(kept) is not None:
             metadata["history"][kept] = old_history[kept]
 
+    #where the chapters are, worked out by chapters.py from an archive page or the addresses
+    #themselves. it describes the comic rather than this run, so a scrape must leave it alone.
+    if previous.get("chapters"):
+        metadata["chapters"] = previous["chapters"]
+
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=2)
         f.write('\n')
@@ -1072,6 +1078,13 @@ def next_ele_get(driver,element):
 
 if __name__ == "__main__":
     driver, increment, format, args = setup()
+    if args.page_source:
+        #whatever the browser ended up with, for something else to read
+        try:
+            print(driver.page_source)
+        finally:
+            quit_quietly(driver)
+        sys.exit(EXIT_OK)
     if args.index:
         #a walk that records what it saw and downloads nothing
         code = EXIT_OK

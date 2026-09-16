@@ -7,9 +7,11 @@ import hashlib
 import json
 import os
 import re
+import html.parser
 import shutil
 import subprocess
 import sys
+from urllib.parse import urljoin
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 
@@ -389,6 +391,260 @@ def time_stamp():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# ---------------- where the chapters are ----------------
+def same_page(url):
+    #one page can be written several ways - http or https, with or without www or a trailing slash - so
+    #everything is reduced to the part that actually identifies it before anything is compared
+    url = (url or "").strip()
+    url = re.sub(r'^https?://', '', url, flags=re.I)
+    url = re.sub(r'^www\.', '', url, flags=re.I)
+    return url.rstrip('/').lower()
+
+
+class ArchiveReader(html.parser.HTMLParser):
+    #reads a comic's archive page as a sequence of two things: headings, and links. what a heading looks
+    #like differs from site to site - a real heading tag on one, a bold line or a table cell on another -
+    #so anything that could be one is kept, and a link is later put under whichever came last before it.
+    heading_tags = ("h1", "h2", "h3", "h4", "h5", "h6", "b", "strong", "legend", "caption", "summary")
+
+    def __init__(self):
+        html.parser.HTMLParser.__init__(self)
+        self.events = []
+        self.depth = 0
+        self.heading = None
+        self.rank = 1
+        self.link = None
+        self.text = []
+
+    def handle_starttag(self, tag, attrs):
+        got = dict(attrs)
+        if tag == "a" and got.get("href"):
+            self.link = got["href"]
+            self.text = []
+            return
+        #whole words only: a class called comic-archive-date holds "arc" inside "archive" and is a date,
+        #not a heading
+        words = set(re.split(r'[^a-z]+', "{0} {1}".format(got.get("class") or "", got.get("id") or "").lower()))
+        self.rank = 0 if re.match(r'^h[1-6]$', tag) else 1
+        looks_like = tag in self.heading_tags or bool(
+            words & {"chapter", "chapters", "arc", "arcs", "volume", "book", "story", "storyline"})
+        if looks_like:
+            self.heading = tag
+            self.text = []
+
+    def handle_endtag(self, tag):
+        said = re.sub(r'\s+', ' ', "".join(self.text)).strip()
+        if tag == "a" and self.link is not None:
+            self.events.append(("link", self.link, said))
+            self.link = None
+        elif self.heading and tag == self.heading:
+            if said:
+                self.events.append(("heading", said, self.rank))
+            self.heading = None
+        self.text = []
+
+    def handle_data(self, data):
+        if self.link is not None or self.heading:
+            self.text.append(data)
+
+
+def read_archive(url, browser=False, script=None):
+    if browser:
+        #for an archive a plain fetch comes back empty on, because the page builds itself with javascript
+        done = subprocess.run([sys.executable, script or os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "mirror_base.py"), "--page-source", url],
+            capture_output=True, text=True, timeout=300)
+        return done.stdout
+    answer = requests.get(url, timeout=60, headers={"User-Agent": "Mozilla/5.0"})
+    answer.raise_for_status()
+    return answer.text
+
+
+def chapters_from_events(events, where, base=""):
+    #a chapter starts at the first page link after a heading. several headings can sit together - a title
+    #and the summary underneath it - so the one that reads most like a title wins: a real heading tag
+    #first, and the earliest of those.
+    found, waiting, listed = [], [], 0
+    for kind, first, second in events:
+        if kind == "heading":
+            waiting.append((second if second is not None else 1, len(waiting), first))
+            continue
+        at = where.get(same_page(urljoin(base, first)))
+        if at is None:
+            continue
+        listed += 1
+        if waiting or not found:
+            #the most heading-like wins, and among equals the one nearest the link: a page's own banner
+            #sits far above the first chapter's title, and a summary sits just under it
+            label = (min(waiting, key=lambda held: (held[0], -held[1]))[2] if waiting
+                     else "Chapter {0}".format(len(found) + 1))
+            found.append({"label": label, "start_page": at, "pages_listed": []})
+            waiting = []
+        found[-1]["pages_listed"].append(at)
+        found[-1]["start_page"] = min(found[-1]["start_page"], at)
+    return found, listed
+
+
+def chapters_from_archive(url, pages, browser=False, script=None):
+    #the archive page says where each chapter starts; the walk says where every page sits. matching one
+    #against the other needs no knowledge of the site beyond which links are pages of this comic.
+    where = {same_page(page["url"]): page["n"] for page in pages}
+    reader = ArchiveReader()
+    reader.feed(read_archive(url, browser, script))
+    #plenty of archives link their pages relatively, so each is read against the archive's own address
+    return chapters_from_events(reader.events, where, url)
+
+
+def chapters_from_urls(pages):
+    #a comic whose addresses carry the chapter, like /c4/p7 or /ss/4-7: the chapter is the number that
+    #never goes down while another number resets underneath it. a part that never changes at all is the
+    #comic's own name in the path, not a chapter.
+    split = []
+    for page in pages:
+        bits = re.split(r'(\d+)', same_page(page["url"]))
+        split.append([int(bit) if bit.isdigit() else bit for bit in bits])
+    width = min(len(bits) for bits in split)
+    if not split or width < 2:
+        return []
+    best = None
+    for at in range(width):
+        column = [bits[at] for bits in split]
+        if not all(isinstance(value, int) for value in column):
+            continue
+        if len(set(column)) < 2 or any(b < a for a, b in zip(column, column[1:])):
+            continue #a chapter number only ever goes up
+        resets = 0
+        for under in range(at + 1, width):
+            below = [bits[under] for bits in split]
+            if not all(isinstance(value, int) for value in below):
+                continue
+            resets += sum(1 for step in range(1, len(column))
+                          if column[step] > column[step - 1] and below[step] < below[step - 1])
+        changes = sum(1 for a, b in zip(column, column[1:]) if a != b)
+        if changes and (best is None or (resets, -changes) > (best[1], -best[2])):
+            best = (at, resets, changes)
+    if best is None or best[1] == 0:
+        return []
+    at = best[0]
+    found = []
+    for page, bits in zip(pages, split):
+        number = bits[at]
+        if not found or found[-1]["number"] != number:
+            found.append({"label": "Chapter {0}".format(number), "number": number,
+                          "start_page": page["n"], "pages_listed": []})
+        found[-1]["pages_listed"].append(page["n"])
+    return found
+
+
+def chapters_from_list(path, pages):
+    #a list of addresses, one for each chapter start, with an optional title after it
+    where = {same_page(page["url"]): page["n"] for page in pages}
+    found, unknown = [], []
+    with open(path, 'r', encoding='utf-8-sig') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            url, _, label = line.partition('|') if '|' in line else (line.split()[0], None, ' '.join(line.split()[1:]))
+            at = where.get(same_page(url.strip()))
+            if at is None:
+                unknown.append(url)
+                continue
+            found.append({"label": label.strip() or "Chapter {0}".format(len(found) + 1),
+                          "start_page": at, "pages_listed": [at]})
+    for url in unknown:
+        print("  no page of this comic is at {0}".format(url))
+    return found
+
+
+def settle_chapters(found, pages, shift=0):
+    #chapters are read in the order the comic is read, and each one runs until the next one starts, so
+    #anything between them - filler, guest art, a flash page with no file - stays where it was published
+    for chapter in found:
+        chapter["start_page"] = max(1, min(len(pages), chapter["start_page"] + shift))
+    found = sorted(found, key=lambda chapter: chapter["start_page"])
+    settled, seen = [], set()
+    for chapter in found:
+        if chapter["start_page"] in seen:
+            continue #two headings pointing at one page is one chapter
+        seen.add(chapter["start_page"])
+        settled.append(chapter)
+    by_page = {page["n"]: page for page in pages}
+    for at, chapter in enumerate(settled):
+        ends = settled[at + 1]["start_page"] - 1 if at + 1 < len(settled) else pages[-1]["n"]
+        chapter["number"] = at + 1
+        chapter["end_page"] = ends
+        chapter["pages"] = ends - chapter["start_page"] + 1
+        start = by_page.get(chapter["start_page"], {})
+        chapter["start_url"] = start.get("url")
+        chapter["start_file"] = start.get("file")
+        chapter.pop("pages_listed", None)
+    return settled
+
+
+def show_chapters(folder, chapters, pages, listed=None):
+    print("{0}: {1} chapter(s) over {2} page(s)".format(folder, len(chapters), len(pages)))
+    if listed is not None:
+        print("  the archive listed {0} of this comic's {1} pages".format(listed, len(pages)))
+    before = chapters[0]["start_page"] - 1 if chapters else 0
+    if before:
+        print("  {0} page(s) come before the first chapter starts".format(before))
+    print("  {0:<4} {1:<44} {2:>7} {3:>7} {4:>7}  {5}".format("no", "label", "from", "to", "pages", "starts at"))
+    for chapter in chapters:
+        print("  {0:<4} {1:<44} {2:>7} {3:>7} {4:>7}  {5}".format(
+            chapter["number"], (chapter["label"] or "")[:44], chapter["start_page"], chapter["end_page"],
+            chapter["pages"], (chapter["start_file"] or "?")))
+    odd = [c for c in chapters if c["pages"] <= 1]
+    if odd:
+        print("  {0} chapter(s) hold one page or none, which usually means a heading was read wrongly: "
+              "{1}".format(len(odd), [c["number"] for c in odd[:8]]))
+
+
+def save_chapters(folder, chapters, source, source_url=None):
+    metadata = read_metadata(folder)
+    if not metadata:
+        print("  no metadata here, so the chapters were not saved")
+        return 1
+    metadata["chapters"] = {
+        "source": source,
+        "source_url": source_url,
+        "checked": time_stamp(),
+        "list": [{"number": c["number"], "label": c["label"], "start_page": c["start_page"],
+                  "end_page": c["end_page"], "pages": c["pages"], "start_url": c["start_url"],
+                  "start_file": c["start_file"]} for c in chapters],
+    }
+    write_metadata(folder, metadata)
+    print("  saved {0} chapter(s) into {1}".format(len(chapters), os.path.join(folder, metadata_file)))
+    return 0
+
+
+def plan(folder, args):
+    pages = joined_pages(folder, args)
+    if pages is None:
+        return 2
+    listed = None
+    if args.archive:
+        found, listed = chapters_from_archive(args.archive, pages, args.browser, args.script)
+        source, source_url = "archive", args.archive
+    elif args.list:
+        found, source, source_url = chapters_from_list(args.list, pages), "list", None
+    else:
+        found, source, source_url = chapters_from_urls(pages), "urls", None
+        if not found:
+            print("Nothing in this comic's addresses says where a chapter starts. Give --archive with its "
+                  "archive page, or --list with a file of chapter start addresses.")
+            return 1
+    if not found:
+        print("No chapters found.")
+        return 1
+    chapters = settle_chapters(found, pages, args.shift)
+    show_chapters(folder, chapters, pages, listed)
+    if args.save:
+        return save_chapters(folder, chapters, source, source_url)
+    print("  nothing saved. Run it again with --save once this looks right.")
+    return 0
+
+
 # ---------------- fetching pages again ----------------
 def joined_pages(folder, args):
     #the alignment says which file is which page; the walk says how big the site's copy is
@@ -569,10 +825,11 @@ def do_align(folder, args):
 def setup():
     params = argparse.ArgumentParser(
         description="Line a comic's saved files up with the pages they came from.")
-    params.add_argument("what", choices=["index", "align", "show", "refetch", "repack"],
+    params.add_argument("what", choices=["index", "align", "show", "chapters", "refetch", "repack"],
                         help="index: walk the comic and line it up. align: line up a walk already done. "
                              "show: what the last alignment says. refetch: fetch again any page whose file "
-                             "is not what the site serves. repack: write the .cbz afresh from the folder.")
+                             "is not what the site serves. chapters: work out where the chapters start. "
+                             "repack: write the .cbz afresh from the folder.")
     params.add_argument("folder", help="The comic's folder.")
     params.add_argument("--start", default=None, help="The comic's first page, when its metadata does not know.")
     params.add_argument("--first", action='store_true', default=False,
@@ -586,6 +843,20 @@ def setup():
     params.add_argument("--repack", action='store_true', default=False,
                         help="With refetch, write the .cbz afresh afterwards so it holds the new copies.")
     params.add_argument("--cbz", default=None, help="The archive to repack, when the metadata does not say.")
+    params.add_argument("--archive", default=None,
+                        help="With chapters, the comic's archive page, which is read for chapter headings.")
+    params.add_argument("--list", default=None,
+                        help="With chapters, a file of chapter start addresses, one per line, each "
+                             "optionally followed by | and a title.")
+    params.add_argument("--browser", action='store_true', default=False,
+                        help="With chapters, load the archive page in the browser, for a page that builds "
+                             "itself with javascript.")
+    params.add_argument("--shift", type=int, default=0,
+                        help="With chapters, move every boundary this many pages, for an archive that "
+                             "labels a chapter after its first page rather than before it.")
+    params.add_argument("--save", action='store_true', default=False,
+                        help="With chapters, write what it worked out into the comic's metadata.")
+    params.add_argument("--script", default=None, help="Path to mirror_base.py.")
     params.add_argument("--cache", default=None,
                         help="The walk's cache file, when it is not the one in the config folder.")
     return params.parse_args()
@@ -609,6 +880,8 @@ def main():
             print("  {0:>5}  {1:<28} {2:<6} {3}".format(page["n"], str(page["file"])[:28], page["how"] or "-",
                                                         page["url"]))
         return 0
+    if args.what == "chapters":
+        return plan(folder, args)
     if args.what == "refetch":
         return refetch(folder, args)
     if args.what == "repack":

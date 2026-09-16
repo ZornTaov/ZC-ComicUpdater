@@ -192,6 +192,36 @@ class Runner:
 
         return self.submit(Job("check", "Check {0}".format(url), work))
 
+    def submit_chapterize(self, comic, listing, walk):
+        uc = self.uc
+
+        def work(job):
+            args = uc.with_config(self.args)
+            script = os.path.join(os.path.dirname(os.path.abspath(args.script)), "chapters.py")
+            steps = []
+            if walk:
+                #nothing records which page is which yet, so the comic is walked once, downloading nothing
+                steps.append(["index"])
+            else:
+                steps.append(["align"])
+            steps.append(["chapters", "--archive", listing, "--save"])
+            if (comic.metadata.get("settings") or {}).get("cbz") is not False:
+                steps.append(["pack", "--replace"])
+            for step in steps:
+                print("{0}: {1} ...".format(comic.name, step[0]), flush=True)
+                done = subprocess.run([sys.executable, script, step[0], comic.folder, "--root", args.root]
+                                      + step[1:], capture_output=True, text=True, errors="replace",
+                                      env=dict(os.environ, PYTHONUNBUFFERED="1"), timeout=None)
+                for line in (done.stdout or "").splitlines():
+                    print("  " + line, flush=True)
+                if done.returncode != 0:
+                    print("{0}: {1} stopped there. The pages are untouched.".format(comic.name, step[0]),
+                          flush=True)
+                    return done.returncode
+            return 0
+
+        return self.submit(Job("chapters", "Work out chapters for {0}".format(comic.name), work))
+
     def submit_add(self, entries, options):
         uc = self.uc
         comics, listings = [], {}
@@ -521,10 +551,14 @@ def comic_detail(args, uc, runner, name):
         return None, "could not read {0}: {1}".format(path, error)
     history = metadata.get("history") or {}
     runs = history.get("runs") or []
+    chapters = metadata.get("chapters") or {}
     return {
         "name": comic.name,
         "updated": metadata.get("updated"),
         "settings": metadata.get("settings") or {},
+        "chapters": {"source_url": chapters.get("source_url"), "count": len(chapters.get("list") or []),
+                     "packed": chapters.get("packed"), "folder": chapters.get("folder")},
+        "indexed": bool((metadata.get("history") or {}).get("index_cache")),
         "state": metadata.get("state") or {},
         "first_page_url": history.get("first_page_url"),
         "runs": [{key: run.get(key) for key in ("started", "start_url", "start_page_number", "last_url",
@@ -587,6 +621,26 @@ def save_settings(args, uc, runner, name, given, expected_updated):
 
     settings = dict(metadata.get("settings") or {})
     changed = {key: [settings.get(key), value] for key, value in cleaned.items() if settings.get(key) != value}
+
+    #the chapter list is not a scraping setting, so it lives beside them rather than among them
+    listing = given.get("chapters_url")
+    if listing is not None:
+        listing = str(listing).strip()
+        if listing and not re.match(r"^https?://\S+$", listing):
+            return 400, {"error": "the chapter list has to be a full http(s) address"}
+        block = metadata.get("chapters") or {}
+        if (block.get("source_url") or "") != listing:
+            changed["chapters"] = [block.get("source_url"), listing or None]
+            if listing:
+                block["source"], block["source_url"] = "archive", listing
+                block.setdefault("list", [])
+                metadata["chapters"] = block
+            elif block.get("list"):
+                block["source_url"] = None
+                metadata["chapters"] = block
+            else:
+                metadata.pop("chapters", None)
+
     if not changed:
         return 200, {"saved": False, "message": "nothing changed"}
     settings.update(cleaned)
@@ -876,6 +930,22 @@ def make_handler(runner, args, uc, tee):
                 else:
                     job = runner.submit_check(url)
                     self.reply({"queued": job.id, "label": job.label})
+            elif path == "/api/chapterize":
+                name = str(body.get("name") or "")
+                comic = find_comic(args, uc, name)
+                if comic is None:
+                    self.reply({"error": "no comic named {0}".format(name)}, 404)
+                elif is_running(runner, name):
+                    self.reply({"error": "that comic is being scraped right now"}, 409)
+                else:
+                    listing = (str(body.get("url") or "").strip()
+                               or (comic.metadata.get("chapters") or {}).get("source_url"))
+                    if not listing:
+                        self.reply({"error": "no chapter list for this comic; save one first"}, 400)
+                    else:
+                        walk = not (comic.metadata.get("history") or {}).get("index_cache")
+                        job = runner.submit_chapterize(comic, listing, walk)
+                        self.reply({"queued": job.id, "label": job.label, "walking": walk})
             elif path == "/api/stop":
                 self.reply({"stopping": runner.stop()})
             elif path == "/api/drop":

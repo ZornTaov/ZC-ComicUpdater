@@ -334,6 +334,11 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
         </div>
       </div>
       <div class="field">
+        <label for="e-chapters">Chapter list</label>
+        <input type="text" id="e-chapters" spellcheck="false" placeholder="the comic's archive page, for chapters">
+        <div class="note" id="e-chapters-note"></div>
+      </div>
+      <div class="field">
         <label>Status</label>
         <label class="check"><input type="checkbox" id="e-ended"> ended, leave it alone</label>
       </div>
@@ -342,6 +347,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
     <div class="dlg-foot">
       <div class="msg" id="edit-msg"></div>
       <button type="button" id="edit-cancel">Close</button>
+      <button type="button" id="edit-chapterize">Work out chapters</button>
       <button type="button" id="edit-save">Save</button>
       <button type="button" class="primary" id="edit-save-update">Save and update now</button>
     </div>
@@ -584,6 +590,12 @@ async function openEditor(name) {
   $("e-increment").value = s.increment ?? "";
   $("e-cbz_path").value = s.cbz_path || "";
   $("e-waittime").value = s.waittime || 0;
+  const chapters = detail.chapters || {};
+  $("e-chapters").value = chapters.source_url || "";
+  $("e-chapters-note").textContent = chapters.count
+    ? `${chapters.count} chapter(s) worked out${chapters.packed ? ", archives written " + when(chapters.packed) : ""}.`
+    : detail.indexed ? "Which page is which is already known, so this needs no walk."
+    : "Working these out walks the comic once, downloading nothing. It can take a few minutes.";
   flags.forEach((key) => { $("e-" + key).checked = key === "cbz" || key === "direction_check" ? s[key] !== false : !!s[key]; });
   const next = detail.pages_in_folder + 1;
   $("e-next-number").textContent = `use ${next}, the number after the pages held`;
@@ -610,7 +622,7 @@ async function saveEditor(updateAfter) {
   msg.className = "msg"; msg.textContent = "Saving…";
   const settings = {
     url: $("e-url").value, increment: $("e-increment").value, cbz_path: $("e-cbz_path").value,
-    waittime: $("e-waittime").value,
+    waittime: $("e-waittime").value, chapters_url: $("e-chapters").value,
   };
   flags.forEach((key) => { settings[key] = $("e-" + key).checked; });
   try {
@@ -795,6 +807,22 @@ $("check-result").addEventListener("click", (event) => {
   }
 });
 
+$("edit-chapterize").addEventListener("click", async () => {
+  const msg = $("edit-msg");
+  msg.className = "msg";
+  msg.textContent = "Saving the chapter list first…";
+  try {
+    await saveEditor(false);
+    const result = await post("/api/chapterize", { name: editing.name, url: $("e-chapters").value.trim() });
+    msg.className = "msg good";
+    msg.textContent = result.walking
+      ? "Queued. It walks the comic first, which takes a few minutes; watch it under Running now."
+      : "Queued; watch it under Running now.";
+  } catch (error) {
+    msg.className = "msg bad";
+    msg.textContent = error.message;
+  }
+});
 $("edit-save").addEventListener("click", () => saveEditor(false));
 $("edit-save-update").addEventListener("click", () => saveEditor(true));
 $("edit-cancel").addEventListener("click", () => $("editor").close());

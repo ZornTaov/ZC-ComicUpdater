@@ -272,6 +272,11 @@ shows:
   A comic being scraped cannot be edited, since the run rewrites its metadata after every page. A save
   is refused if the file has changed since you opened it. Every change is recorded under
   `history.edits` in the metadata.
+- **Edit** also takes a **chapter list**, which is how a comic already in the library becomes chaptered:
+  save the address of its archive page, then **Work out chapters**. It walks the comic once if nothing
+  records which page is which, reads the archive page, and writes one archive per chapter, giving up the
+  single archive once every page is accounted for. A comic that has been walked before needs no second
+  walk.
 - **Settings** edits `config/ComicScraper.json`: the pages and archive folders, how many comics run at
   once, the time limit, and what the add form starts with. Anything fixed on the command line is marked
   as such, since that wins.

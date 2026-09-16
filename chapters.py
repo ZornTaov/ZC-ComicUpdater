@@ -3,11 +3,14 @@
 #result is cached; the alignment is what everything about chapters is later built on. #V 1.0
 
 import argparse
+import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
@@ -53,13 +56,12 @@ def folder_pages(folder):
 
 
 def index_path(folder, root=None):
-    #named after where the comic lives, so two comics called Extras do not share one cache
-    if root:
-        name = os.path.relpath(folder, root)
-    else:
-        name = os.path.basename(os.path.abspath(folder))
-    name = re.sub(r'[^A-Za-z0-9._-]+', '_', name.replace(os.sep, '/')).strip('_')
-    return os.path.join(config_folder(), "index", name + ".jsonl")
+    #the comic's own folder decides the name, and nothing else: passing a library folder or not must never
+    #change which cache a comic uses. the short tag is what keeps two comics called Extras apart.
+    full = os.path.abspath(folder)
+    tag = hashlib.sha1(full.replace(os.sep, '/').lower().encode('utf-8')).hexdigest()[:8]
+    name = re.sub(r'[^A-Za-z0-9._-]+', '_', os.path.basename(full)).strip('_') or "comic"
+    return os.path.join(config_folder(), "index", "{0}.{1}.jsonl".format(name, tag))
 
 
 def read_index(path):
@@ -309,6 +311,183 @@ def save_alignment(path, folder, pages, aligned, how, settled):
     return path
 
 
+def write_metadata(folder, metadata):
+    path = os.path.join(folder, metadata_file)
+    spare = path + ".writing"
+    with open(spare, 'w', encoding='utf-8') as f:
+        json.dump(metadata, f, indent=2)
+        f.write(chr(10))
+    os.replace(spare, path)
+
+
+def gap_notes(pages, aligned):
+    #what the comic has that this folder does not, and pages the site shows with no image at all - a flash
+    #page, usually. written into the metadata so the next person to look does not have to work it out
+    #again, and so a page saved by hand is not mistaken for a mistake later.
+    gaps, oddities = [], []
+    for page, name in zip(pages, aligned):
+        imageless = not page.get("src")
+        if not name:
+            gaps.append({
+                "page": page["n"], "url": page["url"], "title": page.get("title"),
+                "note": "the site shows no image on this page, which is usually flash; nothing saved"
+                        if imageless else "no file here for this page",
+            })
+        elif imageless:
+            oddities.append({
+                "page": page["n"], "url": page["url"], "file": name,
+                "note": "the site shows no image on this page, so this file was made by hand",
+            })
+    return gaps, oddities
+
+
+def save_gaps(folder, pages, aligned):
+    metadata = read_metadata(folder)
+    if not metadata:
+        print("  no metadata here, so the gaps were not written down")
+        return 0
+    gaps, oddities = gap_notes(pages, aligned)
+    history = metadata.setdefault("history", {})
+    #kept even when empty, so "this comic has been looked at and has no gaps" is a thing the file can say
+    history["gaps"] = gaps
+    if oddities:
+        history["hand_made"] = oddities
+    elif "hand_made" in history:
+        del history["hand_made"]
+    history["gaps_checked"] = time_stamp()
+    write_metadata(folder, metadata)
+    print("  wrote {0} gap(s) and {1} hand-made page(s) into {2}".format(
+        len(gaps), len(oddities), os.path.join(folder, metadata_file)))
+    return len(gaps)
+
+
+def time_stamp():
+    import datetime
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# ---------------- fetching pages again ----------------
+def joined_pages(folder, args):
+    #the alignment says which file is which page; the walk says how big the site's copy is
+    cache = index_path(folder, args.root)
+    alignment = cache.replace(".jsonl", ".align.json")
+    if not os.path.exists(alignment):
+        print("ERROR: {0} has not been lined up yet. Run: chapters.py index {0}".format(folder))
+        return None
+    sizes = {page["n"]: page.get("bytes") for page in read_index(cache)}
+    saved = json.load(open(alignment, encoding='utf-8'))
+    if not saved.get("settled"):
+        print("WARNING: this comic's alignment is not settled, so which file is which page is not certain.")
+    return [dict(page, bytes=sizes.get(page["n"])) for page in saved["pages"]]
+
+
+def refetch(folder, args):
+    #the copies in a library that came from somewhere else are often compressed harder than what the site
+    #serves. this fetches those pages again under the names they already have, so nothing else has to change
+    pages = joined_pages(folder, args)
+    if pages is None:
+        return 2
+    wanted = []
+    for page in pages:
+        if not page["file"] or not page.get("src"):
+            continue
+        path = os.path.join(folder, page["file"])
+        try:
+            held = os.path.getsize(path)
+        except OSError:
+            continue
+        if args.all or (page["bytes"] and held != page["bytes"]):
+            wanted.append((page, held))
+    if not wanted:
+        print("Nothing to fetch again: every page is already the size the site serves.")
+        return 0
+
+    growth = sum((page["bytes"] or held) - held for page, held in wanted)
+    print("{0} page(s) to fetch again, {1:.0f} MB held here now, {2:.0f} MB on the site ({3:+.0f} MB)".format(
+        len(wanted), sum(held for _, held in wanted) / 1e6,
+        sum((page["bytes"] or held) for page, held in wanted) / 1e6, growth / 1e6))
+    if args.dry_run:
+        for page, held in wanted[:8]:
+            print("  page {0:<5} {1:<26} {2} -> {3} bytes".format(
+                page["n"], page["file"][:26], held, page["bytes"]))
+        if len(wanted) > 8:
+            print("  ... and {0} more".format(len(wanted) - 8))
+        print("Nothing was changed. Run it again without --dry-run to fetch them.")
+        return 0
+
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0"})
+    done, kept, failed = 0, 0, []
+    for page, held in wanted:
+        path = os.path.join(folder, page["file"])
+        try:
+            answer = session.get(page["src"], timeout=120)
+            answer.raise_for_status()
+            fresh = answer.content
+        except requests.RequestException as error:
+            failed.append((page["n"], str(error)[:80]))
+            continue
+        #only replaced once the new copy is in hand and is the size the site said, so a failed fetch
+        #cannot leave a page half written or lose the copy that was already there
+        if page["bytes"] and len(fresh) != page["bytes"]:
+            failed.append((page["n"], "fetched {0} bytes, expected {1}".format(len(fresh), page["bytes"])))
+            continue
+        if len(fresh) <= held:
+            kept += 1
+            continue
+        spare = path + ".fetching"
+        with open(spare, 'wb') as f:
+            f.write(fresh)
+        os.replace(spare, path)
+        done += 1
+        if done % 25 == 0:
+            print("  {0} of {1} replaced".format(done, len(wanted)))
+    print("Replaced {0} page(s); left {1} alone as no better than what was here.".format(done, kept))
+    for n, why in failed[:8]:
+        print("  page {0} was not replaced: {1}".format(n, why))
+    if len(failed) > 8:
+        print("  ... and {0} more".format(len(failed) - 8))
+    if done and args.repack:
+        repack(folder, args)
+    elif done:
+        print("The .cbz still holds the old copies. Run again with --repack, or repack it yourself.")
+    return 1 if failed else 0
+
+
+def repack(folder, args):
+    #a zip cannot replace an entry in place, so the archive is written afresh beside the old one and
+    #swapped in only once it is complete and holds every page
+    cbz = args.cbz
+    if not cbz:
+        metadata = read_metadata(folder)
+        cbz = (metadata.get("settings") or {}).get("cbz_path")
+        if cbz and args.root and not os.path.isabs(cbz):
+            cbz = os.path.join(args.root, cbz)
+    if not cbz or not os.path.exists(cbz):
+        print("No archive found to repack; pass --cbz with its path.")
+        return 1
+    names = sorted(f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)))
+    with zipfile.ZipFile(cbz) as zf:
+        prefix = os.path.basename(os.path.abspath(folder)) + '/'
+        held = zf.namelist()
+        prefix = prefix if held and all(name.startswith(prefix) for name in held) else ''
+    spare = cbz + ".packing"
+    print("Repacking {0} ({1} file(s)) ...".format(cbz, len(names)))
+    with zipfile.ZipFile(spare, 'w', zipfile.ZIP_STORED) as zf:
+        for name in names:
+            zf.write(os.path.join(folder, name), prefix + name)
+    with zipfile.ZipFile(spare) as zf:
+        packed = [name for name in zf.namelist() if not name.endswith('/')]
+    if len(packed) != len(names):
+        os.remove(spare)
+        print("ERROR: the new archive holds {0} of {1} files, so the old one was left alone.".format(
+            len(packed), len(names)))
+        return 1
+    shutil.move(spare, cbz)
+    print("  {0} now holds every page as it is on disk.".format(cbz))
+    return 0
+
+
 def walk(folder, args):
     #the slow part: mirror_base follows the comic from its first page, saving nothing
     cache = index_path(folder, args.root)
@@ -358,21 +537,31 @@ def do_align(folder, args):
     settled = describe(folder, pages, files, aligned, how, anchors, trouble)
     where = save_alignment(cache.replace(".jsonl", ".align.json"), folder, pages, aligned, how, settled)
     print("  written to {0}".format(where))
+    if settled:
+        save_gaps(folder, pages, aligned)
     return 0 if settled else 1
 
 
 def setup():
     params = argparse.ArgumentParser(
         description="Line a comic's saved files up with the pages they came from.")
-    params.add_argument("what", choices=["index", "align", "show"],
+    params.add_argument("what", choices=["index", "align", "show", "refetch", "repack"],
                         help="index: walk the comic and line it up. align: line up a walk already done. "
-                             "show: what the last alignment says.")
+                             "show: what the last alignment says. refetch: fetch again any page whose file "
+                             "is not what the site serves. repack: write the .cbz afresh from the folder.")
     params.add_argument("folder", help="The comic's folder.")
     params.add_argument("--start", default=None, help="The comic's first page, when its metadata does not know.")
     params.add_argument("--first", action='store_true', default=False,
                         help="Follow the comic's first-page link before walking.")
     params.add_argument("--limit", type=int, default=0, help="Stop the walk after this many pages.")
     params.add_argument("--root", default=None, help="Library folder, used to name the cache.")
+    params.add_argument("--dry-run", "-n", action='store_true', default=False,
+                        help="With refetch, say what would be fetched and change nothing.")
+    params.add_argument("--all", action='store_true', default=False,
+                        help="With refetch, fetch every page again, not only those that differ.")
+    params.add_argument("--repack", action='store_true', default=False,
+                        help="With refetch, write the .cbz afresh afterwards so it holds the new copies.")
+    params.add_argument("--cbz", default=None, help="The archive to repack, when the metadata does not say.")
     return params.parse_args()
 
 
@@ -394,6 +583,10 @@ def main():
             print("  {0:>5}  {1:<28} {2:<6} {3}".format(page["n"], str(page["file"])[:28], page["how"] or "-",
                                                         page["url"]))
         return 0
+    if args.what == "refetch":
+        return refetch(folder, args)
+    if args.what == "repack":
+        return repack(folder, args)
     if args.what == "index":
         if walk(folder, args) is None:
             return 2

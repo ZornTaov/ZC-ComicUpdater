@@ -630,6 +630,75 @@ def compare_chapters(was, now):
     return "changed", moved
 
 
+def looks_like_pages(url, known):
+    #without an index nothing knows this comic's addresses, so a link counts as a page when it sits on the
+    #same site and under the same part of the path as the page the comic is known to be on
+    def parts(where):
+        site, _, rest = same_page(where or "").partition('/')
+        path = rest.partition('?')[0]
+        return site, (path.split('/')[0] if path else '')
+
+    site, first = parts(known)
+    where, theirs = parts(url)
+    if not site or where != site:
+        return False
+    #the same first step of the path: /comic/... for one comic, index.php?pid=... for another. a link to
+    #the archive itself, or to some other page of the site, is not a page of the comic.
+    return theirs == first
+
+
+def try_archive(folder, args):
+    #a look at an archive page on its own: what it would be read as, before a comic is walked for the
+    #addresses that would let every heading be turned into a page number
+    metadata = read_metadata(folder) if folder and os.path.isdir(folder) else {}
+    known = ((metadata.get("settings") or {}).get("url")
+             or (metadata.get("history") or {}).get("first_page_url") or args.like)
+    if not known:
+        print("Nothing says what this comic's page addresses look like. Pass --like with one of its pages.")
+        return 2
+    reader = ArchiveReader()
+    try:
+        reader.feed(read_archive(args.archive, args.browser, args.script))
+    except (requests.RequestException, OSError) as error:
+        print("Could not read {0}: {1}".format(args.archive, error))
+        return 1
+
+    found, waiting, pages = [], [], 0
+    for kind, first, second in reader.events:
+        if kind == "heading":
+            waiting.append((second if second is not None else 1, len(waiting), first))
+            continue
+        where = urljoin(args.archive, first)
+        if not looks_like_pages(where, known):
+            continue
+        pages += 1
+        if waiting or not found:
+            label = (min(waiting, key=lambda held: (held[0], -held[1]))[2] if waiting
+                     else "(no heading before this one)")
+            found.append([label, where, 0])
+            waiting = []
+        found[-1][2] += 1
+
+    print("{0}".format(args.archive))
+    print("  pages of this comic linked: {0}, looking like {1}".format(pages, known))
+    print("  chapters it would read: {0}".format(len(found)))
+    for at, (label, where, held) in enumerate(found[:40], 1):
+        print("  {0:<4} {1:<46} {2:>4} page(s) listed, starts at {3}".format(at, label[:46], held, where[-52:]))
+    if len(found) > 40:
+        print("  ... and {0} more".format(len(found) - 40))
+    if not found:
+        print("  Nothing was read as a chapter. Either no link on that page is a page of this comic - check "
+              "what --like says they look like - or the page needs --browser to build itself first.")
+        return 1
+    lonely = [label for label, where, held in found if held == 0]
+    if lonely:
+        print("  {0} heading(s) with no page under them, which usually means a heading was read "
+              "wrongly".format(len(lonely)))
+    print("  Nothing was saved. This only says how the page reads; page numbers need the comic walked "
+          "once (chapters.py index).")
+    return 0
+
+
 def plan(folder, args):
     pages = joined_pages(folder, args)
     if pages is None:
@@ -1063,10 +1132,13 @@ def do_align(folder, args):
 def setup():
     params = argparse.ArgumentParser(
         description="Line a comic's saved files up with the pages they came from.")
-    params.add_argument("what", choices=["index", "align", "show", "chapters", "pack", "refetch", "repack"],
+    params.add_argument("what", choices=["index", "align", "show", "chapters", "try", "pack", "refetch",
+                                         "repack"],
                         help="index: walk the comic and line it up. align: line up a walk already done. "
                              "show: what the last alignment says. refetch: fetch again any page whose file "
                              "is not what the site serves. chapters: work out where the chapters start. "
+                             "try: read an archive page and say what it would be read as, before walking "
+                             "anything. "
                              "pack: write one .cbz per chapter. "
                              "repack: write the .cbz afresh from the folder.")
     params.add_argument("folder", help="The comic's folder.")
@@ -1105,6 +1177,8 @@ def setup():
     params.add_argument("--save", action='store_true', default=False,
                         help="With chapters, write what it worked out into the comic's metadata.")
     params.add_argument("--script", default=None, help="Path to mirror_base.py.")
+    params.add_argument("--like", default=None,
+                        help="With try, one of the comic's page addresses, when its folder does not say.")
     params.add_argument("--cache", default=None,
                         help="The walk's cache file, when it is not the one in the config folder.")
     return params.parse_args()
@@ -1113,7 +1187,7 @@ def setup():
 def main():
     args = setup()
     folder = os.path.abspath(args.folder)
-    if not os.path.isdir(folder):
+    if not os.path.isdir(folder) and not (args.what == "try" and args.like):
         print("ERROR: {0} is not a folder.".format(folder))
         return 2
     if args.what == "show":
@@ -1128,6 +1202,11 @@ def main():
             print("  {0:>5}  {1:<28} {2:<6} {3}".format(page["n"], str(page["file"])[:28], page["how"] or "-",
                                                         page["url"]))
         return 0
+    if args.what == "try":
+        if not args.archive:
+            print("ERROR: say which page to read, with --archive.")
+            return 2
+        return try_archive(folder, args)
     if args.what == "pack":
         return pack(folder, args)
     if args.what == "chapters":

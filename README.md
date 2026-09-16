@@ -429,6 +429,19 @@ python chapters.py chapters "D:/Comics/Uncompressed/MyComic" --list starts.txt
 python chapters.py pack "D:/Comics/Uncompressed/MyComic" --root "D:/Comics" --dry-run
 ```
 
+To see how a page reads before committing to anything:
+
+```sh
+python chapters.py try "D:/Comics/Uncompressed/MyComic" --archive "https://example.com/archive/"
+python chapters.py try . --archive "https://example.com/archive/" --like "https://example.com/comic/1"
+```
+
+It fetches that page and says how many of its links are pages of this comic and what it would read as
+chapters, without walking anything and without saving. `--like` gives it one of the comic's page
+addresses when the folder does not say, so a comic that has never been scraped can be checked too. An
+archive with no chapter headings shows up as one enormous chapter, which is the sign to use another
+source.
+
 Working out where chapters start has three sources, all ending in the same list, and none of them
 writes anything without `--save`:
 

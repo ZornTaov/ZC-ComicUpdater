@@ -298,6 +298,35 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
   </form>
 </dialog>
 
+<dialog id="bounds">
+  <form method="dialog">
+    <div class="dlg-head"><h3>Chapter boundaries</h3><span class="muted" id="bd-who"></span></div>
+    <div class="dlg-body">
+      <div class="help">Where each chapter starts, as the archive page or the comic's own addresses were
+        read. A site that names one page oddly - a cover called <code>20-the-sovereign</code> where every
+        other is <code>issue-20-cover</code> - puts a boundary in the wrong place, and no rule can tell.
+        Change one here and it is written down as a correction: working the chapters out again, from a
+        fresh reading of the archive or of the addresses, keeps it. Renaming a chapter to one that is
+        already there moves that chapter to the new page instead of adding a second of the same name.</div>
+      <div class="table-wrap" id="bd-wrap"><table id="bd-table"><thead><tr>
+        <th style="width:3.5em">No</th><th>Chapter</th><th style="width:6em">Starts at</th>
+        <th style="width:5em">Pages</th><th>First page</th><th style="width:7em"></th>
+      </tr></thead><tbody id="bd-rows"></tbody></table></div>
+      <div class="row" style="margin-top:10px">
+        <input type="number" id="bd-new-at" min="1" placeholder="page" style="width:7em">
+        <input type="text" id="bd-new-label" placeholder="a chapter starts at that page, called this" style="flex:1; min-width:200px">
+        <button type="button" id="bd-add">Add a boundary</button>
+      </div>
+      <div class="note" id="bd-fixes"></div>
+    </div>
+    <div class="dlg-foot">
+      <div class="msg" id="bd-msg"></div>
+      <button type="button" id="bd-reset">Undo every correction</button>
+      <button type="button" class="primary" id="bd-close">Done</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="editor">
   <form method="dialog" id="edit-form">
     <div class="dlg-head"><h3 id="edit-name"></h3><span class="muted" id="edit-updated"></span></div>
@@ -347,6 +376,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
     <div class="dlg-foot">
       <div class="msg" id="edit-msg"></div>
       <button type="button" id="edit-cancel">Close</button>
+      <button type="button" id="edit-boundaries">Chapter boundaries</button>
       <button type="button" id="edit-chapterize">Work out chapters</button>
       <button type="button" id="edit-save">Save</button>
       <button type="button" class="primary" id="edit-save-update">Save and update now</button>
@@ -806,6 +836,87 @@ $("check-result").addEventListener("click", (event) => {
     event.target.replaceWith(document.createTextNode("added"));
   }
 });
+
+//---- chapter boundaries ----
+let bounds = { name: "", list: [], fixes: [] };
+
+function drawBounds() {
+  const held = new Set(bounds.fixes.map((f) => f.url));
+  //a chapter whose starting address was never recorded is still named by its page number
+  $("bd-rows").innerHTML = bounds.list.map((c) => `<tr data-url="${esc(c.start_url || String(c.start_page))}">
+      <td class="muted">${c.number}</td>
+      <td><input type="text" value="${esc(c.label || "")}" data-bd="label" spellcheck="false" style="width:100%"></td>
+      <td><input type="number" value="${c.start_page}" data-bd="at" min="1" style="width:100%"></td>
+      <td class="muted">${c.pages}</td>
+      <td class="muted" title="${esc(c.start_url || "")}">${esc(c.start_file || "?")}</td>
+      <td>${c.by_hand || held.has(c.start_url) ? `<button type="button" data-bd-act="forget">undo</button>` : ""}
+          <button type="button" data-bd-act="drop" title="no chapter starts here; its pages join the one before">not a chapter</button></td>
+    </tr>`).join("") || `<tr><td colspan="6" class="muted">No chapters have been worked out for this comic yet.</td></tr>`;
+  $("bd-fixes").textContent = bounds.fixes.length
+    ? `${bounds.fixes.length} correction(s) by hand, kept when the chapters are worked out again.`
+    : "Nothing has been corrected by hand.";
+}
+
+async function sendFix(body) {
+  const msg = $("bd-msg");
+  const keep = $("bd-wrap").scrollTop;
+  msg.className = "msg"; msg.textContent = "Working it out…";
+  try {
+    await post("/api/chapterfix", Object.assign({ name: bounds.name }, body));
+    const response = await fetch(api(`/api/comic?name=${encodeURIComponent(bounds.name)}`));
+    const detail = await response.json();
+    if (!response.ok) throw new Error(detail.error || response.statusText);
+    editing = detail;
+    bounds.list = detail.chapters.list || [];
+    bounds.fixes = detail.chapters.fixes || [];
+    drawBounds();
+    $("bd-wrap").scrollTop = keep;
+    msg.className = "msg good";
+    msg.textContent = detail.chapters.packed
+      ? "Saved. The archives were packed before, so run Work out chapters to write the changed ones again."
+      : "Saved.";
+  } catch (error) {
+    msg.className = "msg bad";
+    msg.textContent = error.message;
+  }
+}
+
+$("edit-boundaries").addEventListener("click", () => {
+  bounds = { name: editing.name, list: editing.chapters.list || [], fixes: editing.chapters.fixes || [] };
+  $("bd-who").textContent = `${editing.name} — ${bounds.list.length} chapter(s)`;
+  $("bd-msg").className = "msg"; $("bd-msg").textContent = "";
+  $("bd-new-at").value = ""; $("bd-new-label").value = "";
+  drawBounds();
+  $("bounds").showModal();
+});
+$("bd-rows").addEventListener("click", (event) => {
+  const act = event.target.dataset.bdAct;
+  if (!act) return;
+  const row = event.target.closest("tr");
+  if (act === "drop" && !confirm("Its pages join the chapter before it. Sure?")) return;
+  sendFix({ at: row.dataset.url, [act]: true });
+});
+$("bd-rows").addEventListener("change", (event) => {
+  const what = event.target.dataset.bd;
+  if (!what) return;
+  const row = event.target.closest("tr");
+  const at = row.querySelector('[data-bd="at"]').value;
+  const label = row.querySelector('[data-bd="label"]').value.trim();
+  if (!label) { $("bd-msg").className = "msg bad"; $("bd-msg").textContent = "A chapter needs a name."; return; }
+  //moving a boundary is the same correction as naming one: this chapter starts at that page
+  sendFix({ at: what === "at" ? at : row.dataset.url, label: label });
+});
+$("bd-add").addEventListener("click", () => {
+  const at = $("bd-new-at").value.trim(), label = $("bd-new-label").value.trim();
+  if (!at || !label) { $("bd-msg").className = "msg bad"; $("bd-msg").textContent = "Give a page and a name."; return; }
+  $("bd-new-at").value = ""; $("bd-new-label").value = "";
+  sendFix({ at: at, label: label });
+});
+$("bd-reset").addEventListener("click", () => {
+  if (!bounds.fixes.length) return;
+  if (confirm("Undo every correction made by hand? The boundaries come back only when the chapters are worked out again.")) sendFix({ clear: true });
+});
+$("bd-close").addEventListener("click", () => $("bounds").close());
 
 $("edit-chapterize").addEventListener("click", async () => {
   const msg = $("edit-msg");

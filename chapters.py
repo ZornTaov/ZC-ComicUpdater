@@ -660,6 +660,47 @@ def settle_chapters(found, pages, shift=0):
     return settled
 
 
+def page_at(pages, where):
+    #which page an address is. a fix names its page this way because an address does not change when
+    #pages are added before it, while a page number does
+    want = same_page(str(where or ""))
+    for page in pages:
+        if same_page(page["url"]) == want:
+            return page["n"]
+    return None
+
+
+def apply_fixes(found, pages, fixes):
+    #corrections made by hand, kept apart from whatever rule worked the chapters out so that reading the
+    #archive again, or the addresses again, never throws them away. each one says either that a chapter
+    #starts at a page, or that one does not - which covers a boundary in the wrong place, a chapter the
+    #site named oddly, and a heading that was never a chapter at all.
+    took, missed = [], []
+    for fix in fixes or []:
+        at = page_at(pages, fix.get("url")) if fix.get("url") else fix.get("page")
+        if not at or at > len(pages):
+            missed.append(fix.get("url") or fix.get("page"))
+            continue
+        found = [chapter for chapter in found if chapter["start_page"] != at]
+        if not fix.get("drop"):
+            label = fix.get("label") or "Chapter"
+            #naming a chapter that is already there moves it here rather than making a second one of the
+            #same name: a cover the artist named oddly is the same chapter, starting a page earlier. that
+            #holds for one this rule found and for one an earlier correction put somewhere else.
+            found = [chapter for chapter in found if (chapter.get("label") or "") != label]
+            found.append({"label": label, "start_page": at, "by_hand": True})
+        took.append((at, None if fix.get("drop") else fix.get("label")))
+    return found, took, missed
+
+
+def say_fixes(took, missed):
+    for at, label in took:
+        print("  by hand: {0}".format("no chapter starts at page {0}".format(at) if label is None
+                                      else "page {0} starts {1}".format(at, label)))
+    for where in missed:
+        print("  by hand: {0} is not a page of this comic, so that correction did nothing".format(where))
+
+
 def show_chapters(folder, chapters, pages, listed=None):
     print("{0}: {1} chapter(s) over {2} page(s)".format(folder, len(chapters), len(pages)))
     if listed is not None:
@@ -669,13 +710,23 @@ def show_chapters(folder, chapters, pages, listed=None):
         print("  {0} page(s) come before the first chapter starts".format(before))
     print("  {0:<4} {1:<44} {2:>7} {3:>7} {4:>7}  {5}".format("no", "label", "from", "to", "pages", "starts at"))
     for chapter in chapters:
-        print("  {0:<4} {1:<44} {2:>7} {3:>7} {4:>7}  {5}".format(
+        print("  {0:<4} {1:<44} {2:>7} {3:>7} {4:>7}  {5}{6}".format(
             chapter["number"], (chapter["label"] or "")[:44], chapter["start_page"], chapter["end_page"],
-            chapter["pages"], (chapter["start_file"] or "?")))
+            chapter["pages"], (chapter["start_file"] or "?"),
+            "  <- by hand" if chapter.get("by_hand") else ""))
     odd = [c for c in chapters if c["pages"] <= 1]
     if odd:
         print("  {0} chapter(s) hold one page or none, which usually means a heading was read wrongly: "
               "{1}".format(len(odd), [c["number"] for c in odd[:8]]))
+
+
+def chapter_record(chapter):
+    kept = {"number": chapter["number"], "label": chapter["label"], "start_page": chapter["start_page"],
+            "end_page": chapter["end_page"], "pages": chapter["pages"], "start_url": chapter["start_url"],
+            "start_file": chapter["start_file"]}
+    if chapter.get("by_hand"):
+        kept["by_hand"] = True
+    return kept
 
 
 def save_chapters(folder, chapters, source, source_url=None):
@@ -683,14 +734,16 @@ def save_chapters(folder, chapters, source, source_url=None):
     if not metadata:
         print("  no metadata here, so the chapters were not saved")
         return 1
+    fixes = (metadata.get("chapters") or {}).get("fixes")
     metadata["chapters"] = {
         "source": source,
         "source_url": source_url,
         "checked": time_stamp(),
-        "list": [{"number": c["number"], "label": c["label"], "start_page": c["start_page"],
-                  "end_page": c["end_page"], "pages": c["pages"], "start_url": c["start_url"],
-                  "start_file": c["start_file"]} for c in chapters],
+        "list": [chapter_record(c) for c in chapters],
     }
+    if fixes:
+        #kept through every re-reading: a correction is about this comic, not about one run of one rule
+        metadata["chapters"]["fixes"] = fixes
     write_metadata(folder, metadata)
     print("  saved {0} chapter(s) into {1}".format(len(chapters), os.path.join(folder, metadata_file)))
     return 0
@@ -864,6 +917,8 @@ def plan(folder, args):
     if not found:
         print("No chapters found.")
         return 1
+    found, took, missed = apply_fixes(found, pages, known.get("fixes"))
+    say_fixes(took, missed)
     chapters = settle_chapters(found, pages, args.shift)
     show_chapters(folder, chapters, pages, listed)
     how, what = compare_chapters(known.get("list"), chapters)
@@ -1269,16 +1324,102 @@ def do_align(folder, args):
     return 0 if settled else 1
 
 
+def list_fixes(fixes, pages):
+    if not fixes:
+        print("  nothing has been corrected by hand.")
+        return
+    for fix in fixes:
+        at = page_at(pages, fix.get("url")) if fix.get("url") else fix.get("page")
+        print("  page {0:<5} {1:<44} {2}".format(
+            at if at else "?", "(no chapter starts here)" if fix.get("drop") else (fix.get("label") or ""),
+            fix.get("url") or ""))
+
+
+def edit_fixes(folder, args):
+    #a boundary put right by hand. the correction is written down as a correction rather than edited into
+    #the list, so working the chapters out again - from a fresh archive reading, or fresh addresses - keeps
+    #it. it is anchored to the page's own address, so it still means the same page after the comic grows.
+    metadata = read_metadata(folder)
+    if not metadata:
+        print("ERROR: no metadata in {0}.".format(folder))
+        return 2
+    pages = joined_pages(folder, args)
+    if pages is None:
+        return 2
+    block = metadata.setdefault("chapters", {})
+    fixes = list(block.get("fixes") or [])
+    if not args.at and not args.clear:
+        print("{0}: {1} correction(s) by hand".format(folder, len(fixes)))
+        list_fixes(fixes, pages)
+        return 0
+    if args.clear:
+        print("forgotten: all {0} correction(s)".format(len(fixes)))
+        fixes = []
+    if args.at:
+        where, at = str(args.at).strip(), None
+        if re.match(r'^\d+$', where):
+            at = int(where)
+            page = next((p for p in pages if p["n"] == at), None)
+            if page is None:
+                print("ERROR: this comic has no page {0}; it has {1}.".format(at, len(pages)))
+                return 2
+            where = page["url"]
+        else:
+            at = page_at(pages, where)
+            if at is None:
+                print("ERROR: {0} is not a page of this comic. Give one of its page addresses, or a page "
+                      "number.".format(where))
+                return 2
+        if not args.drop and not args.forget and not args.label:
+            print("ERROR: say what the chapter starting there is called, with --label, or say --drop for "
+                  "no chapter there, or --forget to take back an earlier correction.")
+            return 2
+        fixes = [fix for fix in fixes if same_page(str(fix.get("url") or "")) != same_page(where)]
+        if args.label:
+            #a chapter is corrected to one place, not to every place it has been moved to in turn
+            fixes = [fix for fix in fixes if (fix.get("label") or "") != args.label]
+        if args.forget:
+            print("forgotten: whatever was said about page {0}".format(at))
+        elif args.drop:
+            fixes.append({"url": where, "drop": True, "made": time_stamp()})
+            print("noted: no chapter starts at page {0}".format(at))
+        else:
+            fixes.append({"url": where, "label": args.label, "made": time_stamp()})
+            print("noted: page {0} starts {1}".format(at, args.label))
+    if fixes:
+        block["fixes"] = fixes
+    else:
+        block.pop("fixes", None)
+    stored = block.get("list") or []
+    if stored:
+        found, took, missed = apply_fixes([dict(chapter) for chapter in stored], pages, fixes)
+        say_fixes(took, missed)
+        chapters = settle_chapters(found, pages)
+        block["list"] = [chapter_record(chapter) for chapter in chapters]
+        block["checked"] = time_stamp()
+        print()
+        show_chapters(folder, chapters, pages)
+        if block.get("packed"):
+            print("  this comic's chapter archives were packed before, so any that changed need writing "
+                  "again: chapters.py pack {0}".format(folder))
+    if args.forget or args.clear:
+        print("  a correction taken back does not bring the old boundary back on its own. Run "
+              "chapters.py chapters {0} --save to work them out afresh.".format(folder))
+    write_metadata(folder, metadata)
+    return 0
+
+
 def setup():
     params = argparse.ArgumentParser(
         description="Line a comic's saved files up with the pages they came from.")
-    params.add_argument("what", choices=["index", "align", "show", "chapters", "try", "pack", "refetch",
-                                         "repack"],
+    params.add_argument("what", choices=["index", "align", "show", "chapters", "fix", "try", "pack",
+                                         "refetch", "repack"],
                         help="index: walk the comic and line it up. align: line up a walk already done. "
                              "show: what the last alignment says. refetch: fetch again any page whose file "
                              "is not what the site serves. chapters: work out where the chapters start. "
                              "try: read an archive page and say what it would be read as, before walking "
                              "anything. "
+                             "fix: put a chapter boundary right by hand. "
                              "pack: write one .cbz per chapter. "
                              "repack: write the .cbz afresh from the folder.")
     params.add_argument("folder", help="The comic's folder.")
@@ -1319,6 +1460,18 @@ def setup():
                              "have archives, not only one that adds chapters at the end.")
     params.add_argument("--save", action='store_true', default=False,
                         help="With chapters, write what it worked out into the comic's metadata.")
+    params.add_argument("--at", default=None,
+                        help="With fix, the page the correction is about: its address, or its page number.")
+    params.add_argument("--label", default=None,
+                        help="With fix, what the chapter starting at that page is called. Naming a chapter "
+                             "that is already there moves it to this page rather than adding another.")
+    params.add_argument("--drop", action='store_true', default=False,
+                        help="With fix, no chapter starts at that page, whatever the archive or the "
+                             "addresses say.")
+    params.add_argument("--forget", action='store_true', default=False,
+                        help="With fix, take back the correction made about that page.")
+    params.add_argument("--clear", action='store_true', default=False,
+                        help="With fix, take back every correction made about this comic.")
     params.add_argument("--script", default=None, help="Path to mirror_base.py.")
     params.add_argument("--like", default=None,
                         help="With try, one of the comic's page addresses, when its folder does not say.")
@@ -1354,6 +1507,8 @@ def main():
         return pack(folder, args)
     if args.what == "chapters":
         return plan(folder, args)
+    if args.what == "fix":
+        return edit_fixes(folder, args)
     if args.what == "refetch":
         return refetch(folder, args)
     if args.what == "repack":

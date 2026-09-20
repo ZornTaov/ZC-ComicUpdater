@@ -277,6 +277,11 @@ shows:
   records which page is which, reads the archive page, and writes one archive per chapter, giving up the
   single archive once every page is accounted for. A comic that has been walked before needs no second
   walk.
+- **Chapter boundaries** shows where each chapter starts and lets one be put right, for a site that
+  names a page in a way no rule can read. Change a chapter's name or its starting page, say a boundary
+  is *not a chapter* so its pages join the one before, or add one by page number and name. Each is kept
+  as a correction rather than an edit, so working the chapters out again does not throw it away — see
+  [Putting a boundary right by hand](#putting-a-boundary-right-by-hand).
 - **Settings** edits `config/ComicScraper.json`: the pages and archive folders, how many comics run at
   once, the time limit, and what the add form starts with. Anything fixed on the command line is marked
   as such, since that wins.
@@ -463,6 +468,34 @@ specials labelled by year from being sorted to the end.
 
 `--shift` moves every boundary, for an archive that labels a chapter after its first page.
 `--browser` loads the archive page in the browser, for a page that builds itself with javascript.
+
+### Putting a boundary right by hand
+
+No rule can read a page the site itself names wrongly. Order of the Black Dog calls every issue cover
+`issue-20-cover` except one, which is `20-the-sovereign`, so that cover lands at the end of issue 19
+instead of the start of issue 20. `fix` says so:
+
+```sh
+python chapters.py fix "D:/Comics/Uncompressed/MyComic" \
+  --at "https://example.com/comic/20-the-sovereign/" --label "Issue 20"
+```
+
+`--at` takes a page's address or its number. Naming a chapter that is already there **moves** it to
+that page rather than adding a second one of the same name, so the example above is one correction and
+not two. `--drop` says no chapter starts at that page, for a heading that was never a chapter, and its
+pages join the chapter before it. `--forget` takes back one correction and `--clear` takes back all of
+them; with no arguments at all, `fix` lists what has been corrected.
+
+Corrections are kept apart from the list they change, under `chapters.fixes` in the metadata, and each
+is anchored to its page's own address rather than to a page number. So they survive the chapters being
+worked out again - from a fresh reading of the archive, or of the addresses - and they still mean the
+same page after the comic grows. Taking a correction back is the one thing that does not fix itself:
+run `chapters --save` again to get the original boundary. Corrected chapters are marked `by hand` in
+the listing.
+
+The web page does the same thing under **Chapter boundaries** in a comic's editor: the chapters with
+their page ranges, where changing a name or a starting page writes a correction, *not a chapter* drops
+a boundary, and a page number and a name at the bottom add one.
 
 ### Packing
 

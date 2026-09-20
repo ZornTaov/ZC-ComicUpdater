@@ -557,7 +557,9 @@ def comic_detail(args, uc, runner, name):
         "updated": metadata.get("updated"),
         "settings": metadata.get("settings") or {},
         "chapters": {"source_url": chapters.get("source_url"), "count": len(chapters.get("list") or []),
-                     "packed": chapters.get("packed"), "folder": chapters.get("folder")},
+                     "packed": chapters.get("packed"), "folder": chapters.get("folder"),
+                     "source": chapters.get("source"), "list": chapters.get("list") or [],
+                     "fixes": chapters.get("fixes") or []},
         "indexed": bool((metadata.get("history") or {}).get("index_cache")),
         "state": metadata.get("state") or {},
         "first_page_url": history.get("first_page_url"),
@@ -568,6 +570,40 @@ def comic_detail(args, uc, runner, name):
         "pages_in_folder": uc.folder_pages(comic.folder),
         "running": is_running(runner, comic.name),
     }, None
+
+
+def fix_chapter(args, comic, given):
+    #one correction to one boundary, run through chapters.py so that the page and the command line mean
+    #exactly the same thing by it. it takes a moment rather than a job: nothing is fetched and nothing is
+    #written but the metadata.
+    script = os.path.join(os.path.dirname(os.path.abspath(args.script)), "chapters.py")
+    command = [sys.executable, script, "fix", comic.folder, "--root", args.root]
+    if given.get("clear"):
+        command.append("--clear")
+    else:
+        at = str(given.get("at") or "").strip()
+        if not at:
+            return 400, {"error": "say which page the correction is about"}
+        command += ["--at", at]
+        if given.get("forget"):
+            command.append("--forget")
+        elif given.get("drop"):
+            command.append("--drop")
+        else:
+            label = str(given.get("label") or "").strip()
+            if not label:
+                return 400, {"error": "say what the chapter starting there is called"}
+            command += ["--label", label]
+    try:
+        done = subprocess.run(command, capture_output=True, text=True, errors="replace",
+                              env=dict(os.environ, PYTHONUNBUFFERED="1"), timeout=180)
+    except subprocess.SubprocessError as error:
+        return 500, {"error": "could not work that out: {0}".format(error)}
+    output = (done.stdout or "") + (done.stderr or "")
+    if done.returncode != 0:
+        return 400, {"error": output.strip().splitlines()[0] if output.strip() else "that did not work",
+                     "output": output[-2000:]}
+    return 200, {"output": output[-4000:]}
 
 
 def clean_settings(given):
@@ -946,6 +982,16 @@ def make_handler(runner, args, uc, tee):
                         walk = not (comic.metadata.get("history") or {}).get("index_cache")
                         job = runner.submit_chapterize(comic, listing, walk)
                         self.reply({"queued": job.id, "label": job.label, "walking": walk})
+            elif path == "/api/chapterfix":
+                name = str(body.get("name") or "")
+                comic = find_comic(args, uc, name)
+                if comic is None:
+                    self.reply({"error": "no comic named {0}".format(name)}, 404)
+                elif is_running(runner, name):
+                    self.reply({"error": "that comic is being scraped right now"}, 409)
+                else:
+                    status, result = fix_chapter(uc.with_config(args), comic, body)
+                    self.reply(result, status)
             elif path == "/api/stop":
                 self.reply({"stopping": runner.stop()})
             elif path == "/api/drop":

@@ -596,8 +596,10 @@ def fix_chapter(args, comic, given):
                 return 400, {"error": "say what the chapter starting there is called"}
             command += ["--label", label]
     try:
+        #a correction on a comic whose archives are written rewrites the ones that changed, so this can
+        #be a minute of zipping rather than a metadata edit
         done = subprocess.run(command, capture_output=True, text=True, errors="replace",
-                              env=dict(os.environ, PYTHONUNBUFFERED="1"), timeout=180)
+                              env=dict(os.environ, PYTHONUNBUFFERED="1"), timeout=1800)
     except subprocess.SubprocessError as error:
         return 500, {"error": "could not work that out: {0}".format(error)}
     output = (done.stdout or "") + (done.stderr or "")

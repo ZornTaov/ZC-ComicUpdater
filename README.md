@@ -542,6 +542,13 @@ not two. `--drop` says no chapter starts at that page, for a heading that was ne
 pages join the chapter before it. `--forget` takes back one correction and `--clear` takes back all of
 them; with no arguments at all, `fix` lists what has been corrected.
 
+A comic whose chapter archives are already written has the ones that changed **written again on the
+spot**: an archive holding a boundary you just corrected is a wrong archive, and a correction that
+leaves one behind has not finished. Only those whose contents actually changed are rewritten, so
+correcting one boundary in a thirty-issue comic writes two archives, not thirty. A comic with no
+archives yet has nothing to put right, so nothing is written. `--no-repack` leaves them alone and says
+they are now out of date.
+
 Corrections are kept apart from the list they change, under `chapters.fixes` in the metadata, and each
 is anchored to its page's own address rather than to a page number. So they survive the chapters being
 worked out again - from a fresh reading of the archive, or of the addresses - and they still mean the

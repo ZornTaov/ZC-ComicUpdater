@@ -307,7 +307,9 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
         other is <code>issue-20-cover</code> - puts a boundary in the wrong place, and no rule can tell.
         Change one here and it is written down as a correction: working the chapters out again, from a
         fresh reading of the archive or of the addresses, keeps it. Renaming a chapter to one that is
-        already there moves that chapter to the new page instead of adding a second of the same name.</div>
+        already there moves that chapter to the new page instead of adding a second of the same name.
+        A comic whose chapter archives are already written has the ones that changed written again on the
+        spot, since an archive holding a boundary you just corrected is a wrong archive.</div>
       <div class="table-wrap" id="bd-wrap"><table id="bd-table"><thead><tr>
         <th style="width:3.5em">No</th><th>Chapter</th><th style="width:6em">Starts at</th>
         <th style="width:5em">Pages</th><th>First page</th><th style="width:7em"></th>
@@ -863,21 +865,23 @@ function drawBounds() {
 async function sendFix(body) {
   const msg = $("bd-msg");
   const keep = $("bd-wrap").scrollTop;
-  msg.className = "msg"; msg.textContent = "Working it out…";
+  msg.className = "msg";
+  msg.textContent = bounds.packed ? "Working it out and writing the archives that changed…" : "Working it out…";
   try {
-    await post("/api/chapterfix", Object.assign({ name: bounds.name }, body));
+    const result = await post("/api/chapterfix", Object.assign({ name: bounds.name }, body));
     const response = await fetch(api(`/api/comic?name=${encodeURIComponent(bounds.name)}`));
     const detail = await response.json();
     if (!response.ok) throw new Error(detail.error || response.statusText);
     editing = detail;
     bounds.list = detail.chapters.list || [];
     bounds.fixes = detail.chapters.fixes || [];
+    bounds.packed = !!detail.chapters.packed;
     drawBounds();
     $("bd-wrap").scrollTop = keep;
     msg.className = "msg good";
-    msg.textContent = detail.chapters.packed
-      ? "Saved. The archives were packed before, so run Work out chapters to write the changed ones again."
-      : "Saved.";
+    const wrote = (result.output || "").match(/wrote .+\.cbz/g);
+    msg.textContent = wrote ? `Saved, and ${wrote.length} archive(s) written again: ${
+      wrote.map((one) => one.slice(6)).join(", ").slice(0, 120)}` : "Saved.";
   } catch (error) {
     msg.className = "msg bad";
     msg.textContent = error.message;
@@ -885,7 +889,8 @@ async function sendFix(body) {
 }
 
 $("edit-boundaries").addEventListener("click", () => {
-  bounds = { name: editing.name, list: editing.chapters.list || [], fixes: editing.chapters.fixes || [] };
+  bounds = { name: editing.name, list: editing.chapters.list || [], fixes: editing.chapters.fixes || [],
+             packed: !!editing.chapters.packed };
   $("bd-who").textContent = `${editing.name} — ${bounds.list.length} chapter(s)`;
   $("bd-msg").className = "msg"; $("bd-msg").textContent = "";
   $("bd-new-at").value = ""; $("bd-new-label").value = "";

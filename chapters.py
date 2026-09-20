@@ -1613,14 +1613,20 @@ def edit_fixes(folder, args):
         block["checked"] = time_stamp()
         print()
         show_chapters(folder, chapters, pages)
-        if block.get("packed"):
-            print("  this comic's chapter archives were packed before, so any that changed need writing "
-                  "again: chapters.py pack {0}".format(folder))
     if args.forget or args.clear:
         print("  a correction taken back does not bring the old boundary back on its own. Run "
               "chapters.py chapters {0} --save to work them out afresh.".format(folder))
     write_metadata(folder, metadata)
-    return 0
+    if not (stored and block.get("packed")):
+        #nothing has been written for these chapters yet, so there is nothing to put right
+        return 0
+    if args.no_repack:
+        print("  the chapter archives still hold the old boundaries: chapters.py pack {0}".format(folder))
+        return 0
+    #an archive holding a boundary this just corrected is a wrong archive, and a correction that leaves
+    #one behind has not finished. only the archives whose contents changed are written again.
+    print()
+    return pack(folder, args)
 
 
 def setup():
@@ -1675,6 +1681,9 @@ def setup():
                              "have archives, not only one that adds chapters at the end.")
     params.add_argument("--save", action='store_true', default=False,
                         help="With chapters, write what it worked out into the comic's metadata.")
+    params.add_argument("--no-repack", action='store_true', default=False,
+                        help="With fix, leave the chapter archives alone, even where the correction "
+                             "changed what belongs in one.")
     params.add_argument("--page", default=None,
                         help="With refetch, only these pages, by number: --page 1 or --page 1,5,9.")
     params.add_argument("--as-named", action='store_true', default=False,

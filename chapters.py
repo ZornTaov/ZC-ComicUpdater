@@ -1091,6 +1091,7 @@ def pack(folder, args):
     shelf = chapter_folder(folder, metadata, args.root, args.cbz_folder)
     parcels = chapter_contents(folder, chapters, pages)
     held = {name for _, names in parcels for name in names}
+    print("  listing what is in the comic's folder ...", flush=True)
     on_disk = set(folder_pages(folder))
     astray = sorted(on_disk - held)
     if astray:
@@ -1099,8 +1100,13 @@ def pack(folder, args):
         return 1
 
     print("{0}: {1} chapter(s) into {2}".format(folder, len(parcels), shelf))
-    todo = [(chapter, names) for chapter, names in parcels
-            if not already_packed(os.path.join(shelf, chapter_file(folder, chapter)), names, folder)]
+    print("  looking at what the archives already hold ...", flush=True)
+    todo = []
+    for at, (chapter, names) in enumerate(parcels, 1):
+        if not already_packed(os.path.join(shelf, chapter_file(folder, chapter)), names, folder):
+            todo.append((chapter, names))
+        if at % 10 == 0 and at < len(parcels):
+            print("    looked at {0} of {1}".format(at, len(parcels)), flush=True)
     print("  {0} to write, {1} already as they should be".format(len(todo), len(parcels) - len(todo)))
     for chapter, names in parcels[:100]:
         mark = "write" if (chapter, names) in todo else "keep "
@@ -1116,6 +1122,7 @@ def pack(folder, args):
     written = 0
     for chapter, names in todo:
         path = os.path.join(shelf, chapter_file(folder, chapter))
+        print("  writing {0} ({1} page(s)) ...".format(os.path.basename(path), len(names)), flush=True)
         spare = path + ".packing"
         with zipfile.ZipFile(spare, 'w', zipfile.ZIP_STORED) as zf:
             zf.writestr("ComicInfo.xml", comic_info(folder, chapter, len(parcels), names))
@@ -1123,7 +1130,7 @@ def pack(folder, args):
                 zf.write(os.path.join(folder, name), name)
         os.replace(spare, path)
         written += 1
-        print("  wrote {0} ({1} page(s))".format(os.path.basename(path), len(names)))
+        print("  wrote {0} ({1} page(s))".format(os.path.basename(path), len(names)), flush=True)
     print("Wrote {0} chapter archive(s).".format(written))
 
     kept = verify_chapters(folder, shelf, parcels)
@@ -1198,6 +1205,9 @@ def joined_pages(folder, args):
     if not os.path.exists(alignment):
         print("ERROR: {0} has not been lined up yet. Run: chapters.py index {0}".format(folder))
         return None
+    #a library on a network share answers slowly enough that silence looks like a hang, so every slow
+    #step says what it is doing before it starts rather than after it finishes
+    print("  reading which file is which page ...", flush=True)
     sizes = {page["n"]: page.get("bytes") for page in read_index(cache)}
     saved = json.load(open(alignment, encoding='utf-8'))
     if not saved.get("settled"):

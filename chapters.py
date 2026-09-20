@@ -265,7 +265,7 @@ def describe(folder, pages, files, aligned, how, anchors, trouble):
     matched = [name for name in aligned if name]
     spare = [name for name in files if name not in set(matched)]
     print("{0}".format(folder))
-    ways = ", ".join("{0} by {1}".format(how.count(way), way) for way in ("size", "name", "order")
+    ways = ", ".join("{0} by {1}".format(how.count(way), way) for way in ("size", "name", "order", "time")
                      if how.count(way))
     print("  {0} pages walked, {1} files held, {2} lined up ({3})".format(
         len(pages), len(files), len(matched), ways or "none"))
@@ -275,6 +275,8 @@ def describe(folder, pages, files, aligned, how, anchors, trouble):
         print("  {0} anchor(s) agree ({1} by name, {2} by size), from page {3} ({4}) to page {5} ({6})".format(
             len(anchors), kinds["name"], kinds["size"], first[0] + 1, files[first[1]],
             last[0] + 1, files[last[1]]))
+    elif "time" in how:
+        print("  lined up by when each file was written, so the sizes below are the whole check")
     else:
         print("  no filename anchors: every page was renamed, so this rests on the counts matching")
     missing = [page for page, name in zip(pages, aligned) if not name]
@@ -515,6 +517,10 @@ def chapter_word(key):
              "i": "Issue", "iss": "Issue", "issue": "Issue", "v": "Volume", "vol": "Volume",
              "volume": "Volume", "b": "Book", "book": "Book", "part": "Part", "arc": "Arc",
              "p": "Chapter", "page": "Chapter", "strip": "Chapter"}
+    if word not in known and len(word) <= 3:
+        #a short tag before the number is a site's shorthand for the comic itself - /ss/12-1 is Swords and
+        #Sausages chapter 12 - and naming the chapter after the comic says nothing
+        word = ""
     return "{0} {1}".format(known.get(word, word.title() or "Chapter"), int(found.group(2)))
 
 
@@ -579,6 +585,12 @@ def chapters_from_urls(pages):
     best = None
     for at in range(most):
         keys, numbers = group_by_url(pages, at)
+        #a comic cannot hold more chapters than it holds pages, so a number bigger than that is not one:
+        #a date written 20211202, a year, an id. left in, it jumps so far ahead that nothing after it can
+        #start a chapter, and the whole rest of the comic falls into it.
+        keys = [key if number is not None and number <= len(pages) else None
+                for key, number in zip(keys, numbers)]
+        numbers = [number if key else None for key, number in zip(keys, numbers)]
         counted = [number for number in numbers if number is not None]
         if not counted or counted[0] not in (0, 1):
             #a chapter is counted from where a comic starts counting. a date is not.
@@ -931,6 +943,13 @@ def plan(folder, args):
         else:
             print("  WARNING: this moves chapters that already have archives written for them: {0}{1}".format(
                 ["page {0}".format(at) for at, label in what[:4]], "..." if len(what) > 4 else ""))
+    if len(chapters) < 2 and not args.force:
+        #a comic in one chapter is a comic that is not chaptered. saving this replaces the single archive
+        #with a single archive under another name, which is the sort of thing that looks like it worked.
+        print("  this reads as one chapter over the whole comic, which is what a page with no chapter "
+              "headings looks like - not a comic in one chapter. Nothing saved. Use --archive with a "
+              "page that does list chapters, --urls if the addresses number them, or --list.")
+        return 1
     if not args.save:
         print("  nothing saved. Run it again with --save once this looks right.")
         return 0
@@ -1306,6 +1325,30 @@ def walk(folder, args):
     return cache
 
 
+def by_written_order(folder, pages, files):
+    #for a comic this scraper downloaded itself, in one pass, without numbering the files: the order the
+    #files were written IS the order the pages were published, because that is the order they were
+    #fetched. it needs no names and no sizes, which is what makes it work on a site that serves
+    #jan.png for one page and 99002.jpg for the next.
+    if len(files) != len(pages):
+        print("ERROR: {0} file(s) here but {1} page(s) walked. Lining up by when files were written "
+              "needs one of each, so this comic needs the usual alignment.".format(len(files), len(pages)))
+        return None, None
+    stamped = []
+    for name in files:
+        try:
+            stamped.append((os.path.getmtime(os.path.join(folder, name)), name))
+        except OSError as error:
+            print("ERROR: could not read when {0} was written: {1}".format(name, error))
+            return None, None
+    stamped.sort()
+    ties = sum(1 for one, next_one in zip(stamped, stamped[1:]) if one[0] == next_one[0])
+    if ties:
+        print("  {0} file(s) share a write time with the next, so their order between themselves is "
+              "guesswork; the sizes below say whether it landed right.".format(ties))
+    return [name for _, name in stamped], ["time"] * len(pages)
+
+
 def do_align(folder, args):
     cache = index_path(folder, args.root, args)
     if not os.path.exists(cache):
@@ -1314,7 +1357,13 @@ def do_align(folder, args):
     pages = read_index(cache)
     files = folder_pages(folder)
     fill_sizes(cache, pages)
-    aligned, how, anchors, trouble = align(pages, files, folder)
+    if args.by_time:
+        aligned, how = by_written_order(folder, pages, files)
+        if aligned is None:
+            return 2
+        anchors, trouble = [], []
+    else:
+        aligned, how, anchors, trouble = align(pages, files, folder)
     settled = describe(folder, pages, files, aligned, how, anchors, trouble)
     where = save_alignment(cache.replace(".jsonl", ".align.json"), folder, pages, aligned, how, settled)
     remember_cache(folder, cache)
@@ -1322,6 +1371,97 @@ def do_align(folder, args):
     if settled:
         save_gaps(folder, pages, aligned)
     return 0 if settled else 1
+
+
+def plain_name(name):
+    #a name this script has already numbered, back to whatever the site called it
+    return re.sub(r'^\d{1,6}_', '', name)
+
+
+def renumber(folder, args):
+    #a comic scraped without --prefix keeps the site's own names, and a site that calls one page jan.png
+    #and the next 99002.jpg reads in no order at all. the alignment is the only thing that knows which
+    #file is which page, so the numbers come from there and from nothing else.
+    cache = index_path(folder, args.root, args)
+    alignment = cache.replace(".jsonl", ".align.json")
+    if not os.path.exists(alignment):
+        print("ERROR: {0} has not been lined up yet. Run: chapters.py index {0}".format(folder))
+        return 2
+    saved = json.load(open(alignment, encoding='utf-8'))
+    if not saved.get("settled") and not args.force:
+        print("ERROR: this comic's alignment is not settled, so which file is which page is not certain "
+              "and numbering them would write that uncertainty into their names. Sort the alignment out "
+              "first, or pass --force if you are sure.")
+        return 2
+    held = set(os.listdir(folder))
+    moves, already = [], 0
+    for page in saved["pages"]:
+        name = page.get("file")
+        if not name:
+            continue
+        want = "{0:04d}_{1}".format(page["n"], plain_name(name))
+        if want == name:
+            already += 1
+        else:
+            moves.append((name, want))
+    if not moves:
+        print("{0}: all {1} file(s) already carry their page number.".format(folder, already))
+        return 0
+    #every page must want a name of its own, and must not want one that belongs to a file staying put
+    wanted = [want for _, want in moves]
+    twice = sorted({want for want in wanted if wanted.count(want) > 1})
+    staying = held - {name for name, _ in moves}
+    taken = sorted(want for want in wanted if want in staying)
+    if twice or taken:
+        print("ERROR: these names would collide, so nothing was renamed:")
+        for want in (twice + taken)[:10]:
+            print("      {0}".format(want))
+        return 2
+    print("{0}: {1} file(s) to number, {2} already numbered".format(folder, len(moves), already))
+    for name, want in moves[:4]:
+        print("      {0}  ->  {1}".format(name[:44], want[:44]))
+    if len(moves) > 4:
+        print("      ... and {0} more".format(len(moves) - 4))
+    if args.dry_run:
+        print("  nothing was renamed. Run it again without --dry-run once this looks right.")
+        return 0
+    #moved through names nothing else can hold, so a file never lands on one still waiting to be moved
+    stepped = []
+    try:
+        for at, (name, want) in enumerate(moves):
+            step = os.path.join(folder, "{0}.renaming{1}".format(want, at))
+            os.rename(os.path.join(folder, name), step)
+            stepped.append((name, step, want))
+        for _, step, want in stepped:
+            os.rename(step, os.path.join(folder, want))
+    except OSError as error:
+        print("ERROR: renaming stopped: {0}".format(error))
+        print("  putting back the {0} file(s) that had moved ...".format(len(stepped)))
+        for name, step, _ in stepped:
+            if os.path.exists(step):
+                os.rename(step, os.path.join(folder, name))
+        print("  nothing was renamed in the end.")
+        return 2
+    print("  {0} file(s) renamed.".format(len(moves)))
+    renamed = dict(moves)
+    for page in saved["pages"]:
+        if page.get("file") in renamed:
+            page["file"] = renamed[page["file"]]
+    spare = alignment + ".writing"
+    with open(spare, 'w', encoding='utf-8') as f:
+        json.dump(saved, f, indent=1)
+        f.write(chr(10))
+    os.replace(spare, alignment)
+    metadata = read_metadata(folder)
+    if metadata:
+        settings = metadata.setdefault("settings", {})
+        if not settings.get("prefix"):
+            settings["prefix"] = True
+            print("  this comic now saves new pages with their number too (prefix is on).")
+        write_metadata(folder, metadata)
+    print("  the archive still holds the old names: chapters.py repack {0} --root <library>, or pack "
+          "for a chaptered comic.".format(folder))
+    return 0
 
 
 def list_fixes(fixes, pages):
@@ -1413,13 +1553,14 @@ def setup():
     params = argparse.ArgumentParser(
         description="Line a comic's saved files up with the pages they came from.")
     params.add_argument("what", choices=["index", "align", "show", "chapters", "fix", "try", "pack",
-                                         "refetch", "repack"],
+                                         "refetch", "repack", "renumber"],
                         help="index: walk the comic and line it up. align: line up a walk already done. "
                              "show: what the last alignment says. refetch: fetch again any page whose file "
                              "is not what the site serves. chapters: work out where the chapters start. "
                              "try: read an archive page and say what it would be read as, before walking "
                              "anything. "
                              "fix: put a chapter boundary right by hand. "
+                             "renumber: rename the files so each carries its page number. "
                              "pack: write one .cbz per chapter. "
                              "repack: write the .cbz afresh from the folder.")
     params.add_argument("folder", help="The comic's folder.")
@@ -1460,6 +1601,9 @@ def setup():
                              "have archives, not only one that adds chapters at the end.")
     params.add_argument("--save", action='store_true', default=False,
                         help="With chapters, write what it worked out into the comic's metadata.")
+    params.add_argument("--by-time", action='store_true', default=False,
+                        help="With align, line the pages up by the order their files were written, for a "
+                             "comic this scraper downloaded in one pass without numbering them.")
     params.add_argument("--at", default=None,
                         help="With fix, the page the correction is about: its address, or its page number.")
     params.add_argument("--label", default=None,
@@ -1509,6 +1653,8 @@ def main():
         return plan(folder, args)
     if args.what == "fix":
         return edit_fixes(folder, args)
+    if args.what == "renumber":
+        return renumber(folder, args)
     if args.what == "refetch":
         return refetch(folder, args)
     if args.what == "repack":

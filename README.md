@@ -424,6 +424,43 @@ misplacement.
 
 The result is cached under `config/index/`. It can be deleted at any time; the walk rebuilds it.
 
+### When the names say nothing: lining up by when files were written
+
+A site that serves `jan.png` for one page and `99002.jpg` for the next defeats all three. But a comic
+**this scraper downloaded itself, in one pass**, was fetched in reading order, so the order the files
+were written is the order the pages were published:
+
+```sh
+python chapters.py align "D:/Comics/Uncompressed/MyComic" --by-time
+```
+
+It needs exactly one file per walked page and refuses otherwise, rather than sliding everything along
+by one. It uses no names and no sizes, so the size check afterwards is an independent verdict: a page
+landing on **another** page's file still stops it being called settled.
+
+Only use it on a comic this scraper fetched in one go. Files copied from elsewhere, restored from a
+backup, or fetched by several runs out of order carry timestamps that mean nothing about reading order.
+
+### Numbering the files
+
+A comic scraped without `--prefix` keeps the site's own filenames, so a reader shows its pages in
+whatever order those names happen to sort in. Once the alignment is settled, the page numbers can be
+written into the names:
+
+```sh
+python chapters.py renumber "D:/Comics/Uncompressed/MyComic" --dry-run   # say what would change
+python chapters.py renumber "D:/Comics/Uncompressed/MyComic"
+```
+
+`jan.png` becomes `0001_jan.png`, keeping the site's name after the number. The numbers come only from
+the alignment, so it refuses when that is not settled: numbering a guess just writes the guess into the
+filenames. A name that already carries a number is renumbered rather than numbered twice, so running it
+again is safe, and it turns `prefix` on so new pages are numbered as they arrive. Nothing is renamed
+unless every new name is free and unique.
+
+The archive still holds the old names afterwards, so follow it with `repack`, or `pack` for a chaptered
+comic.
+
 ## Chapters
 
 A comic that reads in chapters can be kept as one archive per chapter rather than a single enormous
@@ -460,9 +497,15 @@ writes anything without `--save`:
    wins. A chapter counts up from where a comic starts counting, which is what keeps a date from being
    read as a chapter a year. A page whose address does not follow the shape the rest use - a one-off
    slug, a typo on the site - stays in the chapter it sits in rather than becoming one, and each chapter
-   is named by what most of its pages say. `--urls` forces this even for a comic that remembers an
-   archive page.
+   is named by what most of its pages say. A number larger than the comic's own page count is not a
+   chapter either, which is how a filler page at `/ss/20211202` stops reading as chapter twenty million
+   and swallowing everything after it. `--urls` forces this even for a comic that remembers an archive
+   page.
 3. **A file of chapter starts**, one address per line, each optionally followed by `|` and a title.
+
+Whatever the source, a reading that comes out as **one chapter over the whole comic** is refused: that
+is what a page with no chapter headings looks like, and saving it would replace a comic's single
+archive with a single archive under another name.
 
 A chapter runs until the next one starts, so filler, guest art and flash pages stay where they were
 published. Chapters are numbered in reading order whatever their labels say, which keeps a set of

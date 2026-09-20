@@ -364,7 +364,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
       </div>
       <div class="field">
         <label for="e-chapters">Chapter list</label>
-        <input type="text" id="e-chapters" spellcheck="false" placeholder="the comic's archive page, for chapters">
+        <input type="text" id="e-chapters" spellcheck="false" placeholder="the comic's archive page — blank to read its own addresses">
         <div class="note" id="e-chapters-note"></div>
       </div>
       <div class="field">
@@ -622,10 +622,13 @@ async function openEditor(name) {
   $("e-waittime").value = s.waittime || 0;
   const chapters = detail.chapters || {};
   $("e-chapters").value = chapters.source_url || "";
-  $("e-chapters-note").textContent = chapters.count
-    ? `${chapters.count} chapter(s) worked out${chapters.packed ? ", archives written " + when(chapters.packed) : ""}.`
-    : detail.indexed ? "Which page is which is already known, so this needs no walk."
-    : "Working these out walks the comic once, downloading nothing. It can take a few minutes.";
+  //an archive page is one source of chapters and the comic's own addresses are another: a comic that
+  //counts /comic/issue-4-page-7 often reads better from those than from an archive with no headings
+  $("e-chapters-note").textContent = (chapters.count
+    ? `${chapters.count} chapter(s) worked out from ${chapters.source === "archive" && chapters.source_url ? "that page" : "the comic's own addresses"}${chapters.packed ? ", archives written " + when(chapters.packed) : ""}. `
+    : detail.indexed ? "Which page is which is already known, so this needs no walk. "
+    : "Working these out walks the comic once, downloading nothing. It can take a few minutes. ")
+    + "Leave it blank to read the chapters out of the comic's own page addresses instead.";
   flags.forEach((key) => { $("e-" + key).checked = key === "cbz" || key === "direction_check" ? s[key] !== false : !!s[key]; });
   const next = detail.pages_in_folder + 1;
   $("e-next-number").textContent = `use ${next}, the number after the pages held`;
@@ -926,9 +929,9 @@ $("edit-chapterize").addEventListener("click", async () => {
     await saveEditor(false);
     const result = await post("/api/chapterize", { name: editing.name, url: $("e-chapters").value.trim() });
     msg.className = "msg good";
-    msg.textContent = result.walking
-      ? "Queued. It walks the comic first, which takes a few minutes; watch it under Running now."
-      : "Queued; watch it under Running now.";
+    msg.textContent = (result.from === "addresses" ? "Queued, reading the comic's own addresses. " : "Queued. ")
+      + (result.walking ? "It walks the comic first, which takes a few minutes; watch it under Running now."
+                        : "Watch it under Running now.");
   } catch (error) {
     msg.className = "msg bad";
     msg.textContent = error.message;

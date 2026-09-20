@@ -276,7 +276,9 @@ shows:
   save the address of its archive page, then **Work out chapters**. It walks the comic once if nothing
   records which page is which, reads the archive page, and writes one archive per chapter, giving up the
   single archive once every page is accounted for. A comic that has been walked before needs no second
-  walk.
+  walk. Leave the chapter list **blank** and it reads the chapters out of the comic's own page
+  addresses instead, which is the better source for a comic that counts `/comic/issue-4-page-7` but
+  whose archive page has no headings worth reading.
 - **Chapter boundaries** shows where each chapter starts and lets one be put right, for a site that
   names a page in a way no rule can read. Change a chapter's name or its starting page, say a boundary
   is *not a chapter* so its pages join the one before, or add one by page number and name. Each is kept

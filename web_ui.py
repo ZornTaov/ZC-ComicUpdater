@@ -204,7 +204,8 @@ class Runner:
                 steps.append(["index"])
             else:
                 steps.append(["align"])
-            steps.append(["chapters", "--archive", listing, "--save"])
+            steps.append(["chapters", "--archive", listing, "--save"] if listing
+                         else ["chapters", "--urls", "--save"])
             if (comic.metadata.get("settings") or {}).get("cbz") is not False:
                 steps.append(["pack", "--replace"])
             for step in steps:
@@ -974,14 +975,14 @@ def make_handler(runner, args, uc, tee):
                 elif is_running(runner, name):
                     self.reply({"error": "that comic is being scraped right now"}, 409)
                 else:
+                    #no chapter list means the comic's own addresses, which is the right source for one
+                    #that counts /comic/issue-4-page-7 and has no archive page worth reading
                     listing = (str(body.get("url") or "").strip()
                                or (comic.metadata.get("chapters") or {}).get("source_url"))
-                    if not listing:
-                        self.reply({"error": "no chapter list for this comic; save one first"}, 400)
-                    else:
-                        walk = not (comic.metadata.get("history") or {}).get("index_cache")
-                        job = runner.submit_chapterize(comic, listing, walk)
-                        self.reply({"queued": job.id, "label": job.label, "walking": walk})
+                    walk = not (comic.metadata.get("history") or {}).get("index_cache")
+                    job = runner.submit_chapterize(comic, listing, walk)
+                    self.reply({"queued": job.id, "label": job.label, "walking": walk,
+                                "from": "archive" if listing else "addresses"})
             elif path == "/api/chapterfix":
                 name = str(body.get("name") or "")
                 comic = find_comic(args, uc, name)

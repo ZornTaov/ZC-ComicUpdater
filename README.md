@@ -416,6 +416,13 @@ Lining up then rests on three things, in order:
    ago. This is what makes an old comic recoverable at all.
 3. **Counting**, for the stretches between two anchors that hold the same number of each.
 
+Two checks then run over the result. The first needs no network at all: the walk recorded each page's
+image address, so a file that is **not named after the image the walk saw** is a page whose saved copy
+is not its image - a scrape that caught a banner or an author icon instead of the comic. It is only
+reported when most files *do* match, since on a comic the site renamed wholesale nothing matches and it
+would say nothing. `refetch --page N --as-named` puts one right: it fetches the real image, saves it
+under the name the site uses now, and removes the file that was never that page.
+
 Every placement is then checked against the site's own sizes. A size that differs proves nothing on its
 own, since a comic that changed host serves re-encoded images; a size that belongs to a **different**
 file in the folder is a real conflict and stops the alignment being called settled. Pages the comic has
@@ -502,6 +509,10 @@ writes anything without `--save`:
    and swallowing everything after it. `--urls` forces this even for a comic that remembers an archive
    page.
 3. **A file of chapter starts**, one address per line, each optionally followed by `|` and a title.
+An archive built as one table per chapter, with the chapter's name in the table's `<th>`, is read the
+same way as one using `<h2>` headings - Tiger Knight's archive is 38 such tables and reads as 38
+chapters, none of which carries a number or the word "chapter" anywhere.
+
 
 Whatever the source, a reading that comes out as **one chapter over the whole comic** is refused: that
 is what a page with no chapter headings looks like, and saving it would replace a comic's single

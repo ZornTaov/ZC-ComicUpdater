@@ -289,6 +289,21 @@ def describe(folder, pages, files, aligned, how, anchors, trouble):
     if spare:
         print("  {0} file(s) no page claims: {1}{2}".format(
             len(spare), spare[:4], "..." if len(spare) > 4 else ""))
+    named = [(page, name) for page, name in zip(pages, aligned) if name and page.get("src")]
+    astray = [(page, name) for page, name in named
+              if page_key(os.path.basename(page["src"].split('?')[0])) != page_key(name)]
+    #only worth saying when most files ARE named after their image: then the few that are not stand out
+    #as a page whose saved file is not its image - a scrape that caught a banner or an icon instead. on a
+    #comic the site renamed wholesale, nothing matches and this says nothing.
+    if named and len(astray) <= len(named) / 2:
+        if astray:
+            print("  {0} file(s) here are not the image the walk saw on that page:".format(len(astray)))
+            for page, name in astray[:6]:
+                print("      page {0:<5} {1:<26} site serves {2}".format(
+                    page["n"], name[:26], os.path.basename(page["src"].split('?')[0])))
+            if len(astray) > 6:
+                print("      ... and {0} more".format(len(astray) - 6))
+            print("      chapters.py refetch {0} --page <n> --as-named puts one right.".format(folder))
     agree, changed, conflict = verify(folder, files, pages, aligned)
     print("  checked against the site's own sizes: {0} match exactly, {1} differ (re-uploaded since, "
           "and their size is held by no other file here), {2} land on another page's file".format(
@@ -408,7 +423,10 @@ class ArchiveReader(html.parser.HTMLParser):
     #reads a comic's archive page as a sequence of two things: headings, and links. what a heading looks
     #like differs from site to site - a real heading tag on one, a bold line or a table cell on another -
     #so anything that could be one is kept, and a link is later put under whichever came last before it.
-    heading_tags = ("h1", "h2", "h3", "h4", "h5", "h6", "b", "strong", "legend", "caption", "summary")
+    #a table header is a real heading for the rows under it: an archive built as one table per chapter,
+    #with the chapter's name in its th, says where chapters start as plainly as any h2 does
+    heading_tags = ("h1", "h2", "h3", "h4", "h5", "h6", "th", "b", "strong", "legend", "caption", "summary")
+    title_tags = ("h1", "h2", "h3", "h4", "h5", "h6", "th")
 
     def __init__(self):
         html.parser.HTMLParser.__init__(self)
@@ -428,7 +446,7 @@ class ArchiveReader(html.parser.HTMLParser):
         #whole words only: a class called comic-archive-date holds "arc" inside "archive" and is a date,
         #not a heading
         words = set(re.split(r'[^a-z]+', "{0} {1}".format(got.get("class") or "", got.get("id") or "").lower()))
-        self.rank = 0 if re.match(r'^h[1-6]$', tag) else 1
+        self.rank = 0 if tag in self.title_tags else 1
         looks_like = tag in self.heading_tags or bool(
             words & {"chapter", "chapters", "arc", "arcs", "volume", "book", "story", "storyline"})
         if looks_like:
@@ -746,16 +764,18 @@ def save_chapters(folder, chapters, source, source_url=None):
     if not metadata:
         print("  no metadata here, so the chapters were not saved")
         return 1
-    fixes = (metadata.get("chapters") or {}).get("fixes")
+    was = metadata.get("chapters") or {}
     metadata["chapters"] = {
         "source": source,
         "source_url": source_url,
         "checked": time_stamp(),
         "list": [chapter_record(c) for c in chapters],
     }
-    if fixes:
-        #kept through every re-reading: a correction is about this comic, not about one run of one rule
-        metadata["chapters"]["fixes"] = fixes
+    #a correction is about this comic, not about one run of one rule, and where the archives are and when
+    #they were written describes what is on disk, not this reading. neither is the reading's to throw away
+    for kept in ("fixes", "packed", "folder"):
+        if was.get(kept):
+            metadata["chapters"][kept] = was[kept]
     write_metadata(folder, metadata)
     print("  saved {0} chapter(s) into {1}".format(len(chapters), os.path.join(folder, metadata_file)))
     return 0
@@ -957,7 +977,11 @@ def plan(folder, args):
         print("  nothing saved, because pages would move between archives that already exist. Look at it, "
               "then run it again with --force if that is what you want.")
         return 1
-    return save_chapters(folder, chapters, source, source_url)
+    code = save_chapters(folder, chapters, source, source_url)
+    if not code and how != "same" and known.get("packed"):
+        #nothing repacks itself: an archive holding the old boundary keeps holding it until pack is run
+        print("  the chapter archives still hold the old boundaries. Run: chapters.py pack {0}".format(folder))
+    return code
 
 
 # ---------------- one archive per chapter ----------------
@@ -1187,6 +1211,13 @@ def refetch(folder, args):
     pages = joined_pages(folder, args)
     if pages is None:
         return 2
+    only = set()
+    if args.page:
+        try:
+            only = {int(bit) for bit in str(args.page).replace(',', ' ').split()}
+        except ValueError:
+            print("ERROR: --page takes page numbers, such as --page 1 or --page 1,5,9.")
+            return 2
     wanted = []
     for page in pages:
         if not page["file"] or not page.get("src"):
@@ -1196,8 +1227,16 @@ def refetch(folder, args):
             held = os.path.getsize(path)
         except OSError:
             continue
-        if args.all or (page["bytes"] and held != page["bytes"]):
+        if only:
+            if page["n"] in only:
+                wanted.append((page, held))
+        elif args.all or (page["bytes"] and held != page["bytes"]):
             wanted.append((page, held))
+    if only:
+        missed = only - {page["n"] for page, _ in wanted}
+        if missed:
+            print("ERROR: no page {0} with a file and a known image here.".format(sorted(missed)))
+            return 2
     if not wanted:
         print("Nothing to fetch again: every page is already the size the site serves.")
         return 0
@@ -1217,7 +1256,7 @@ def refetch(folder, args):
 
     session = requests.Session()
     session.headers.update({"User-Agent": "Mozilla/5.0"})
-    done, kept, failed = 0, 0, []
+    done, kept, failed, renamed = 0, 0, [], []
     for page, held in wanted:
         path = os.path.join(folder, page["file"])
         try:
@@ -1232,16 +1271,51 @@ def refetch(folder, args):
         if page["bytes"] and len(fresh) != page["bytes"]:
             failed.append((page["n"], "fetched {0} bytes, expected {1}".format(len(fresh), page["bytes"])))
             continue
-        if len(fresh) <= held:
+        if not args.as_named and len(fresh) <= held:
             kept += 1
             continue
+        if args.as_named:
+            #the file here is not this page's image at all - a scrape that matched the site's banner or an
+            #author icon instead of the comic. the right copy belongs under the right name, so the wrong
+            #one goes rather than being overwritten and keeping a name that was never true.
+            want = os.path.basename(page["src"].split('?')[0])
+            if not want.lower().endswith(".png"):
+                want += ".png"
+            number = re.match(r'^(\d{1,6})_', page["file"])
+            if number:
+                want = "{0}_{1}".format(number.group(1), want)
+            if want != page["file"]:
+                if os.path.exists(os.path.join(folder, want)):
+                    failed.append((page["n"], "{0} is already here".format(want)))
+                    continue
+                renamed.append((page["n"], page["file"], want))
+                path = os.path.join(folder, want)
         spare = path + ".fetching"
         with open(spare, 'wb') as f:
             f.write(fresh)
         os.replace(spare, path)
+        for at, was, now in renamed[-1:]:
+            if at == page["n"] and os.path.exists(os.path.join(folder, was)):
+                os.remove(os.path.join(folder, was))
+                print("  page {0}: {1} was not this page; saved {2} instead".format(at, was, now))
         done += 1
         if done % 25 == 0:
             print("  {0} of {1} replaced".format(done, len(wanted)))
+    if renamed:
+        #the alignment names the file for each page, so it has to learn the new ones or everything after
+        #this looks at a file that is no longer there
+        alignment = index_path(folder, args.root, args).replace(".jsonl", ".align.json")
+        saved = json.load(open(alignment, encoding='utf-8'))
+        fresh_names = {at: now for at, _, now in renamed}
+        for page in saved["pages"]:
+            if page["n"] in fresh_names:
+                page["file"] = fresh_names[page["n"]]
+        spare = alignment + ".writing"
+        with open(spare, 'w', encoding='utf-8') as f:
+            json.dump(saved, f, indent=1)
+            f.write(chr(10))
+        os.replace(spare, alignment)
+        print("  {0} name(s) put right in the alignment too.".format(len(renamed)))
     print("Replaced {0} page(s); left {1} alone as no better than what was here.".format(done, kept))
     for n, why in failed[:8]:
         print("  page {0} was not replaced: {1}".format(n, why))
@@ -1601,6 +1675,12 @@ def setup():
                              "have archives, not only one that adds chapters at the end.")
     params.add_argument("--save", action='store_true', default=False,
                         help="With chapters, write what it worked out into the comic's metadata.")
+    params.add_argument("--page", default=None,
+                        help="With refetch, only these pages, by number: --page 1 or --page 1,5,9.")
+    params.add_argument("--as-named", action='store_true', default=False,
+                        help="With refetch, save each page under the name the site's image has now and "
+                             "remove the file that was there, for a page whose saved file is not its "
+                             "image at all.")
     params.add_argument("--by-time", action='store_true', default=False,
                         help="With align, line the pages up by the order their files were written, for a "
                              "comic this scraper downloaded in one pass without numbering them.")

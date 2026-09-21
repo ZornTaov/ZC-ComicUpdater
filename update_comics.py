@@ -114,6 +114,7 @@ exit_reasons = {
     6: "page load timed out (slow or unresponsive site)",
     7: "unexpected error",
     8: "next link runs backwards (check the site's next element)",
+    9: "the site reuses image names between chapters; this comic needs prefix turned on",
 }
 
 

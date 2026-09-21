@@ -187,6 +187,7 @@ EXIT_DRIVER = 5
 EXIT_TIMEOUT = 6
 EXIT_UNEXPECTED = 7
 EXIT_BACKWARDS = 8
+EXIT_SAME_NAMES = 9
 
 #how long to let one page load before giving up on it. selenium otherwise waits for the page to finish
 #loading with no limit of its own, and the only thing that eventually breaks the wait is its internal
@@ -234,6 +235,10 @@ scrape_state = {
     #where the last saved page sits according to the pages already held, so the next one can be checked
     #for having moved backwards rather than forwards
     "last_known_number": None,
+    #how many pages in a row have sat earlier than the one before them. one on its own is not evidence:
+    #a site that names every chapter's pages 1,2,3 hands out a name it has used before at every chapter
+    #boundary, which looks backwards for exactly one page and then climbs again
+    "backwards_run": 0,
 }
 
 def setup():
@@ -665,6 +670,24 @@ def page_key(name):
     return stem.lower()
 
 
+def reads_backwards(sits_at, came_from):
+    #whether the comic has turned round, judged over more than one page. one step back is not evidence:
+    #a site that numbers each chapter's pages from one - bittersweetcandybowl serves /comics/1/1@2x.png
+    #and later /comics/131/1@2x.png - hands back a name it has used before at every chapter boundary,
+    #which looks backwards for exactly one page and then climbs again. a next link that really runs
+    #backwards keeps running backwards.
+    steps_back = sits_at is not None and came_from is not None and sits_at < came_from
+    scrape_state["backwards_run"] = scrape_state["backwards_run"] + 1 if steps_back else 0
+    return scrape_state["backwards_run"] > 1
+
+
+def would_lose_a_page(target, prefix, saved_so_far):
+    #a site that reuses one filename for a page of every chapter would, without a numbered prefix, write
+    #each chapter over the last. the run would look like a success and only the page count would say
+    #otherwise. a resume re-saves the page it starts on, which is why this only counts once past it.
+    return not prefix and saved_so_far > 0 and os.path.exists(target)
+
+
 def page_number(name):
     #the page number a filename carries, from the prefix this script adds or from a name that is just
     #the number. none when the name says nothing about where the page sits.
@@ -1040,12 +1063,13 @@ def img_save(driver, increment, file_format, args):
     #forward over pages that are all already held. what separates the two is which way the numbers go.
     sits_at = existing_pages.get(page_key(image))
     came_from = scrape_state["last_known_number"]
-    if (args.direction_check and sits_at is not None and came_from is not None
-            and sits_at < came_from):
+    #counted whether or not the check is on, so turning it on mid-comic starts from the truth
+    turned_round = reads_backwards(sits_at, came_from)
+    if args.direction_check and turned_round:
         raise MirrorError(
-            "{0} is page {1} of this comic and the page before it was {2}, so the next link is going "
-            "backwards rather than forwards. Fix the next element for this site before running it "
-            "again.".format(image, sits_at, came_from),
+            "{0} is page {1} of this comic and the page before it was {2}, and the page before that went "
+            "backwards too, so the next link is going backwards rather than forwards. Fix the next "
+            "element for this site before running it again.".format(image, sits_at, came_from),
             EXIT_BACKWARDS, "next link runs backwards")
 
     #the page a resume starts on gets saved a second time, under whatever name the site uses now
@@ -1054,6 +1078,13 @@ def img_save(driver, increment, file_format, args):
 
     #prefix image with output folder name or url origin for folder structure
     target = '{0}/{1}'.format(folder, image)
+
+    if would_lose_a_page(target, args.prefix, scrape_state["pages_saved"]):
+        raise MirrorError(
+            "{0} is already saved here, and this is a different page of the comic, so this site uses one "
+            "filename for a page of every chapter. Saving it would write over the page already held. Run "
+            "this comic with --prefix so each page is numbered as it is saved.".format(image),
+            EXIT_SAME_NAMES, "the site reuses image names; needs --prefix")
 
     #to request the url
     req = fetch(src)

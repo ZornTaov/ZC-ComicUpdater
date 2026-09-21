@@ -62,6 +62,16 @@ their run — a date stamp becomes `NAME_0421.jpg` — and once that happens the
 into reading order. A prefix pins the order to the order you downloaded them in, which is the order
 the comic was published in.
 
+Some sites make it compulsory rather than merely wise. Bittersweet Candy Bowl numbers each chapter's
+pages from one - `/comics/1/1@2x.png`, then later `/comics/131/1@2x.png` - so every chapter would be
+written over the last one, the run would look like a success, and only the page count would say
+otherwise. A scrape that is about to do this stops instead and says to turn `--prefix` on.
+
+The same naming is why a single backwards-looking step is not treated as a comic turning round: at
+every chapter boundary such a site hands back a filename it has used before, which looks exactly like
+one step backwards and then climbs again. A next link that really runs backwards keeps running
+backwards, so the check waits for a second one - one page later, not one comic later.
+
 ### Priming comics to download elsewhere
 
 Scraping over a network share is slow, since every page is written across the network. `--prime`

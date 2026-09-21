@@ -291,7 +291,11 @@ shows:
   whose archive page has no headings worth reading.
 - **Chapter boundaries** shows where each chapter starts and lets one be put right, for a site that
   names a page in a way no rule can read. Change a chapter's name or its starting page, say a boundary
-  is *not a chapter* so its pages join the one before, or add one by page number and name. Each is kept
+  is *not a chapter* so its pages join the one before, or add one by page number and name. For a comic
+  that has been walked, the page boxes offer **that comic's own pages** - each one's number, title and
+  address - so a boundary is chosen by looking at it rather than counted out by hand, and each chapter
+  is listed by the title of the page it starts at. A comic that has not been walked says so and still
+  takes a page number or an address. Each is kept
   as a correction rather than an edit, so working the chapters out again does not throw it away — see
   [Putting a boundary right by hand](#putting-a-boundary-right-by-hand).
 A comic's result reads **up to date** only when the last run followed it to where it stops. A run can

@@ -576,6 +576,42 @@ def comic_detail(args, uc, runner, name):
     }, None
 
 
+def walked_pages(args, comic):
+    #every page the walk saw, so a boundary can be picked from the comic itself rather than typed. a
+    #comic that has never been walked simply has none, which the page says rather than pretending.
+    script = os.path.join(os.path.dirname(os.path.abspath(args.script)), "chapters.py")
+    command = [sys.executable, "-u", script, "show", comic.folder, "--json"]
+    if args.root:
+        command += ["--root", args.root]
+    try:
+        done = subprocess.run(command, capture_output=True, text=True, errors="replace",
+                              env=dict(os.environ, PYTHONUNBUFFERED="1"), timeout=300)
+    except subprocess.SubprocessError as error:
+        return 500, {"error": "could not read the walk: {0}".format(error)}
+    if done.returncode != 0:
+        #not an error worth a red box: it only means nobody has walked this comic yet
+        return 200, {"pages": [], "walked": False,
+                     "why": (done.stdout or done.stderr or "").strip()[:200]}
+    try:
+        held = json.loads(done.stdout)
+    except ValueError:
+        return 500, {"error": "the walk could not be read back"}
+    pages = held.get("pages") or []
+    #every page of one comic carries the same site name in its title, which says nothing about the page
+    titles = [str(page.get("title") or "") for page in pages if page.get("title")]
+    shared = 0
+    if len(titles) > 1:
+        first, last = min(titles), max(titles)
+        while shared < len(first) and shared < len(last) and first[shared] == last[shared]:
+            shared += 1
+        if shared < 4:
+            shared = 0
+    for page in pages:
+        said = str(page.get("title") or "")
+        page["short"] = (said[shared:] if shared and len(said) > shared else said).strip(" -|:–")
+    return 200, {"pages": pages, "walked": True, "settled": bool(held.get("settled"))}
+
+
 def fix_chapter(args, comic, given):
     #one correction to one boundary, run through chapters.py so that the page and the command line mean
     #exactly the same thing by it. it takes a moment rather than a job: nothing is fetched and nothing is
@@ -1023,6 +1059,14 @@ def make_handler(runner, args, uc, tee):
                 comic = find_comic(args, uc, name) if name else None
                 status, result = try_chapter_list(uc.with_config(args), comic, body)
                 self.reply(result, status)
+            elif path == "/api/pages":
+                name = str(body.get("name") or "")
+                comic = find_comic(args, uc, name)
+                if comic is None:
+                    self.reply({"error": "no comic named {0}".format(name)}, 404)
+                else:
+                    status, result = walked_pages(uc.with_config(args), comic)
+                    self.reply(result, status)
             elif path == "/api/chapterfix":
                 name = str(body.get("name") or "")
                 comic = find_comic(args, uc, name)

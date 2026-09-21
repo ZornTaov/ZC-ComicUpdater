@@ -1890,6 +1890,8 @@ def setup():
                              "have archives, not only one that adds chapters at the end.")
     params.add_argument("--save", action='store_true', default=False,
                         help="With chapters, write what it worked out into the comic's metadata.")
+    params.add_argument("--json", action='store_true', default=False,
+                        help="With show, print every page as JSON, for a page picker to offer.")
     params.add_argument("--file", default=None,
                         help="With recovered, the filename of the page you put there by hand.")
     params.add_argument("--note", default=None,
@@ -1938,6 +1940,13 @@ def main():
             print("ERROR: {0} has not been lined up yet.".format(folder))
             return 2
         saved = json.load(open(path, encoding='utf-8'))
+        if args.json:
+            #every page, for something that wants to offer them to choose from rather than read them
+            json.dump({"comic": saved["comic"], "settled": saved.get("settled"),
+                       "pages": [{"n": page["n"], "url": page["url"], "title": page.get("title"),
+                                  "file": page.get("file")} for page in saved["pages"]]},
+                      sys.stdout)
+            return 0
         print("{0}: {1} pages, {2}".format(saved["comic"], len(saved["pages"]),
                                            "settled" if saved["settled"] else "NOT settled"))
         for page in saved["pages"][:5] + saved["pages"][-5:]:

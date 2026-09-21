@@ -1708,6 +1708,142 @@ def renumber(folder, args):
     return 0
 
 
+def saved_as(src):
+    #the name a scrape would give this image, worked out here rather than taken from the walk's record,
+    #so putting a page in does not depend on that record being right about it
+    name = os.path.basename(src.split('?')[0].rstrip('/'))
+    kind = "gif" if "gif" in src.lower() else "png"
+    return name if name.lower().endswith(kind) else "{0}.{1}".format(name, kind)
+
+
+def one_page(url, args):
+    #what a single page holds, found the way a scrape finds it: the element paths this script knows,
+    #in a real browser. a walk of one page into a scratch index is exactly that, and needs no new mode.
+    spare = os.path.join(config_folder(), "index", "one-page-{0}.jsonl".format(os.getpid()))
+    if not os.path.isdir(os.path.dirname(spare)):
+        os.makedirs(os.path.dirname(spare))
+    command = [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "mirror_base.py"),
+               "--index", spare, "--index-limit", "1", url]
+    try:
+        subprocess.run(command, text=True)
+        held = read_index(spare)
+    finally:
+        if os.path.exists(spare):
+            os.remove(spare)
+    return held[0] if held else None
+
+
+def shift_up(folder, pages, at):
+    #every page from here on moves one place along, so the new page has a place of its own. renamed from
+    #the back, so a file never lands on one that has not moved yet.
+    moved = []
+    for page in reversed(pages):
+        if page["n"] < at or not page.get("file"):
+            continue
+        want = "{0:04d}_{1}".format(page["n"] + 1, plain_name(page["file"]))
+        if want == page["file"]:
+            continue
+        os.rename(os.path.join(folder, page["file"]), os.path.join(folder, want))
+        moved.append((page["n"], page["file"], want))
+    return moved
+
+
+def insert_page(folder, args):
+    #a page the comic's own next links skip - powerpuffgirls has one the archive lists and the navigation
+    #walks straight past - can be reached by nothing that follows the comic. so it is put in by hand: the
+    #page is read, its image saved, and everything after it moves along one so the order still reads true.
+    if not args.url or not args.after:
+        print("ERROR: say which page to put in with --url, and which page it follows with --after.")
+        return 2
+    pages = joined_pages(folder, args)
+    if pages is None:
+        return 2
+    by_file = [page for page in pages if page.get("file")]
+    if not by_file or not all(page_number(page["file"]) is not None for page in by_file):
+        print("ERROR: this comic's files do not carry their page numbers, so there is nowhere to put one "
+              "in without guessing. Run: chapters.py renumber {0}".format(folder))
+        return 2
+    after = page_at(pages, args.after) if not str(args.after).strip().isdigit() else int(args.after)
+    if not after or after > len(pages):
+        print("ERROR: {0} is not a page of this comic.".format(args.after))
+        return 2
+    if page_at(pages, args.url):
+        print("This comic already holds {0}, as page {1}.".format(args.url, page_at(pages, args.url)))
+        return 0
+    at = after + 1
+    print("{0} goes in at page {1}, after {2}".format(args.url, at, pages[after - 1]["url"]))
+    found = one_page(args.url, args)
+    if not found or not found.get("src"):
+        print("ERROR: no comic image was found on {0}. Check it in the browser, or add an element path "
+              "for this site.".format(args.url))
+        return 2
+    name = "{0:04d}_{1}".format(at, saved_as(found["src"]))
+    #fetched before anything is moved, so a page that cannot be had leaves the comic exactly as it was
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0"})
+    try:
+        answer = session.get(found["src"], timeout=120)
+        answer.raise_for_status()
+    except requests.RequestException as error:
+        print("ERROR: could not fetch {0}: {1}".format(found["src"], error))
+        return 2
+    print("  {0} bytes from {1}".format(len(answer.content), found["src"]))
+    if args.dry_run:
+        print("  it would be saved as {0}, and {1} page(s) after it would move along one. Nothing was "
+              "changed.".format(name, len(pages) - after))
+        return 0
+
+    moved = shift_up(folder, pages, at)
+    with open(os.path.join(folder, name), 'wb') as f:
+        f.write(answer.content)
+    print("  saved {0}; {1} page(s) after it moved along one".format(name, len(moved)))
+
+    #the index is what says the comic's order, so it learns the page too: no walk can reach it, and a
+    #walk that could would have found it already
+    cache = index_path(folder, args.root, args)
+    lines = read_index(cache)
+    fresh = {"n": at, "url": args.url, "src": found["src"], "file": name,
+             "title": found.get("title"), "bytes": len(answer.content)}
+    out = [line for line in lines if line["n"] < at]
+    out.append(fresh)
+    for line in lines:
+        if line["n"] >= at:
+            out.append(dict(line, n=line["n"] + 1,
+                            file="{0:04d}_{1}".format(line["n"] + 1, plain_name(line["file"]))
+                            if line.get("file") else None))
+    spare = cache + ".writing"
+    with open(spare, 'w', encoding='utf-8') as f:
+        for line in out:
+            f.write(json.dumps(line) + chr(10))
+    os.replace(spare, cache)
+    print("  the walk's own record now holds {0} page(s)".format(len(out)))
+
+    metadata = read_metadata(folder)
+    if metadata:
+        history = metadata.setdefault("history", {})
+        history["inserted"] = (history.get("inserted") or []) + [
+            {"page": at, "url": args.url, "file": name, "at": time_stamp(),
+             "note": args.note or "the comic's own next links skip this page, so it was put in by hand"}]
+        #a chapter starting after this page starts one page later than it did. the page it starts AT has
+        #not changed, only its number, so the numbers are moved and nothing is re-read.
+        block = metadata.get("chapters") or {}
+        shifted = [chapter for chapter in (block.get("list") or []) if chapter.get("start_page", 0) >= at]
+        for chapter in shifted:
+            chapter["start_page"] += 1
+        for chapter in block.get("list") or []:
+            if chapter.get("end_page", 0) >= at:
+                chapter["end_page"] += 1
+                chapter["pages"] = chapter["end_page"] - chapter["start_page"] + 1
+        if block.get("list"):
+            #the files those chapters hold are named after their page numbers, so the ones past here have
+            #all been renamed and their archives no longer hold what they should
+            print("  {0} chapter(s) start later than they did; their archives need writing again: "
+                  "chapters.py pack {1}".format(len(shifted), folder))
+        write_metadata(folder, metadata)
+    print()
+    return do_align(folder, args)
+
+
 def mark_recovered(folder, args):
     #a page the site has lost, found somewhere else and put in the folder by hand. saying so once keeps
     #every later run from calling it a stray, and keeps it in the chapter it reads in when packing.
@@ -1852,7 +1988,7 @@ def setup():
     params = argparse.ArgumentParser(
         description="Line a comic's saved files up with the pages they came from.")
     params.add_argument("what", choices=["index", "align", "show", "chapters", "fix", "try", "pack",
-                                         "refetch", "repack", "renumber", "recovered"],
+                                         "refetch", "repack", "renumber", "recovered", "insert"],
                         help="index: walk the comic and line it up. align: line up a walk already done. "
                              "show: what the last alignment says. refetch: fetch again any page whose file "
                              "is not what the site serves. chapters: work out where the chapters start. "
@@ -1861,6 +1997,7 @@ def setup():
                              "fix: put a chapter boundary right by hand. "
                              "renumber: rename the files so each carries its page number. "
                              "recovered: note a page the site has lost that you put back by hand. "
+                             "insert: put in a page the comic's own links skip past. "
                              "pack: write one .cbz per chapter. "
                              "repack: write the .cbz afresh from the folder.")
     params.add_argument("folder", help="The comic's folder.")
@@ -1901,6 +2038,10 @@ def setup():
                              "have archives, not only one that adds chapters at the end.")
     params.add_argument("--save", action='store_true', default=False,
                         help="With chapters, write what it worked out into the comic's metadata.")
+    params.add_argument("--url", default=None,
+                        help="With insert, the address of the page to put in.")
+    params.add_argument("--after", default=None,
+                        help="With insert, the page it follows: its address or its number.")
     params.add_argument("--json", action='store_true', default=False,
                         help="With show, print every page as JSON, for a page picker to offer.")
     params.add_argument("--file", default=None,
@@ -1979,6 +2120,8 @@ def main():
         return renumber(folder, args)
     if args.what == "recovered":
         return mark_recovered(folder, args)
+    if args.what == "insert":
+        return insert_page(folder, args)
     if args.what == "refetch":
         return refetch(folder, args)
     if args.what == "repack":

@@ -356,6 +356,22 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
       </div>
       <datalist id="bd-pages"></datalist>
       <div class="note" id="bd-picked"></div>
+      <details id="bd-insert-box" style="margin-top:10px">
+        <summary>Put in a page the comic's links skip</summary>
+        <div class="help" style="margin-top:8px">Some comics have a page their own next links walk straight
+          past, reachable only from an archive page. Give its address and the page it follows: it is read
+          the way a scrape reads one, its image saved, and every page after it moves along one so the order
+          still reads true. Nothing is touched until the page has actually been fetched.</div>
+        <div class="row">
+          <input type="text" id="bd-in-url" spellcheck="false" placeholder="https://example.com/comic/the-skipped-page" style="flex:1; min-width:220px">
+        </div>
+        <div class="row">
+          <input type="text" id="bd-in-after" list="bd-pages" placeholder="the page it follows" style="flex:1; min-width:160px">
+          <button type="button" id="bd-in-try">See what it would do</button>
+          <button type="button" id="bd-in-go">Put it in</button>
+        </div>
+        <div class="check-result" id="bd-in-said"></div>
+      </details>
       <div class="note" id="bd-fixes"></div>
     </div>
     <div class="dlg-foot">
@@ -1077,6 +1093,42 @@ $("bd-reset").addEventListener("click", () => {
   if (confirm("Undo every correction made by hand? The boundaries come back only when the chapters are worked out again.")) sendFix({ clear: true });
 });
 $("bd-close").addEventListener("click", () => $("bounds").close());
+
+//putting in a page the comic's own links skip past
+async function insertPage(dryRun) {
+  const msg = $("bd-msg"), url = $("bd-in-url").value.trim(), after = pageFrom($("bd-in-after").value);
+  if (!/^https?:\/\/\S+$/.test(url) || !after) {
+    msg.className = "msg bad";
+    msg.textContent = "Give the page's full address, and the page it follows.";
+    return;
+  }
+  msg.className = "msg";
+  msg.textContent = dryRun ? "Reading that page…" : "Reading it, then moving the pages after it…";
+  $("bd-in-said").textContent = "";
+  try {
+    const result = await post("/api/insert", { name: bounds.name, url: url, after: after, dry_run: dryRun });
+    $("bd-in-said").innerHTML = `<pre>${esc(result.output || "")}</pre>`;
+    msg.className = "msg good";
+    msg.textContent = dryRun ? "Nothing was changed." : "Done.";
+    if (!dryRun) {
+      $("bd-in-url").value = ""; $("bd-in-after").value = "";
+      const held = await post("/api/pages", { name: bounds.name });
+      bounds.pages = held.pages || [];
+      const detail = await (await fetch(api(`/api/comic?name=${encodeURIComponent(bounds.name)}`))).json();
+      bounds.list = (detail.chapters || {}).list || [];
+      bounds.fixes = (detail.chapters || {}).fixes || [];
+      drawPicker();
+      drawBounds();
+      //folded away again: the chapter list above is what you came back to look at
+      $("bd-insert-box").open = false;
+    }
+  } catch (error) {
+    msg.className = "msg bad";
+    msg.textContent = error.message;
+  }
+}
+$("bd-in-try").addEventListener("click", () => insertPage(true));
+$("bd-in-go").addEventListener("click", () => insertPage(false));
 
 $("edit-chapterize").addEventListener("click", async () => {
   const msg = $("edit-msg");

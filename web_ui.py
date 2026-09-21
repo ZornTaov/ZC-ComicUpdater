@@ -612,6 +612,34 @@ def walked_pages(args, comic):
     return 200, {"pages": pages, "walked": True, "settled": bool(held.get("settled"))}
 
 
+def insert_page(args, comic, given):
+    #a page the comic's own links skip past, put in where it belongs. it reads the page in a browser and
+    #moves every file after it, so it takes minutes on a long comic rather than seconds.
+    url = str(given.get("url") or "").strip()
+    after = str(given.get("after") or "").strip()
+    if not re.match(r"^https?://\S+$", url):
+        return 400, {"error": "the page to put in needs its full http(s) address"}
+    if not after:
+        return 400, {"error": "say which page it follows"}
+    script = os.path.join(os.path.dirname(os.path.abspath(args.script)), "chapters.py")
+    command = [sys.executable, "-u", script, "insert", comic.folder, "--url", url, "--after", after]
+    if args.root:
+        command += ["--root", args.root]
+    if given.get("dry_run"):
+        command.append("--dry-run")
+    try:
+        done = subprocess.run(command, capture_output=True, text=True, errors="replace",
+                              env=dict(os.environ, PYTHONUNBUFFERED="1"), timeout=3600)
+    except subprocess.SubprocessError as error:
+        return 500, {"error": "could not put that page in: {0}".format(error)}
+    output = ((done.stdout or "") + (done.stderr or "")).strip()
+    if done.returncode != 0:
+        first = [line for line in output.splitlines() if line.strip().startswith("ERROR")]
+        return 400, {"error": (first[0] if first else "that did not work")[:300],
+                     "output": output[-4000:]}
+    return 200, {"output": output[-8000:]}
+
+
 def fix_chapter(args, comic, given):
     #one correction to one boundary, run through chapters.py so that the page and the command line mean
     #exactly the same thing by it. it takes a moment rather than a job: nothing is fetched and nothing is
@@ -1066,6 +1094,16 @@ def make_handler(runner, args, uc, tee):
                     self.reply({"error": "no comic named {0}".format(name)}, 404)
                 else:
                     status, result = walked_pages(uc.with_config(args), comic)
+                    self.reply(result, status)
+            elif path == "/api/insert":
+                name = str(body.get("name") or "")
+                comic = find_comic(args, uc, name)
+                if comic is None:
+                    self.reply({"error": "no comic named {0}".format(name)}, 404)
+                elif is_running(runner, name):
+                    self.reply({"error": "that comic is being scraped right now"}, 409)
+                else:
+                    status, result = insert_page(uc.with_config(args), comic, body)
                     self.reply(result, status)
             elif path == "/api/chapterfix":
                 name = str(body.get("name") or "")

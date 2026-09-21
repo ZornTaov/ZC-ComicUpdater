@@ -450,6 +450,28 @@ misplacement.
 
 The result is cached under `config/index/`. It can be deleted at any time; the walk rebuilds it.
 
+### A page the comic's own links skip
+
+Some comics have a page their own next links walk straight past, reachable only from an archive page:
+powerpuffgirls lists 501 pages and its navigation visits 500. Nothing that follows the comic can ever
+find such a page, so it is put in by hand.
+
+```sh
+python chapters.py insert "D:/Comics/Uncompressed/MyComic" --dry-run     --url "https://example.com/comic/the-skipped-page" --after "https://example.com/comic/the-one-before"
+```
+
+`--after` takes an address or a page number. The page is read the way a scrape reads one, its image is
+fetched **before** anything moves - so a page that cannot be had leaves the comic exactly as it was -
+and then every file after it moves along one, the walk's own record learns the page, and the comic is
+lined up again to prove it. A chapter starting after that point starts one page later, and is told its
+archive needs writing again.
+
+It needs a comic whose files carry their page numbers, since that numbering *is* the reading order;
+on one that does not, it says to run `renumber` first. Putting one page into a 500-page comic renames
+about 400 files, which is why `--dry-run` says what it would do first.
+
+The web page offers the same thing under **Chapter boundaries**.
+
 ### A page the site itself has lost
 
 Sites lose pages. Snafu's *Nsma* has no `issue-1-page-25` at all - the link jumps straight to the

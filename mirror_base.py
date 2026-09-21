@@ -525,8 +525,10 @@ index_urls = set()
 index_last = 0
 
 
-def index_name(folder):
-    #the same name chapters.py would pick for this comic, so the two always mean one file
+def cache_name(folder):
+    #the same name chapters.py would pick for this comic's index, so the two always mean one file.
+    #named apart from index_name above, which names an IMAGE: one shadowed the other, and every walk
+    #wrote the cache's own filename into each page's "file" field, so nothing ever matched by name.
     full = os.path.abspath(folder)
     tag = hashlib.sha1(full.replace(os.sep, '/').lower().encode('utf-8')).hexdigest()[:8]
     stem = re.sub(r'[^A-Za-z0-9._-]+', '_', os.path.basename(full)).strip('_') or "comic"
@@ -546,7 +548,7 @@ def open_index(folder, args=None):
         pass
     if not named and not (args and args.keep_index):
         return
-    path = os.path.join(config_folder(), "index", named or index_name(folder))
+    path = os.path.join(config_folder(), "index", named or cache_name(folder))
     if not os.path.exists(path):
         if not (args and args.keep_index):
             return

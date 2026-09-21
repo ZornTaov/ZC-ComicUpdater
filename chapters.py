@@ -1081,13 +1081,19 @@ def plan(folder, args):
         source, source_url = "archive", args.archive
     elif args.list:
         found, source, source_url = chapters_from_list(args.list, pages), "list", None
+    elif known.get("source") == "hand" and known.get("fixes"):
+        #this comic's chapters were set by hand, so there is nothing to re-read: the corrections are the
+        #source, and working the addresses out afresh would throw them away
+        print("This comic's chapters were set by hand; keeping them.")
+        found, source, source_url = [], "hand", None
     else:
         found, source, source_url = chapters_from_urls(pages), "urls", None
         if not found:
             print("Nothing in this comic's addresses says where a chapter starts. Give --archive with its "
-                  "archive page, or --list with a file of chapter start addresses.")
+                  "archive page, --list with a file of chapter start addresses, or set the boundaries by "
+                  "hand with chapters.py fix.")
             return 1
-    if not found:
+    if not found and source != "hand":
         print("No chapters found.")
         return 1
     found, took, missed = apply_fixes(found, pages, known.get("fixes"))
@@ -1813,12 +1819,17 @@ def edit_fixes(folder, args):
     else:
         block.pop("fixes", None)
     stored = block.get("list") or []
-    if stored:
+    if stored or fixes:
+        #with nothing worked out yet, the corrections are the whole of it: a comic whose site says nowhere
+        #where its chapters start is chaptered by hand, one boundary at a time, and that is a source like
+        #any other rather than something that has to wait for a rule to find nothing first.
         found, took, missed = apply_fixes([dict(chapter) for chapter in stored], pages, fixes)
         say_fixes(took, missed)
         chapters = settle_chapters(found, pages)
         block["list"] = [chapter_record(chapter) for chapter in chapters]
         block["checked"] = time_stamp()
+        if not stored:
+            block.setdefault("source", "hand")
         print()
         show_chapters(folder, chapters, pages)
     if args.forget or args.clear:

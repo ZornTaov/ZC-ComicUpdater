@@ -938,9 +938,23 @@ function pageSaid(page) {
   return page.short || page.title || page.url;
 }
 
+//a browser filters its list by the option's value, so the value has to hold both things you might
+//type: the page number and the page's name. the number is read back off the front of it.
+function pageValue(page) {
+  return `${page.n} · ${pageSaid(page)}`.slice(0, 90);
+}
+
+//what to send for a typed box: a page number if it names one, otherwise whatever was typed, so an
+//address still works for a comic nobody has walked
+function pageFrom(typed) {
+  const said = String(typed || "").trim();
+  const found = said.match(/^(\d+)(?:\s|·|$)/);
+  return found ? found[1] : said;
+}
+
 function drawPicker() {
   $("bd-pages").innerHTML = bounds.pages.map((p) =>
-    `<option value="${p.n}">${esc(pageSaid(p).slice(0, 70))}</option>`).join("");
+    `<option value="${esc(pageValue(p))}"></option>`).join("");
   const note = $("bd-picked");
   if (!bounds.pages.length) {
     note.textContent = bounds.walked === false
@@ -951,13 +965,20 @@ function drawPicker() {
   }
 }
 
-//as a page number is typed, say which page that is, so a boundary is not set on faith
+//the name last filled in from a page, so it can be replaced when another page is chosen but a name
+//typed by hand is never overwritten
+let filledIn = "";
+
+//as a page is typed or picked, say which page that is, so a boundary is not set on faith
 function sayPicked() {
-  const typed = $("bd-new-at").value.trim();
-  const page = /^\d+$/.test(typed) ? pageAt(typed) : null;
+  const page = pageAt(pageFrom($("bd-new-at").value));
+  const label = $("bd-new-label");
   if (!page) { drawPicker(); return; }
   $("bd-picked").textContent = `page ${page.n}: ${pageSaid(page)} — ${page.url}`;
-  if (!$("bd-new-label").value.trim() && page.short) $("bd-new-label").value = page.short;
+  if (page.short && (!label.value.trim() || label.value === filledIn)) {
+    label.value = page.short;
+    filledIn = page.short;
+  }
 }
 
 function drawBounds() {
@@ -966,7 +987,8 @@ function drawBounds() {
   $("bd-rows").innerHTML = bounds.list.map((c) => `<tr data-url="${esc(c.start_url || String(c.start_page))}">
       <td class="muted">${c.number}</td>
       <td><input type="text" value="${esc(c.label || "")}" data-bd="label" spellcheck="false" style="width:100%"></td>
-      <td><input type="number" value="${c.start_page}" data-bd="at" min="1" list="bd-pages" style="width:100%"></td>
+      <td><input type="text" value="${esc(pageAt(c.start_page) ? pageValue(pageAt(c.start_page)) : String(c.start_page))}"
+                 data-bd="at" list="bd-pages" style="width:100%"></td>
       <td class="muted">${c.pages}</td>
       <td class="muted" title="${esc(c.start_url || "")}">${esc(
         (pageAt(c.start_page) && pageSaid(pageAt(c.start_page))) || c.start_file || "?")}</td>
@@ -1037,16 +1059,17 @@ $("bd-rows").addEventListener("change", (event) => {
   const what = event.target.dataset.bd;
   if (!what) return;
   const row = event.target.closest("tr");
-  const at = row.querySelector('[data-bd="at"]').value;
+  const at = pageFrom(row.querySelector('[data-bd="at"]').value);
   const label = row.querySelector('[data-bd="label"]').value.trim();
   if (!label) { $("bd-msg").className = "msg bad"; $("bd-msg").textContent = "A chapter needs a name."; return; }
   //moving a boundary is the same correction as naming one: this chapter starts at that page
   sendFix({ at: what === "at" ? at : row.dataset.url, label: label });
 });
 $("bd-add").addEventListener("click", () => {
-  const at = $("bd-new-at").value.trim(), label = $("bd-new-label").value.trim();
+  const at = pageFrom($("bd-new-at").value), label = $("bd-new-label").value.trim();
   if (!at || !label) { $("bd-msg").className = "msg bad"; $("bd-msg").textContent = "Give a page and a name."; return; }
-  $("bd-new-at").value = ""; $("bd-new-label").value = "";
+  $("bd-new-at").value = ""; $("bd-new-label").value = ""; $("bd-picked").textContent = "";
+  filledIn = "";
   sendFix({ at: at, label: label });
 });
 $("bd-reset").addEventListener("click", () => {

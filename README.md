@@ -537,8 +537,8 @@ kept: the totals say whether the page lists every page or only where chapters st
 states no length where all the others do is flagged, since it is usually some other section of the site
 that happens to link into the comic.
 
-Working out where chapters start has three sources, all ending in the same list, and none of them
-writes anything without `--save`:
+Working out where chapters start has four sources, all ending in the same list, and none of the first
+three writes anything without `--save`:
 
 1. **An archive page.** Its links are checked against the addresses the walk recorded, so a link is
    *known* to be a page of this comic rather than guessed at, and chapter titles come from whatever
@@ -557,6 +557,9 @@ writes anything without `--save`:
    and swallowing everything after it. `--urls` forces this even for a comic that remembers an archive
    page.
 3. **A file of chapter starts**, one address per line, each optionally followed by `|` and a title.
+4. **By hand**, one boundary at a time, for a comic whose site says nowhere where its chapters start.
+   The first correction on a comic with no chapters yet makes the first chapter, and the comic is then
+   marked as chaptered by hand so that working them out again keeps them rather than finding nothing.
 An archive built as one table per chapter, with the chapter's name in the table's `<th>`, is read the
 same way as one using `<h2>` headings - Tiger Knight's archive is 38 such tables and reads as 38
 chapters, none of which carries a number or the word "chapter" anywhere.

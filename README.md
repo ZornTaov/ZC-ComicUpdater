@@ -446,6 +446,24 @@ misplacement.
 
 The result is cached under `config/index/`. It can be deleted at any time; the walk rebuilds it.
 
+### A page the site itself has lost
+
+Sites lose pages. Snafu's *Nsma* has no `issue-1-page-25` at all - the link jumps straight to the
+latest page - so that page can only come from somewhere else, in this case the artist's own DeviantArt.
+A file like that belongs to no walked page, so without being told, everything here calls it a stray:
+the alignment will not settle and packing refuses to write around it.
+
+```sh
+python chapters.py recovered "D:/Comics/Uncompressed/MyComic" --file "nsma_00026.png"     --note "the site's page 25 leads elsewhere; found on the artist's own page"
+python chapters.py recovered "D:/Comics/Uncompressed/MyComic"            # what has been put back
+python chapters.py recovered "D:/Comics/Uncompressed/MyComic" --file X --forget
+```
+
+Name the file so it **sorts where it reads** - beside the pages either side of it - because that is
+what decides where it goes. It then takes no part in the lining up, since no walked page could be it,
+and when the comic is packed it joins the chapter of the page it follows. The note is kept with it, so
+next year nobody has to work out again why that one file looks different.
+
 ### When the names say nothing: lining up by when files were written
 
 A site that serves `jan.png` for one page and `99002.jpg` for the next defeats all three. But a comic

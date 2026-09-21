@@ -140,6 +140,36 @@ def read_metadata(folder):
         return {}
 
 
+def recovered_files(folder, metadata=None):
+    #pages the site itself no longer serves, which the reader found somewhere else and put in the folder
+    #by hand. a walk cannot see them, so without being told, every tool here would call such a file a
+    #stray and refuse to settle or to pack around it.
+    metadata = read_metadata(folder) if metadata is None else metadata
+    return {str(one.get("file")): one
+            for one in ((metadata.get("history") or {}).get("recovered") or []) if one.get("file")}
+
+
+def place_recovered(held, parcels, recovered):
+    #a recovered page reads where it sits in the folder, which is where the reader put it: after the page
+    #it follows. so it joins the chapter that page belongs to, rather than being appended somewhere tidy.
+    known = {}
+    for chapter, names in parcels:
+        for name in names:
+            known[name] = names
+    placed = []
+    for at, name in enumerate(held):
+        if name not in recovered or name in known:
+            continue
+        before = next((held[back] for back in range(at - 1, -1, -1) if held[back] in known), None)
+        names = known[before] if before else (parcels[0][1] if parcels else None)
+        if names is None:
+            continue
+        names.insert(names.index(before) + 1 if before else 0, name)
+        known[name] = names
+        placed.append(name)
+    return placed
+
+
 def longest_run(pairs):
     #anchors have to agree with each other: keep the longest set that runs forwards through both lists
     #and drop the rest, rather than trusting a name that happens to appear twice
@@ -261,8 +291,9 @@ def verify(folder, files, pages, aligned):
     return agree, changed, conflict
 
 
-def describe(folder, pages, files, aligned, how, anchors, trouble):
+def describe(folder, pages, files, aligned, how, anchors, trouble, rescued=(), recovered=None):
     matched = [name for name in aligned if name]
+    recovered = recovered or {}
     spare = [name for name in files if name not in set(matched)]
     print("{0}".format(folder))
     ways = ", ".join("{0} by {1}".format(how.count(way), way) for way in ("size", "name", "order", "time")
@@ -286,9 +317,17 @@ def describe(folder, pages, files, aligned, how, anchors, trouble):
             print("      page {0:<5} {1}".format(page["n"], page["url"]))
         if len(missing) > 12:
             print("      ... and {0} more".format(len(missing) - 12))
+    if rescued:
+        print("  {0} page(s) here that the site no longer serves, put back by hand:".format(len(rescued)))
+        for name in rescued[:6]:
+            print("      {0:<34} {1}".format(name[:34], (recovered[name].get("note") or "")[:52]))
+        if len(rescued) > 6:
+            print("      ... and {0} more".format(len(rescued) - 6))
     if spare:
         print("  {0} file(s) no page claims: {1}{2}".format(
             len(spare), spare[:4], "..." if len(spare) > 4 else ""))
+        print("      a page the site has lost, that you found elsewhere, is not a stray: say so with "
+              "chapters.py recovered {0} --file <name>".format(folder))
     named = [(page, name) for page, name in zip(pages, aligned) if name and page.get("src")]
     astray = [(page, name) for page, name in named
               if page_key(os.path.basename(page["src"].split('?')[0])) != page_key(name)]
@@ -1095,11 +1134,19 @@ def chapter_contents(folder, chapters, pages):
         names = [by_page[n]["file"] for n in range(chapter["start_page"], chapter["end_page"] + 1)
                  if by_page.get(n) and by_page[n].get("file")]
         parcels.append((chapter, names))
+    #a page the site no longer serves cannot be in `pages`, because the walk never saw it. it still has
+    #to end up in a chapter, or packing would refuse to write around it.
+    held = folder_pages(folder)
+    recovered = recovered_files(folder)
+    if parcels and recovered:
+        placed = place_recovered(held, parcels, recovered)
+        if placed:
+            print("  {0} page(s) the site no longer serves, put back by hand, kept where they read: "
+                  "{1}{2}".format(len(placed), placed[:3], "..." if len(placed) > 3 else ""))
     #pages saved since the chapters were worked out belong to the chapter still being published, which is
     #the last one. they are added in the order they were saved, which is the order they came out.
     if parcels:
         known = {name for _, names in parcels for name in names}
-        held = folder_pages(folder)
         last_known = max((at for at, name in enumerate(held) if name in known), default=-1)
         fresh = [name for name in held[last_known + 1:] if name not in known]
         if fresh:
@@ -1492,7 +1539,12 @@ def do_align(folder, args):
         print("ERROR: no index for {0} yet. Run: chapters.py index {1}".format(folder, folder))
         return 2
     pages = read_index(cache)
-    files = folder_pages(folder)
+    #a page the site has lost belongs to no walked page, so it takes no part in the lining up: left in,
+    #it would leave a stretch with one more file than pages and nothing would settle
+    recovered = recovered_files(folder)
+    held = folder_pages(folder)
+    files = [name for name in held if name not in recovered]
+    rescued = [name for name in held if name in recovered]
     fill_sizes(cache, pages)
     if args.by_time:
         aligned, how = by_written_order(folder, pages, files)
@@ -1501,7 +1553,7 @@ def do_align(folder, args):
         anchors, trouble = [], []
     else:
         aligned, how, anchors, trouble = align(pages, files, folder)
-    settled = describe(folder, pages, files, aligned, how, anchors, trouble)
+    settled = describe(folder, pages, files, aligned, how, anchors, trouble, rescued, recovered)
     where = save_alignment(cache.replace(".jsonl", ".align.json"), folder, pages, aligned, how, settled)
     remember_cache(folder, cache)
     print("  written to {0}".format(where))
@@ -1601,6 +1653,50 @@ def renumber(folder, args):
     return 0
 
 
+def mark_recovered(folder, args):
+    #a page the site has lost, found somewhere else and put in the folder by hand. saying so once keeps
+    #every later run from calling it a stray, and keeps it in the chapter it reads in when packing.
+    metadata = read_metadata(folder)
+    if not metadata:
+        print("ERROR: no metadata in {0}.".format(folder))
+        return 2
+    history = metadata.setdefault("history", {})
+    held = list(history.get("recovered") or [])
+    if not args.file and not args.clear:
+        print("{0}: {1} page(s) put back by hand".format(folder, len(held)))
+        for one in held:
+            there = os.path.exists(os.path.join(folder, str(one.get("file"))))
+            print("  {0:<36} {1}{2}".format(str(one.get("file"))[:36], (one.get("note") or "")[:46],
+                                            "" if there else "   (no longer in this folder)"))
+        if not held:
+            print("  none. Use --file <name> once you have put one there.")
+        return 0
+    if args.clear:
+        print("forgotten: all {0}".format(len(held)))
+        held = []
+    if args.file:
+        name = os.path.basename(str(args.file))
+        if not args.forget and not os.path.exists(os.path.join(folder, name)):
+            print("ERROR: {0} is not in {1}. Put the page there first, named so it sorts where it "
+                  "reads.".format(name, folder))
+            return 2
+        held = [one for one in held if one.get("file") != name]
+        if args.forget:
+            print("forgotten: {0}".format(name))
+        else:
+            held.append({"file": name, "note": args.note or "the site no longer serves this page",
+                         "at": time_stamp()})
+            print("noted: {0} is a page this comic has and the site does not".format(name))
+    if held:
+        history["recovered"] = held
+    else:
+        history.pop("recovered", None)
+    write_metadata(folder, metadata)
+    if not args.forget and not args.clear:
+        print("  line the comic up again so it settles around it: chapters.py align {0}".format(folder))
+    return 0
+
+
 def list_fixes(fixes, pages):
     if not fixes:
         print("  nothing has been corrected by hand.")
@@ -1696,7 +1792,7 @@ def setup():
     params = argparse.ArgumentParser(
         description="Line a comic's saved files up with the pages they came from.")
     params.add_argument("what", choices=["index", "align", "show", "chapters", "fix", "try", "pack",
-                                         "refetch", "repack", "renumber"],
+                                         "refetch", "repack", "renumber", "recovered"],
                         help="index: walk the comic and line it up. align: line up a walk already done. "
                              "show: what the last alignment says. refetch: fetch again any page whose file "
                              "is not what the site serves. chapters: work out where the chapters start. "
@@ -1704,6 +1800,7 @@ def setup():
                              "anything. "
                              "fix: put a chapter boundary right by hand. "
                              "renumber: rename the files so each carries its page number. "
+                             "recovered: note a page the site has lost that you put back by hand. "
                              "pack: write one .cbz per chapter. "
                              "repack: write the .cbz afresh from the folder.")
     params.add_argument("folder", help="The comic's folder.")
@@ -1744,6 +1841,10 @@ def setup():
                              "have archives, not only one that adds chapters at the end.")
     params.add_argument("--save", action='store_true', default=False,
                         help="With chapters, write what it worked out into the comic's metadata.")
+    params.add_argument("--file", default=None,
+                        help="With recovered, the filename of the page you put there by hand.")
+    params.add_argument("--note", default=None,
+                        help="With recovered, where it came from, kept with it in the metadata.")
     params.add_argument("--no-repack", action='store_true', default=False,
                         help="With fix, leave the chapter archives alone, even where the correction "
                              "changed what belongs in one.")
@@ -1807,6 +1908,8 @@ def main():
         return edit_fixes(folder, args)
     if args.what == "renumber":
         return renumber(folder, args)
+    if args.what == "recovered":
+        return mark_recovered(folder, args)
     if args.what == "refetch":
         return refetch(folder, args)
     if args.what == "repack":

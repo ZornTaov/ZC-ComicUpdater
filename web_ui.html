@@ -59,6 +59,8 @@ label.check { display: inline-flex; align-items: center; gap: 5px; white-space: 
 .comic .num { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tag { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
 .s-running { color: var(--run); } .s-ok { color: var(--ok); } .s-failed { color: var(--bad); }
+/* not a failure, but not finished either: a comic with pages still to fetch */
+.s-waiting { color: var(--run); }
 .s-stopped { color: var(--warn); } .s-waiting { color: var(--muted); }
 .queue-item { display: flex; gap: 8px; align-items: center; padding: 5px 0; border-top: 1px solid var(--line); }
 .queue-item span { flex: 1; overflow-wrap: anywhere; }
@@ -440,23 +442,31 @@ function shownComics() {
 function renderComics() {
   const shown = shownComics();
   const rows = shown.map((c) => {
+    //a run can end cleanly without having reached the end of the comic: priming saves one page on
+    //purpose. "up to date" is only true when the last run followed the comic to where it stops.
+    const waiting = c.exit_code === 0 && c.completed === false;
     const result = c.problem ? c.problem : c.ended ? "ended"
       : c.exit_code === null || c.exit_code === undefined ? (c.stop_reason || "")
-      : c.exit_code === 0 ? "up to date" : `exit ${c.exit_code}: ${c.stop_reason || ""}`;
+      : !waiting && c.exit_code === 0 ? "up to date"
+      : c.exit_code === 0 ? (c.stop_reason === "primed" ? "primed, waiting for its first update"
+                                                        : `stopped early: ${c.stop_reason || "part way"}`)
+      : `exit ${c.exit_code}: ${c.stop_reason || ""}`;
     const bad = c.problem || (c.exit_code && c.exit_code !== 0);
     return `<tr class="${c.ended ? "ended" : ""} ${c.problem ? "problem" : ""}">
       <td><input type="checkbox" data-name="${esc(c.name)}" ${checked.has(c.name) ? "checked" : ""} ${c.ended || c.problem ? "disabled" : ""}></td>
       <td class="name">${c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noreferrer" style="color:inherit">${esc(c.name)}</a>` : esc(c.name)}</td>
       <td class="num">${c.pages ?? ""}</td>
       <td class="muted wide-only" style="white-space:nowrap">${esc(when(c.updated))}</td>
-      <td class="wide-only ${bad ? "s-failed" : "muted"}">${esc(result)}</td>
+      <td class="wide-only ${bad ? "s-failed" : waiting ? "s-waiting" : "muted"}">${esc(result)}</td>
       <td style="white-space:nowrap">${c.problem ? "" : `<button class="small" data-edit="${esc(c.name)}">Edit</button>`}
         ${c.ended || c.problem ? "" : `<button class="small" data-update="${esc(c.name)}">Update</button>`}</td>
     </tr>`;
   });
   $("comics").innerHTML = rows.join("") || `<tr><td colspan="6" class="empty">No comics match.</td></tr>`;
   const active = comics.filter((c) => !c.ended).length;
+  const waiting = comics.filter((c) => !c.ended && c.exit_code === 0 && c.completed === false).length;
   $("count").textContent = `${shown.length} shown · ${active} active, ${comics.length - active} ended` +
+    (waiting ? ` · ${waiting} with pages still to fetch` : "") +
     (checked.size ? ` · ${checked.size} checked` : "");
   $("update-checked").disabled = checked.size === 0;
   $("update-checked").textContent = checked.size ? `Update ${checked.size} checked` : "Update checked";

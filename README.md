@@ -284,6 +284,11 @@ shows:
   is *not a chapter* so its pages join the one before, or add one by page number and name. Each is kept
   as a correction rather than an edit, so working the chapters out again does not throw it away — see
   [Putting a boundary right by hand](#putting-a-boundary-right-by-hand).
+A comic's result reads **up to date** only when the last run followed it to where it stops. A run can
+end cleanly without that: priming saves one page on purpose, and such a comic reads *primed, waiting
+for its first update* instead, with a count of how many are in that state beside the library totals.
+The scrape has always recorded whether it reached the end - the page simply had not been asked.
+
 - **Settings** edits `config/ComicScraper.json`: the pages and archive folders, how many comics run at
   once, the time limit, and what the add form starts with. Anything fixed on the command line is marked
   as such, since that wins.

@@ -400,6 +400,9 @@ def library_view(args, uc):
             "updated": meta.get("updated") or last.get("updated"),
             "exit_code": last.get("exit_code"),
             "stop_reason": last.get("stop_reason"),
+            #whether that run followed the comic to its end. a primed comic exits cleanly having saved one
+            #page, which is not the same thing as having nothing left to fetch
+            "completed": last.get("completed"),
             "problem": comic.skipped,
         })
     return rows

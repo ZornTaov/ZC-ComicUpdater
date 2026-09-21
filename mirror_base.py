@@ -681,11 +681,21 @@ def reads_backwards(sits_at, came_from):
     return scrape_state["backwards_run"] > 1
 
 
-def would_lose_a_page(target, prefix, saved_so_far):
+def would_lose_a_page(target, prefix, saved_so_far, fresh):
     #a site that reuses one filename for a page of every chapter would, without a numbered prefix, write
     #each chapter over the last. the run would look like a success and only the page count would say
     #otherwise. a resume re-saves the page it starts on, which is why this only counts once past it.
-    return not prefix and saved_so_far > 0 and os.path.exists(target)
+    #
+    #but a name already here is not enough to say a page would be lost: a comic reaches a page it already
+    #holds all the time - a gap filled by hand, a run that overlaps the last one - and writing that page
+    #over itself loses nothing. what a page is, is its bytes, so those are what decide.
+    if prefix or saved_so_far <= 0 or not os.path.exists(target):
+        return False
+    try:
+        with open(target, 'rb') as held:
+            return held.read() != fresh
+    except OSError:
+        return False
 
 
 def page_number(name):
@@ -1079,15 +1089,15 @@ def img_save(driver, increment, file_format, args):
     #prefix image with output folder name or url origin for folder structure
     target = '{0}/{1}'.format(folder, image)
 
-    if would_lose_a_page(target, args.prefix, scrape_state["pages_saved"]):
-        raise MirrorError(
-            "{0} is already saved here, and this is a different page of the comic, so this site uses one "
-            "filename for a page of every chapter. Saving it would write over the page already held. Run "
-            "this comic with --prefix so each page is numbered as it is saved.".format(image),
-            EXIT_SAME_NAMES, "the site reuses image names; needs --prefix")
-
     #to request the url
     req = fetch(src)
+
+    if would_lose_a_page(target, args.prefix, scrape_state["pages_saved"], req.content):
+        raise MirrorError(
+            "{0} is already saved here and holds a different image, so this site uses one filename for a "
+            "page of every chapter. Saving it would write over the page already held. Run this comic with "
+            "--prefix so each page is numbered as it is saved.".format(image),
+            EXIT_SAME_NAMES, "the site reuses image names; needs --prefix")
     print('saving {0} from {1} at {2}'.format(target, src, current_url))
 
     #requests and downloads the content in the url

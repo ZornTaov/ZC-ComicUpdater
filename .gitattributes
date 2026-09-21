@@ -1,11 +1,11 @@
-# The scripts are edited on Windows and run on Linux in the container, so line endings are normalised
-# here rather than left to whatever each clone happens to be configured for.
-* text=auto
-
-*.py text
-*.md text
-*.csv text
-*.txt text
-Dockerfile text eol=lf
-*.yml text eol=lf
-*.sh text eol=lf
+# The scripts are edited on Windows and run on Linux in the container, so every tracked file is stored
+# AND checked out with LF endings, whatever a clone's core.autocrlf happens to be set to. Attributes
+# beat that setting, so nobody has to configure anything.
+#
+# Marking a file `text` alone is not enough: it normalises to LF in the repository but still checks out
+# as CRLF on Windows under autocrlf=true, which is why git kept warning that it would change these files
+# back on the next checkout, and why some working copies were CRLF and others LF. `eol=lf` pins both
+# ends, so what is on disk is what is committed and one file cannot drift from the next.
+#
+# text=auto still leaves anything that looks binary alone.
+* text=auto eol=lf

@@ -498,12 +498,23 @@ addresses when the folder does not say, so a comic that has never been scraped c
 archive with no chapter headings shows up as one enormous chapter, which is the sign to use another
 source.
 
+`try` reads the page through the very code a real run uses, with the archive's own order standing in
+for the comic's, so what it shows is a preview rather than a second opinion. Where an archive states
+each chapter's length - "3. Merry Snow Day (4 pages, 5/8/06)" - that count is taken out of the name and
+kept: the totals say whether the page lists every page or only where chapters start, and a heading that
+states no length where all the others do is flagged, since it is usually some other section of the site
+that happens to link into the comic.
+
 Working out where chapters start has three sources, all ending in the same list, and none of them
 writes anything without `--save`:
 
 1. **An archive page.** Its links are checked against the addresses the walk recorded, so a link is
    *known* to be a page of this comic rather than guessed at, and chapter titles come from whatever
    headings sit above them. Works on hand-built tables and on themed archives alike.
+   Some archives put the chapter's link *inside* the heading that names it, rather than under it -
+   `<h4>1. <a href="c1/p1">Simple Pleasures</a> <span>(6 pages)</span></h4>` - and that reads the same
+   way. A real heading tag beats a container whose class merely says "chapter", because such a container
+   usually holds the description and the icon too, and none of that is a name.
 2. **The addresses themselves**, for a comic that counts `/c4/p7`, `/ss/4-7` or
    `/comic/issue-4-page-7`: every number in the address is tried as the chapter, and whichever reads best
    wins. A chapter counts up from where a comic starts counting, which is what keeps a date from being

@@ -431,42 +431,64 @@ class ArchiveReader(html.parser.HTMLParser):
     def __init__(self):
         html.parser.HTMLParser.__init__(self)
         self.events = []
-        self.depth = 0
         self.heading = None
         self.rank = 1
+        self.said = []
+        self.inside = []
         self.link = None
-        self.text = []
+        self.link_text = []
 
     def handle_starttag(self, tag, attrs):
         got = dict(attrs)
         if tag == "a" and got.get("href"):
             self.link = got["href"]
-            self.text = []
+            self.link_text = []
             return
         #whole words only: a class called comic-archive-date holds "arc" inside "archive" and is a date,
         #not a heading
         words = set(re.split(r'[^a-z]+', "{0} {1}".format(got.get("class") or "", got.get("id") or "").lower()))
-        self.rank = 0 if tag in self.title_tags else 1
         looks_like = tag in self.heading_tags or bool(
             words & {"chapter", "chapters", "arc", "arcs", "volume", "book", "story", "storyline"})
-        if looks_like:
+        #the outermost heading wins, so a <b> inside an <h4> is emphasis in a title rather than a title of
+        #its own - except that a real heading tag beats a container whose class merely says "chapter",
+        #since such a container holds the description and the icon too, and none of that is a name
+        if looks_like and (not self.heading
+                           or (tag in self.title_tags and self.heading not in self.title_tags)):
+            if not self.heading:
+                self.inside = []
             self.heading = tag
-            self.text = []
+            self.rank = 0 if tag in self.title_tags else 1
+            self.said = []
 
     def handle_endtag(self, tag):
-        said = re.sub(r'\s+', ' ', "".join(self.text)).strip()
         if tag == "a" and self.link is not None:
-            self.events.append(("link", self.link, said))
+            said = re.sub(r'\s+', ' ', "".join(self.link_text)).strip()
+            if self.heading:
+                #some archives put the chapter's link inside the heading that names it, rather than under
+                #it. held back and given out after the heading, so it still reads as "this heading, then
+                #the page it starts at" - which is what every other archive says plainly.
+                self.inside.append((self.link, said))
+            else:
+                self.events.append(("link", self.link, said))
             self.link = None
-        elif self.heading and tag == self.heading:
+            self.link_text = []
+            return
+        if self.heading and tag == self.heading:
+            said = re.sub(r'\s+', ' ', "".join(self.said)).strip()
             if said:
                 self.events.append(("heading", said, self.rank))
+            for href, text in self.inside:
+                self.events.append(("link", href, text))
             self.heading = None
-        self.text = []
+            self.said = []
+            self.inside = []
 
     def handle_data(self, data):
-        if self.link is not None or self.heading:
-            self.text.append(data)
+        #a link inside a heading is part of what the heading says, as well as being the link
+        if self.link is not None:
+            self.link_text.append(data)
+        if self.heading:
+            self.said.append(data)
 
 
 def read_archive(url, browser=False, script=None):
@@ -479,6 +501,16 @@ def read_archive(url, browser=False, script=None):
     answer = requests.get(url, timeout=60, headers={"User-Agent": "Mozilla/5.0"})
     answer.raise_for_status()
     return answer.text
+
+
+def heading_says(text):
+    #an archive that says how long each chapter is: "3. Merry Snow Day (4 pages, 5/8/06)". the count is
+    #the site's own word on how many pages the chapter holds, which is something a reading can be checked
+    #against, and it is not part of the chapter's name.
+    found = re.search(r'\(\s*(\d+)\s*pages?\b[^)]*\)\s*$', text or "", re.I)
+    if not found:
+        return (text or "").strip(), None
+    return text[:found.start()].strip().strip(',;:-').strip(), int(found.group(1))
 
 
 def chapters_from_events(events, where, base=""):
@@ -499,7 +531,9 @@ def chapters_from_events(events, where, base=""):
             #sits far above the first chapter's title, and a summary sits just under it
             label = (min(waiting, key=lambda held: (held[0], -held[1]))[2] if waiting
                      else "Chapter {0}".format(len(found) + 1))
-            found.append({"label": label, "start_page": at, "pages_listed": []})
+            label, says = heading_says(label)
+            found.append({"label": label or "Chapter {0}".format(len(found) + 1),
+                          "start_page": at, "pages_listed": [], "pages_said": says})
             waiting = []
         found[-1]["pages_listed"].append(at)
         found[-1]["start_page"] = min(found[-1]["start_page"], at)
@@ -807,7 +841,19 @@ def looks_like_pages(url, known):
         return False
     #the same first step of the path: /comic/... for one comic, index.php?pid=... for another. a link to
     #the archive itself, or to some other page of the site, is not a page of the comic.
-    return theirs == first
+    if theirs == first:
+        return True
+    #or the same shape, for a comic that puts the chapter in the first step and so has no fixed one:
+    #/c1/p1, /c2/p1, /c12.1/p1 are all the same kind of address, and archive.html is not.
+    return bool(re.match(page_shape(known), same_page(url).partition('?')[0]))
+
+
+def page_shape(known):
+    #the address with every run of digits (and the dots inside them) made a wildcard, so one page of a
+    #comic describes the rest: c1/p1 becomes c<number>/p<number>
+    plain = same_page(known or "").partition('?')[0]
+    return "".join("[0-9.]+" if bit[0].isdigit() else re.escape(bit)
+                   for bit in re.findall(r'\d[\d.]*|\D+', plain)) + "$"
 
 
 def guess_by_url(links):
@@ -863,47 +909,54 @@ def try_archive(folder, args):
         print("Could not read {0}: {1}".format(args.archive, error))
         return 1
 
-    found, waiting, pages = [], [], 0
-    archive_links = []
+    #the archive's own order stands in for the comic's, so the very code a real run uses can read it:
+    #a preview that worked things out its own way would not be a preview of anything
+    archive_links, order = [], {}
     for kind, first, second in reader.events:
-        if kind == "heading":
-            waiting.append((second if second is not None else 1, len(waiting), first))
+        if kind != "link":
             continue
         where = urljoin(args.archive, first)
-        if not looks_like_pages(where, known):
+        if not looks_like_pages(where, known) or same_page(where) in order:
             continue
-        pages += 1
         archive_links.append(where)
-        if waiting or not found:
-            label = (min(waiting, key=lambda held: (held[0], -held[1]))[2] if waiting
-                     else "(no heading before this one)")
-            found.append([label, where, 0])
-            waiting = []
-        found[-1][2] += 1
+        order[same_page(where)] = len(order) + 1
+    pretend = [{"n": at, "url": where} for at, where in enumerate(archive_links, 1)]
+    found, pages = chapters_from_events(reader.events, order, args.archive)
+    found = settle_chapters(found, pretend) if found and pretend else []
 
     print("{0}".format(args.archive))
-    print("  pages of this comic linked: {0}, looking like {1}".format(pages, known))
+    print("  pages of this comic linked: {0}, looking like {1}".format(len(archive_links), known))
     print("  chapters it would read: {0}".format(len(found)))
-    for at, (label, where, held) in enumerate(found[:40], 1):
-        print("  {0:<4} {1:<46} {2:>4} page(s) listed, starts at {3}".format(at, label[:46], held, where[-52:]))
+    for chapter in found[:40]:
+        print("  {0:<4} {1:<46} {2:>4} page(s) listed, starts at {3}".format(
+            chapter["number"], (chapter["label"] or "")[:46], chapter["pages"],
+            (chapter["start_url"] or "")[-52:]))
     if len(found) > 40:
         print("  ... and {0} more".format(len(found) - 40))
+    said = [chapter["pages_said"] for chapter in found if chapter.get("pages_said")]
+    if said:
+        print("  {0} of these say how long they are, adding up to {1} page(s), against {2} page(s) "
+              "linked here".format(len(said), sum(said), len(archive_links)))
+        if sum(said) > len(archive_links) * 1.5:
+            print("      so this page lists where chapters start, not every page: the comic has to be "
+                  "walked for the pages in between.")
+        quiet = [chapter for chapter in found if not chapter.get("pages_said")]
+        if quiet and len(quiet) <= max(3, len(found) // 10):
+            #on a page where almost every heading states a length, one that does not is usually not a
+            #chapter at all but some other section that happens to link into the comic
+            print("      {0} of them say nothing about their length, unlike the rest, so look at "
+                  "whether they are chapters at all:".format(len(quiet)))
+            for chapter in quiet[:5]:
+                print("        {0:<40} starts at {1}".format(
+                    (chapter["label"] or "")[:40], (chapter["start_url"] or "")[-46:]))
     if not found:
         print("  Nothing was read as a chapter. Either no link on that page is a page of this comic - check "
               "what --like says they look like - or the page needs --browser to build itself first.")
         return 1
-    lonely = [label for label, where, held in found if held == 0]
-    if lonely:
-        print("  {0} heading(s) with no page under them, which usually means a heading was read "
-              "wrongly".format(len(lonely)))
-
     #an archive with no chapter headings reads as one heading over everything, which says nothing about
     #the comic. the addresses it links to might still say where the chapters are, so they are tried here.
-    biggest = max((held for label, where, held in found), default=0)
-    if len(found) < 3 or biggest > pages * 0.8:
-        listed = []
-        for label, where, held in found:
-            listed.append(where)
+    biggest = max((chapter["pages"] for chapter in found), default=0)
+    if len(found) < 3 or biggest > len(archive_links) * 0.8:
         by_url, distinct = guess_by_url(archive_links)
         print()
         if by_url:

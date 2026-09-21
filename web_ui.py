@@ -612,6 +612,36 @@ def fix_chapter(args, comic, given):
     return 200, {"output": output[-4000:]}
 
 
+def try_chapter_list(args, comic, given):
+    #reading an archive page and saying what it would be read as. it fetches one page and writes nothing,
+    #so it answers "is this page usable" before a comic is committed to it - or walked for it.
+    url = str(given.get("url") or "").strip()
+    if not re.match(r"^https?://\S+$", url):
+        return 400, {"error": "the chapter list has to be a full http(s) address"}
+    like = str(given.get("like") or "").strip()
+    if not comic and not re.match(r"^https?://\S+$", like):
+        return 400, {"error": "give one of the comic's own page addresses, so its pages can be told "
+                              "from everything else linked on that page"}
+    script = os.path.join(os.path.dirname(os.path.abspath(args.script)), "chapters.py")
+    command = [sys.executable, "-u", script, "try", comic.folder if comic else ".", "--archive", url]
+    if like:
+        command += ["--like", like]
+    if given.get("browser"):
+        command.append("--browser")
+    if args.root:
+        command += ["--root", args.root]
+    began = time.time()
+    try:
+        done = subprocess.run(command, capture_output=True, text=True, errors="replace",
+                              env=dict(os.environ, PYTHONUNBUFFERED="1"), timeout=600)
+    except subprocess.SubprocessError as error:
+        return 500, {"error": "could not read that page: {0}".format(error)}
+    output = ((done.stdout or "") + (done.stderr or "")).strip()
+    #a page that reads as nothing still has plenty to say about why, so its output is the answer either way
+    return 200, {"output": output[-20000:], "seconds": int(time.time() - began),
+                 "exit_code": done.returncode}
+
+
 def clean_settings(given):
     #checks each value the page sent, so a typo turns into a message rather than a comic that will not run
     cleaned, problems = {}, []
@@ -988,6 +1018,11 @@ def make_handler(runner, args, uc, tee):
                     job = runner.submit_chapterize(comic, listing, walk)
                     self.reply({"queued": job.id, "label": job.label, "walking": walk,
                                 "from": "archive" if listing else "addresses"})
+            elif path == "/api/trylist":
+                name = str(body.get("name") or "")
+                comic = find_comic(args, uc, name) if name else None
+                status, result = try_chapter_list(uc.with_config(args), comic, body)
+                self.reply(result, status)
             elif path == "/api/chapterfix":
                 name = str(body.get("name") or "")
                 comic = find_comic(args, uc, name)

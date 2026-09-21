@@ -140,6 +140,8 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .ep-head { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 6px; }
 .ep-head h4 { margin: 0; font-size: 13px; }
 .check-box { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+.check-result pre { margin: 0; font-size: 12px; line-height: 1.45; white-space: pre-wrap;
+  word-break: break-word; max-height: 46vh; overflow: auto; }
 .check-result { margin-top: 10px; font-size: 12.5px; }
 .check-result .hit { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; padding: 3px 0; }
 .check-result code { overflow-wrap: anywhere; }
@@ -192,7 +194,8 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
 
   <div class="col">
     <section>
-      <h2><span class="grow">Add comics</span><button class="small" id="open-config">Settings</button>
+      <h2><span class="grow">Add comics</span><button class="small" id="open-listcheck">Check chapter list</button>
+        <button class="small" id="open-config">Settings</button>
         <button class="small" id="open-elements">Element paths</button></h2>
       <div class="help">One row per comic. Folders are inside <span id="add-roots"></span>, and a comic with
         no folder of its own is given one so its archive is not loose in the root. Give a chapter list -
@@ -300,6 +303,36 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
   </form>
 </dialog>
 
+<dialog id="listcheck">
+  <form method="dialog">
+    <div class="dlg-head"><h3>Check chapter list</h3><span class="muted">reads the page, walks nothing</span></div>
+    <div class="dlg-body">
+      <div class="help">Fetches a comic's archive page and says what it would be read as: how many chapters,
+        what each is called, and which page each starts at. It downloads nothing and changes nothing, so it
+        is the cheap way to find out whether a page is usable before committing a comic to it. Give one of
+        the comic's own page addresses so it can tell that comic's pages from everything else linked there.</div>
+      <div class="field">
+        <label for="lc-url">Chapter list page</label>
+        <input type="text" id="lc-url" spellcheck="false" placeholder="https://example.com/archive.html">
+      </div>
+      <div class="field">
+        <label for="lc-like">One page of the comic</label>
+        <input type="text" id="lc-like" spellcheck="false" placeholder="https://example.com/c1/p1">
+        <div class="note">Its first page will do. Only needed when the comic is not in the library yet.</div>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="lc-browser"> load it in the browser (for a page that builds itself)</label>
+      </div>
+      <div class="check-result" id="lc-result"></div>
+    </div>
+    <div class="dlg-foot">
+      <div class="msg" id="lc-msg"></div>
+      <button type="button" id="lc-close">Close</button>
+      <button type="button" class="primary" id="lc-go">Read it</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="bounds">
   <form method="dialog">
     <div class="dlg-head"><h3>Chapter boundaries</h3><span class="muted" id="bd-who"></span></div>
@@ -380,6 +413,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
     <div class="dlg-foot">
       <div class="msg" id="edit-msg"></div>
       <button type="button" id="edit-cancel">Close</button>
+      <button type="button" id="edit-checklist">Check chapter list</button>
       <button type="button" id="edit-boundaries">Chapter boundaries</button>
       <button type="button" id="edit-chapterize">Work out chapters</button>
       <button type="button" id="edit-save">Save</button>
@@ -849,6 +883,44 @@ $("check-result").addEventListener("click", (event) => {
   if (xpath) {
     addPath(event.target.dataset.addKind, xpath, $("check-result").dataset.host);
     event.target.replaceWith(document.createTextNode("added"));
+  }
+});
+
+//---- reading a chapter list before committing to it ----
+//which comic it was opened for, if any. opened from Add comics it belongs to no comic, and must not
+//quietly borrow whichever one the editor looked at last
+let listFor = null;
+function openListCheck(url, like, name) {
+  listFor = name || null;
+  $("lc-url").value = url || "";
+  $("lc-like").value = like || "";
+  $("lc-result").textContent = "";
+  $("lc-msg").className = "msg"; $("lc-msg").textContent = "";
+  $("listcheck").showModal();
+  $("lc-url").focus();
+}
+$("open-listcheck").addEventListener("click", () => openListCheck("", "", null));
+$("edit-checklist").addEventListener("click", () =>
+  openListCheck($("e-chapters").value.trim(), editing.first_page_url || editing.settings.url, editing.name));
+$("lc-close").addEventListener("click", () => $("listcheck").close());
+$("lc-go").addEventListener("click", async () => {
+  const msg = $("lc-msg"), url = $("lc-url").value.trim();
+  if (!/^https?:\/\/\S+$/.test(url)) {
+    msg.className = "msg bad"; msg.textContent = "Give the full address of the chapter list page.";
+    return;
+  }
+  msg.className = "msg";
+  msg.textContent = $("lc-browser").checked ? "Loading it in the browser…" : "Reading it…";
+  $("lc-result").textContent = "";
+  try {
+    const result = await post("/api/trylist", { url: url, like: $("lc-like").value.trim(),
+                                                name: listFor, browser: $("lc-browser").checked });
+    $("lc-result").innerHTML = `<pre>${esc(result.output || "(it said nothing)")}</pre>`;
+    msg.className = "msg good";
+    msg.textContent = `Read in ${result.seconds}s. Nothing was saved.`;
+  } catch (error) {
+    msg.className = "msg bad";
+    msg.textContent = error.message;
   }
 });
 

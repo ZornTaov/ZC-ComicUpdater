@@ -181,6 +181,18 @@ python update_comics.py "D:/Comics" --schedule 03:30 --now   # and once immediat
 otherwise a fresh start does nothing at all until the small hours, which makes a working setup hard
 to tell apart from a broken one.
 
+A comic that has nothing new is a **check, not an update**. Resuming re-saves the page it stopped on
+and finds no next link, which puts no new page in the folder - so nothing is written down: no run in
+the history, and no rewrite of the sidecar, which would otherwise rewrite the archive's copy of it
+every single day for no reason. The run says `No new pages: this comic is up to date` and stops there.
+
+The one exception is a comic whose last run did not end well. Then a clean run is the news that it is
+working again, so it is recorded even though nothing was fetched; the one after that is quiet.
+
+This is also why `pages_saved` summed across a comic's runs is a fair count of what it holds. It used
+to include a save every day for a page already held, which made a complete comic look as though it had
+lost pages.
+
 Each comic is a separate process, so one badly behaved site cannot take the run down with it.
 `--timeout` (30 minutes by default) kills anything that hangs, along with the whole browser process
 tree it started. Comics marked as ended are skipped. `--only NAME` limits the run to one comic, and

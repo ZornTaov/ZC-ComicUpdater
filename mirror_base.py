@@ -235,6 +235,10 @@ scrape_state = {
     #where the last saved page sits according to the pages already held, so the next one can be checked
     #for having moved backwards rather than forwards
     "last_known_number": None,
+    #pages this run put in the folder that were not already there. a comic that is up to date re-saves
+    #the page it resumes on and finds no next link, which is a check rather than an update: it adds
+    #nothing, and a run record for it would say a page was saved when none was
+    "fresh_pages": 0,
     #how many pages in a row have sat earlier than the one before them. one on its own is not evidence:
     #a site that names every chapter's pages 1,2,3 hands out a name it has used before at every chapter
     #boundary, which looks backwards for exactly one page and then climbs again
@@ -837,6 +841,18 @@ def metadata_save(driver, args, completed=False, exit_code=None):
         except (ValueError, OSError, TypeError, AttributeError):
             pass
 
+    #a run that put no new page in the folder is a look, not an update: a comic that is up to date
+    #re-saves the page it resumes on over itself and finds no next link. writing this down would add a
+    #run saying a page was saved when the comic gained none - and summing those saves counts a comic's
+    #pages many times over, which is what made one comic look as though it had lost pages. it would also
+    #rewrite the sidecar, and with it the archive's copy, every single day for no reason.
+    #
+    #unless the run before it did not end well: then this one is the news that the comic is fine again,
+    #and leaving it out would leave the library showing an error that has been over for weeks.
+    was_well = not runs or runs[-1].get("exit_code") in (None, EXIT_OK)
+    if scrape_state["fresh_pages"] == 0 and exit_code in (None, EXIT_OK) and was_well:
+        return None
+
     #argv is the record of what this run was actually told to do. the rendered command and the full
     #option dump that used to sit beside it said the same thing twice more, and went stale the moment
     #anyone edited the settings by hand
@@ -1111,6 +1127,11 @@ def img_save(driver, increment, file_format, args):
             EXIT_SAME_NAMES, "the site reuses image names; needs --prefix")
     print('saving {0} from {1} at {2}'.format(target, src, current_url))
 
+    #whether this page is one the folder did not have. a resume re-saves its starting page over itself,
+    #which is not the comic gaining anything
+    if not os.path.exists(target):
+        scrape_state["fresh_pages"] += 1
+
     #requests and downloads the content in the url
     with open(target,'wb') as f:
         f.write(req.content)
@@ -1306,6 +1327,9 @@ if __name__ == "__main__":
         metadata_path = metadata_save(driver, args, completed, exit_code)
         if metadata_path:
             print("Wrote metadata to {0}.".format(metadata_path))
+        elif scrape_state["fresh_pages"] == 0 and scrape_state["pages_saved"] > 0:
+            #said plainly, because "saved 1 page" on a comic that gained nothing reads like an update
+            print("No new pages: this comic is up to date, so nothing was written down.")
 
         #packed last, so the archive picks up the finished metadata along with the new pages
         if in_chapters and args.cbz and scrape_state["pages_saved"] > 0:

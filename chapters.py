@@ -483,6 +483,13 @@ class ArchiveReader(html.parser.HTMLParser):
             self.link = got["href"]
             self.link_text = []
             return
+        #some archives are a dropdown rather than a list of links: snafu-comics lists every page of a
+        #comic as an <option>, and its script sends you to the value when you pick one. that is a link
+        #by any other name, and without reading it such a page says nothing at all.
+        if tag == "option" and got.get("value"):
+            self.link = got["value"]
+            self.link_text = []
+            return
         #whole words only: a class called comic-archive-date holds "arc" inside "archive" and is a date,
         #not a heading
         words = set(re.split(r'[^a-z]+', "{0} {1}".format(got.get("class") or "", got.get("id") or "").lower()))
@@ -500,7 +507,7 @@ class ArchiveReader(html.parser.HTMLParser):
             self.said = []
 
     def handle_endtag(self, tag):
-        if tag == "a" and self.link is not None:
+        if tag in ("a", "option") and self.link is not None:
             said = re.sub(r'\s+', ' ', "".join(self.link_text)).strip()
             if self.heading:
                 #some archives put the chapter's link inside the heading that names it, rather than under
@@ -517,7 +524,10 @@ class ArchiveReader(html.parser.HTMLParser):
             if said:
                 self.events.append(("heading", said, self.rank))
             for href, text in self.inside:
-                self.events.append(("link", href, text))
+                #a heading that holds the link names that chapter and nothing else does, whatever else
+                #sits above it on the page. the heading is still given out on its own as well, so if this
+                #link turns out not to be a page of the comic it can still name the next one that is.
+                self.events.append(("owned", href, said) if said else ("link", href, text))
             self.heading = None
             self.said = []
             self.inside = []
@@ -552,6 +562,42 @@ def heading_says(text):
     return text[:found.start()].strip().strip(',;:-').strip(), int(found.group(1))
 
 
+def says_it_twice(url):
+    #a path with the same step twice in a row, which is what a mis-joined relative link looks like
+    steps = same_page(url or "").partition('?')[0].split('/')
+    return 1 if any(one and one == next_one for one, next_one in zip(steps, steps[1:])) else 0
+
+
+def link_targets(base, href):
+    #where a link points, allowing for the two ways an archive writes one. a dropdown's value is what its
+    #script navigates to, and such values are usually written from the site's root rather than from the
+    #page's own folder - snafu-comics writes "powerpuffgirls/first-day" on a page that already sits in
+    #/powerpuffgirls/. both readings are offered and whichever is a page of the comic is the one meant.
+    here = urljoin(base, href)
+    from_root = urljoin(urljoin(base, '/'), href.lstrip('/'))
+    if here == from_root:
+        return [here]
+    #joining "powerpuffgirls/first-day" onto a page already inside /powerpuffgirls/ says it twice, and no
+    #site has a path like that. so a reading that repeats a step is tried last, not first.
+    return sorted([here, from_root], key=says_it_twice)
+
+
+def pages_linked(events, base, known):
+    #the comic's own pages linked on an archive page, in the order that page lists them, each counted
+    #once. everything else linked there - the shop, the artist's other comics, the archive itself - is
+    #not a page of this comic and is left out.
+    links, order = [], {}
+    for kind, first, second in events:
+        if kind not in ("link", "owned"):
+            continue
+        where = next((one for one in link_targets(base, first) if looks_like_pages(one, known)), None)
+        if where is None or same_page(where) in order:
+            continue
+        links.append(where)
+        order[same_page(where)] = len(order) + 1
+    return links, order
+
+
 def chapters_from_events(events, where, base=""):
     #a chapter starts at the first page link after a heading. several headings can sit together - a title
     #and the summary underneath it - so the one that reads most like a title wins: a real heading tag
@@ -561,14 +607,25 @@ def chapters_from_events(events, where, base=""):
         if kind == "heading":
             waiting.append((second if second is not None else 1, len(waiting), first))
             continue
-        at = where.get(same_page(urljoin(base, first)))
+        owned = kind == "owned"
+        at = next((where[same_page(one)] for one in link_targets(base, first)
+                   if same_page(one) in where), None)
         if at is None:
             continue
         listed += 1
-        if waiting or not found:
-            #the most heading-like wins, and among equals the one nearest the link: a page's own banner
-            #sits far above the first chapter's title, and a summary sits just under it
-            label = (min(waiting, key=lambda held: (held[0], -held[1]))[2] if waiting
+        already = next((chapter for chapter in found if chapter["start_page"] == at), None)
+        if owned and already is not None:
+            #this page already starts a chapter, named by whatever mentioned it first - often a dropdown
+            #of every page under the archive's own banner. a heading built round this very link knows
+            #better, so it renames that chapter rather than making a second one at the same page.
+            already["label"], already["pages_said"] = heading_says(second)
+            continue
+        if owned or waiting or not found:
+            #a heading that held this very link names it outright. otherwise the most heading-like wins,
+            #and among equals the one nearest the link: a page's own banner sits far above the first
+            #chapter's title, and a summary sits just under it
+            label = (second if owned else
+                     min(waiting, key=lambda held: (held[0], -held[1]))[2] if waiting
                      else "Chapter {0}".format(len(found) + 1))
             label, says = heading_says(label)
             found.append({"label": label or "Chapter {0}".format(len(found) + 1),
@@ -950,15 +1007,7 @@ def try_archive(folder, args):
 
     #the archive's own order stands in for the comic's, so the very code a real run uses can read it:
     #a preview that worked things out its own way would not be a preview of anything
-    archive_links, order = [], {}
-    for kind, first, second in reader.events:
-        if kind != "link":
-            continue
-        where = urljoin(args.archive, first)
-        if not looks_like_pages(where, known) or same_page(where) in order:
-            continue
-        archive_links.append(where)
-        order[same_page(where)] = len(order) + 1
+    archive_links, order = pages_linked(reader.events, args.archive, known)
     pretend = [{"n": at, "url": where} for at, where in enumerate(archive_links, 1)]
     found, pages = chapters_from_events(reader.events, order, args.archive)
     found = settle_chapters(found, pretend) if found and pretend else []

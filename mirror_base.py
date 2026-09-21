@@ -459,7 +459,16 @@ def build_index(driver, args):
     if folder and not os.path.isdir(folder):
         os.makedirs(folder)
     done = index_read(path)
-    if done:
+    held = {line["url"] for line in done}
+    if done and args.URL and args.URL not in held:
+        #pointed at a page the index does not hold. a site with one broken address in the middle - snafu's
+        #grimtales has a page whose title put a % in its url - stops a walk dead there, and the only way
+        #past is to say where to pick it up. carrying on from the index's own last page instead would
+        #walk into the same wall every time.
+        print("Carrying on at {0}, which the index does not hold; the pages between it and page {1} are "
+              "left out.".format(args.URL, len(done)))
+        driver.get(args.URL)
+    elif done:
         print("Carrying on from page {0} of the index ({1}).".format(len(done), done[-1]["url"]))
         driver.get(done[-1]["url"])
         if not next(driver, args):

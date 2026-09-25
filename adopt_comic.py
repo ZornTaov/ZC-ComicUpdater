@@ -277,12 +277,74 @@ def nearest_archive(missing):
     #a cbz_path is nearly always a name typed slightly differently, so say what was probably meant
     folder = os.path.dirname(missing)
     stem = os.path.basename(missing)[:-4].lower().replace(' ', '').replace('_', '')
-    if not os.path.isdir(folder):
-        return ""
-    for name in sorted(os.listdir(folder)):
-        if name.lower().endswith('.cbz') and name[:-4].lower().replace(' ', '').replace('_', '') == stem:
-            return ", did you mean {0}".format(name)
+    #a path naming a shelf that is not there yet is checked one level up as well, so the same comic
+    #already sitting loose on the shelf is spotted before a folder is made for a second copy of it
+    for at in (folder, os.path.dirname(folder)):
+        if not at or not os.path.isdir(at):
+            continue
+        for name in sorted(os.listdir(at)):
+            if name.lower().endswith('.cbz') and name[:-4].lower().replace(' ', '').replace('_', '') == stem:
+                return ", did you mean {0}".format(os.path.join(os.path.basename(at), name))
+        if at == folder:
+            #the folder exists and holds nothing by that name, so there is nothing more to guess at
+            break
     return ""
+
+
+def loose_pages(folder):
+    #only the images sitting directly in the comic's folder. this is what mirror_base packs, so an
+    #archive built here holds exactly what a later scrape would have put in it and nothing else
+    if not os.path.isdir(folder):
+        return []
+    return sorted(name for name in os.listdir(folder)
+                  if is_page(name) and os.path.isfile(os.path.join(folder, name)))
+
+
+def archive_shelf(folder):
+    #where this library keeps its archives, worked out the same way mirror_base does it: a comic under
+    #an Uncompressed tree belongs in the CBZs tree beside it. returns (pages tree, shelf) or (None, None)
+    parts = os.path.abspath(folder).replace('\\', '/').split('/')
+    for at in range(len(parts) - 2, 0, -1):
+        if parts[at].lower() != 'uncompressed':
+            continue
+        shelf = os.sep.join(parts[:at] + ['CBZs'])
+        if os.path.isdir(shelf):
+            return os.sep.join(parts[:at + 1]), shelf
+    return None, None
+
+
+def inside(path, folder):
+    return os.path.normcase(os.path.abspath(path)).startswith(os.path.normcase(os.path.abspath(folder)) + os.sep)
+
+
+def build_archive(folder, cbz):
+    #packs the comic into an archive that is not there yet. a cbz_path naming a file that does not
+    #exist is nearly always a library being filled in rather than a mistake, so it is built instead of
+    #refused; a name that is only slightly different from a real one is caught before we ever get here.
+    pages = loose_pages(folder)
+    if not pages:
+        return 0
+    parent = os.path.dirname(cbz)
+    if parent and not os.path.isdir(parent):
+        os.makedirs(parent)
+    #images are already compressed, so storing them saves the cpu for no meaningful size difference.
+    #written aside and moved into place, so a run stopped halfway leaves no half-archive behind
+    spare = cbz + ".writing"
+    try:
+        with zipfile.ZipFile(spare, 'w', zipfile.ZIP_STORED) as zf:
+            for name in pages:
+                zf.write(os.path.join(folder, name), name)
+            if os.path.isfile(os.path.join(folder, metadata_file)):
+                zf.write(os.path.join(folder, metadata_file), metadata_file)
+        os.replace(spare, cbz)
+    except (OSError, zipfile.BadZipFile):
+        if os.path.exists(spare):
+            try:
+                os.remove(spare)
+            except OSError:
+                pass
+        raise
+    return len(pages)
 
 
 def matching_archive(folder, root, archives, folder_paths):
@@ -384,14 +446,21 @@ def adopt_one(args, quiet=False):
     if not args.ended and not (args.last_url or args.next_url):
         return False, "needs an address, or ended"
 
-    #a cbz_path that points nowhere would quietly build a second archive and leave the real one behind,
-    #which nothing would notice until pages stopped appearing in the reader
+    #a cbz_path one letter away from a real archive would quietly build a second one and leave the real
+    #one behind, which nothing would notice until pages stopped appearing in the reader. a name nothing
+    #resembles is a shelf being filled in, so the archive is built rather than refused.
     archive = getattr(args, "cbz_path", None)
     archive_full = None
+    to_build = None
     if archive:
         archive_full = os.path.join(args.root, archive.replace('/', os.sep))
         if not os.path.isfile(archive_full):
-            return False, "cbz_path {0} does not exist{1}".format(archive, nearest_archive(archive_full))
+            near = nearest_archive(archive_full)
+            if near:
+                return False, "cbz_path {0} does not exist{1}".format(archive, near)
+            if not getattr(args, "make_cbz", True):
+                return False, "cbz_path {0} does not exist".format(archive)
+            to_build = archive_full
 
     try:
         pages = list_pages(args.path)
@@ -401,7 +470,7 @@ def adopt_one(args, quiet=False):
         #a comic that arrived as a finished .cbz has no loose pages to look at, but the ones inside the
         #archive are numbered the same way and answer the same questions. the folder only has to hold
         #what a later run adds to it, so an empty one beside a real archive is a comic, not a mistake.
-        if archive_full:
+        if archive_full and not to_build:
             try:
                 pages = list_pages(archive_full)
             except (zipfile.BadZipFile, OSError) as error:
@@ -418,6 +487,14 @@ def adopt_one(args, quiet=False):
         args.prefix = False
 
     folder = comic_folder(args.path)
+    if to_build:
+        #an archive built among the pages instead of on the shelf beside them is what a --root pointed
+        #one level too deep produces, and it takes the saved output path down with it, so it is refused
+        tree, shelf = archive_shelf(folder)
+        if shelf and inside(to_build, tree):
+            return False, ("cbz_path {0} would be built at {1}, in among the pages rather than on "
+                           "this library's shelf {2} - is --root one folder too deep?".format(
+                               archive, os.path.abspath(to_build), shelf))
     target = os.path.join(folder, metadata_file)
     existing = None
     if os.path.exists(target):
@@ -449,7 +526,16 @@ def adopt_one(args, quiet=False):
     summary = "ended" if args.ended else "resumes at page {0}".format(metadata["settings"]["increment"])
     if metadata["settings"]["cbz_path"]:
         summary += ", packs into {0}".format(metadata["settings"]["cbz_path"])
+    waiting = len(loose_pages(folder)) if to_build else 0
+    if to_build and not waiting:
+        summary += " (nothing loose to build it from yet)"
+        if not quiet:
+            print("  archive       : {0}, nothing loose to build it from yet".format(archive))
     if args.dry_run:
+        if waiting:
+            summary += " (would build it from {0} page(s))".format(waiting)
+            if not quiet:
+                print("  would build   : {0} from {1} page(s)".format(archive, waiting))
         return False, "would adopt: " + summary
 
     if not os.path.isdir(folder):
@@ -457,6 +543,19 @@ def adopt_one(args, quiet=False):
     with open(target, 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=2)
         f.write('\n')
+
+    #built after the metadata is written, so the archive carries the same mirror_metadata.json a
+    #scrape-made one would and a comic is never left adopted-but-unpacked if the pack fails
+    if to_build and waiting:
+        try:
+            made = build_archive(folder, to_build)
+        except (OSError, zipfile.BadZipFile) as error:
+            if not quiet:
+                print("  archive       : {0} could not be built: {1}".format(archive, error))
+            return True, summary + ", but building it failed: {0}".format(error)
+        summary += " (built it from {0} page(s))".format(made)
+        if not quiet:
+            print("  archive built : {0} from {1} page(s)".format(archive, made))
     return True, summary
 
 
@@ -488,6 +587,8 @@ def setup():
                         help="Adopt every comic in a filled-in report. Rows with no address and no ended mark are left alone.")
     params.add_argument("--cbz-path", default=None, metavar="PATH",
                         help="The .cbz this comic belongs to, when it is not beside the folder. Written relative to --root.")
+    params.add_argument("--make-cbz", action=argparse.BooleanOptionalAction, default=True,
+                        help="Build the archive when the cbz_path names one that is not there yet, rather than refusing. A name close to a real archive is still refused, since that is a typo. On by default.")
     params.add_argument("-n", "--dry-run", action='store_true', default=False,
                         help="Show the metadata that would be written without writing it.")
     params.add_argument("--migrate", action='store_true',

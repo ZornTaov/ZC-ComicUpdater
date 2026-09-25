@@ -143,6 +143,12 @@ numbering scheme filled in.
 | `prefix` | `TRUE` to keep numbering new pages. Implies `increment`. |
 | `cbz_path` | The archive this comic belongs to, if it is not beside the folder. |
 
+A `cbz_path` naming an archive that does not exist yet is built from the comic's loose pages, so a
+library can be shelved and adopted in one pass. Two things are still refused rather than built: a name
+that is one character away from an archive already sitting there, which is a typo (`did you mean`), and
+a path that would land the archive in among the pages, which is what a `--root` pointed one folder too
+deep produces. Pass `--no-make-cbz` to go back to refusing any archive that is not already there.
+
 Leave `prefix` and `increment` blank and the comic keeps whatever filenames the site hands out, which
 is right for sites that already number their pages sensibly.
 

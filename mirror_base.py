@@ -51,6 +51,7 @@ element_names = [
                  '//*[@class="col-sm-12 comic-holder"]/a/img', #AWARE
                  '//*[@id="comicimg"]', #How MG Works
                  '//*[@id="maintxt"]/img', #Double-U Tea F, GotF, ATH
+                 '//*[@id="mama"]/img', #Ava's Demon, which serves several pages on one address
                  '//*[@id="strip"]//img', #Megatokyo
                  '//*[@id="strip"]', #Questionable Content
                  '/html/body/main/div/div/div[1]/img', #VickiFox
@@ -84,6 +85,9 @@ next_ele_names = [
                   '//*[contains(translate(@title,"NEXT","next"), "next")]',
                   '//*[contains(translate(@src,"NEXT","next"), "next")]',
                   '//a[contains(translate(text(),"NEXT","next"), "next")]',
+                  #a lone chevron is how plenty of comics label the link, limbero.org/jl8 among them. the
+                  #exact match matters: '>>' is the jump to the newest page, not the next one
+                  '//a[normalize-space(text())=">"]',
                   '//*[@src="next.jpg"]',
                   '//*[@alt="Next Page"]',
                   '//*[@id="Next_"]',
@@ -243,6 +247,13 @@ scrape_state = {
     #a site that names every chapter's pages 1,2,3 hands out a name it has used before at every chapter
     #boundary, which looks backwards for exactly one page and then climbs again
     "backwards_run": 0,
+    #the most comic images one address has held this run, and the first address that held more than one.
+    #a comic that starts putting several pages on one address - avasdemon.com and limbero.org/jl8 both
+    #did partway through - would otherwise be scraped as though nothing had changed, saving the first
+    #image of each page and leaving the rest behind without a word
+    "most_per_url": 0,
+    "first_multi_url": None,
+    "multi_urls": 0,
 }
 
 def setup():
@@ -269,6 +280,7 @@ def setup():
     params.add_argument("--cbz",action=argparse.BooleanOptionalAction,help="Packs the pages into a .cbz beside the output folder once the run finishes, adding only the pages the archive does not already hold. On by default.",default=True)
     params.add_argument("--direction-check",action=argparse.BooleanOptionalAction,default=True,help="Stop if the page after the first turns out to be one the comic already has, which means the next link is running backwards. On by default; turn it off only for a comic that genuinely reuses its filenames.")
     params.add_argument("--cbz-path",type=str,default=None,help="Where this comic's .cbz lives. Left off, an archive already beside the output folder is used, otherwise a library laid out as Uncompressed/<comic> files it as CBZs/<comic>.cbz, and failing both it goes beside the folder.")
+    params.add_argument("--multi-page",action=argparse.BooleanOptionalAction,default=True,help="Save every page the comic puts on one address, not just the first. Comics that serve several pages at once - avasdemon.com, limbero.org/jl8 - are otherwise scraped a fraction at a time without saying so. On by default; --no-multi-page reads one page an address however many are there.")
     params.add_argument("--page-source",action='store_true',default=False,help="Load the page in the browser and print its html, for a page that builds itself with javascript. Saves nothing.")
     params.add_argument("--keep-index",action='store_true',default=False,help="Record each page saved - its address, its file and its size - in an index beside the settings, so the comic can be split into chapters later without being walked again. A comic that already has one keeps it up to date whether this is given or not.")
     params.add_argument("--index",type=str,default=None,metavar="FILE",help="Walk the comic without downloading anything and write one line per page - its address, its image and its title - to this file. Used to work out which saved file came from which page. An existing file is carried on from where it stopped.")
@@ -343,6 +355,25 @@ def describe_element(driver, element):
         return {}
 
 
+def holder_path(driver, element):
+    #a path to this image through whatever holds it. an image with nothing on it to match - avasdemon.com
+    #serves bare <img> tags inside one div - can still be reached through its container, and that path
+    #finds every page on the address at once rather than only the one that was looked at.
+    try:
+        parent = element.find_element(By.XPATH, '..')
+        tag = element.tag_name
+    except se.WebDriverException:
+        return None
+    for name in ("id", "class"):
+        try:
+            value = parent.get_attribute(name)
+        except se.WebDriverException:
+            continue
+        if value and '"' not in value:
+            return '//*[@{0}="{1}"]/{2}'.format(name, value, tag)
+    return None
+
+
 def suggest_paths(driver):
     #for a site nothing matched: the big images, and the links that look like a next button
     images, links = [], []
@@ -356,7 +387,8 @@ def suggest_paths(driver):
             bits["area"] = area
             bits["suggested"] = ('//*[@id="{0}"]'.format(bits["id"]) if bits.get("id") else
                                  '//img[@alt="{0}"]'.format(bits["alt"]) if bits.get("alt") else
-                                 '//*[@class="{0}"]/img'.format(bits["class"]) if bits.get("class") else None)
+                                 '//*[@class="{0}"]/img'.format(bits["class"]) if bits.get("class") else
+                                 holder_path(driver, found))
             images.append(bits)
         spare = []
         for found in driver.find_elements(By.TAG_NAME, 'a')[:200]:
@@ -378,16 +410,27 @@ def suggest_paths(driver):
     except se.WebDriverException as error:
         print("could not look over the page: {0}".format(error))
     images.sort(key=lambda bits: -bits.get("area", 0))
-    return images[:5], links[:5]
+    #a path through the container is the same path for every page on the address, so it would otherwise be
+    #suggested once per image and fill the report with one answer written out five times
+    seen, once = set(), []
+    for bits in images:
+        if bits.get("suggested") and bits["suggested"] in seen:
+            continue
+        seen.add(bits.get("suggested"))
+        once.append(bits)
+    return once[:5], links[:5]
 
 
 def check_page(driver):
     #every path that matches, in the order a scrape would try them, so it is clear which one would win
     found = {"url": driver.current_url, "title": driver.title, "image": [], "next": []}
     for element in element_names:
-        src = ele_get(driver, element)
-        if src:
-            found["image"].append({"xpath": element, "src": src})
+        srcs = ele_get_all(driver, element)
+        if srcs:
+            #how many pages the path finds here, so a comic serving several on one address is plain before
+            #anything is downloaded rather than after the folder comes out a fraction of the size
+            found["image"].append({"xpath": element, "src": srcs[0], "count": len(srcs),
+                                   "srcs": srcs[:20]})
     for element in next_ele_names:
         if test_next_ele_get(driver, element):
             try:
@@ -404,6 +447,12 @@ def check_page(driver):
         if found[kind]:
             print("  {0}: {1} of the known paths match; a scrape would use {2}".format(
                 kind, len(found[kind]), found[kind][0]["xpath"]))
+            if kind == "image" and found[kind][0].get("count", 1) > 1:
+                pages = comic_images(found[kind][0]["srcs"])
+                print("    that path finds {0} images here, {1} of them pages, so this address holds "
+                      "several pages of the comic: {2}".format(
+                          found[kind][0]["count"], len(pages),
+                          ", ".join(src.rsplit('/', 1)[-1] for src in pages[:6])))
         else:
             print("  {0}: nothing matched".format(kind))
             for guess in found.get("suggestions", {}).get(kind, []):
@@ -483,6 +532,12 @@ def build_index(driver, args):
 
     at = len(done)
     seen = {line["url"] for line in done}
+    #the most pages one address has held, taken from what the index already has so a walk carried on does
+    #not announce the change a second time
+    counts = {}
+    for line in done:
+        counts[line.get("url")] = counts.get(line.get("url"), 0) + 1
+    most_here = max(counts.values()) if counts else 0
     started = datetime.now()
     with open(path, 'a', encoding='utf-8') as out:
         while True:
@@ -490,18 +545,21 @@ def build_index(driver, args):
             if here in seen:
                 print("Reached a page already in the index, so the comic has looped.")
                 break
-            src = None
-            for element in ([image_xpath] if image_xpath else []) + element_names:
-                src = ele_get(driver, element)
-                if src:
-                    break
-            at += 1
-            line = {"n": at, "url": here, "src": src, "file": index_name(src) if src else None,
-                    "title": driver.title}
-            out.write(json.dumps(line) + chr(10))
+            #a line per page of the comic, not per address: where a comic serves several at once, the
+            #numbering a scrape would give them is exactly the numbering recorded here
+            srcs = page_images(driver, args)
+            if len(srcs) > 1 and most_here < 2:
+                print("{0} holds {1} pages of the comic, so each gets its own line in the "
+                      "index.".format(here, len(srcs)))
+            most_here = max(most_here, len(srcs))
+            for src in (srcs or [None]):
+                at += 1
+                line = {"n": at, "url": here, "src": src, "file": index_name(src) if src else None,
+                        "title": driver.title}
+                out.write(json.dumps(line) + chr(10))
             out.flush()
             seen.add(here)
-            if src is None:
+            if not srcs:
                 print("No comic image on page {0} ({1}); it is in the index as a page with no image.".format(at, here))
             if at % 25 == 0:
                 gone = (datetime.now() - started).total_seconds()
@@ -526,6 +584,9 @@ in_chapters = False
 #the index this comic keeps, when it has one: where it is, what it already holds, and where it is up to
 index_file = None
 index_urls = set()
+#which pages the index already holds, as address and image together: an address serving several pages has
+#a line for each, so the address on its own no longer says whether a page is in there
+index_pages = set()
 index_last = 0
 
 
@@ -540,7 +601,7 @@ def cache_name(folder):
 
 
 def open_index(folder, args=None):
-    global index_file, index_urls, index_last, in_chapters
+    global index_file, index_urls, index_pages, index_last, in_chapters
     named = None
     try:
         with open(os.path.join(folder, metadata_file), 'r', encoding='utf-8') as f:
@@ -570,6 +631,7 @@ def open_index(folder, args=None):
                     continue
                 held = json.loads(line)
                 index_urls.add(held.get("url"))
+                index_pages.add((held.get("url"), held.get("src")))
                 index_last = max(index_last, held.get("n") or 0)
     except (OSError, ValueError):
         return
@@ -580,12 +642,15 @@ def open_index(folder, args=None):
 
 
 def add_to_index(url, src, image, size, title):
-    #one line per page, the same shape chapters.py writes, so nothing has to be walked again
+    #one line per page, the same shape chapters.py writes, so nothing has to be walked again. a page is an
+    #image, not an address: a comic serving several at once gets a line each, or the index would name one
+    #of them as the whole address and chapters built on it would put the rest in the wrong place
     global index_last
-    if not index_file or url in index_urls:
+    if not index_file or (url, src) in index_pages:
         return
     index_last += 1
     index_urls.add(url)
+    index_pages.add((url, src))
     try:
         with open(index_file, 'a', encoding='utf-8') as f:
             f.write(json.dumps({"n": index_last, "url": url, "src": src, "file": image,
@@ -801,6 +866,7 @@ def settings_from_args(args, url, increment, ended=False):
         "waittime": args.waittime,
         "cbz": bool(args.cbz),
         "direction_check": bool(args.direction_check),
+        "multi_page": bool(getattr(args, "multi_page", True)),
         #not a scraping option: update_comics.py reads it and leaves a finished comic alone
         "ended": bool(ended),
     }
@@ -895,6 +961,12 @@ def metadata_save(driver, args, completed=False, exit_code=None):
             "next_xpath": next_xpath or old_state.get("next_xpath", previous.get("next_xpath")),
             "last_image_url": scrape_state["last_image_src"],
             "last_image_file": scrape_state["last_image_file"],
+            #the most pages one address of this comic has been seen to hold, and the first address that
+            #held more than one. a run that saw nothing keeps what an earlier one found, so the change
+            #stays written down for a comic that has since gone quiet
+            "pages_per_url": max(scrape_state["most_per_url"],
+                                 old_state.get("pages_per_url") or previous.get("pages_per_url") or 0) or None,
+            "multi_page_from": scrape_state["first_multi_url"] or old_state.get("multi_page_from"),
         },
         "history": {
             #the index this comic keeps, named here so another machine, where this folder has a different
@@ -1046,33 +1118,82 @@ def cbz_update(args):
     return cbz, len(added)
 
 
-def img_save(driver, increment, file_format, args):
-    global image_xpath
-    global current_url
-    src = None
-    current_url = driver.current_url
+def comic_images(srcs):
+    #which of several images on one address are pages of the comic. a path that matches more than one is
+    #usually a comic serving several pages at once, but a path written loosely enough can also catch the
+    #buttons sitting beside them. a page is numbered, because numbering pages is how every site names
+    #them, and back.png and rss.png are not - so where some matches carry a number, the rest are not pages.
+    #with nothing to tell them apart, every match is kept: leaving a page out is the failure worth avoiding.
+    if len(srcs) < 2:
+        return srcs
+    numbered = [src for src in srcs if re.search(r'\d', src.rsplit('/', 1)[-1].split('?')[0])]
+    if numbered and len(numbered) < len(srcs):
+        left = [src.rsplit('/', 1)[-1] for src in srcs if src not in numbered]
+        print("Ignoring {0} image(s) here that carry no page number, so are not pages: {1}".format(
+            len(left), ", ".join(left[:6])))
+        return numbered
+    return srcs
 
+
+def page_images(driver, args):
+    #every comic image on the page the browser is on, in reading order, with the path that found them
+    #remembered for the pages that follow
+    global image_xpath
     if args.element_find_manual: #manual editing location
         #element = d.find_element(By.XPATH, '//*[@id="comic"]')
         element = driver.find_elements(By.TAG_NAME, 'img')
-        src = element[0].get_attribute('src')
+        return [element[0].get_attribute('src')] if element else []
 
-    else: #automatic mode
-        #try the path that worked last time, then fall back to searching the whole list. pages within one
-        #comic can differ: most themes wrap the image in a link to the next page, so the newest page - the
-        #one an update is there to fetch - has different markup to every page before it.
-        if image_xpath:
-            src = ele_get(driver,image_xpath)
-        if src is None:
-            for element in element_names: #sends a possible path to be tested
-                src = ele_get(driver,element)
-                if src: #the path works, so it is remembered for the pages that follow
-                    image_xpath = element
-                    break
+    #try the path that worked last time, then fall back to searching the whole list. pages within one
+    #comic can differ: most themes wrap the image in a link to the next page, so the newest page - the
+    #one an update is there to fetch - has different markup to every page before it.
+    srcs = []
+    for element in ([image_xpath] if image_xpath else []) + element_names: #sends a possible path to be tested
+        srcs = ele_get_all(driver,element)
+        if srcs: #the path works, so it is remembered for the pages that follow
+            image_xpath = element
+            break
+    if len(srcs) > 1 and not getattr(args, "multi_page", True):
+        #told to read this comic as one page an address whatever the page holds
+        return srcs[:1]
+    return comic_images(srcs)
 
-    if src == None:
+
+def img_save(driver, increment, file_format, args):
+    #one address, and every page of the comic on it. a site that serves several at once numbers them on
+    #from where the last address left off, so the loop asks the state where it got to rather than counting.
+    global current_url
+    current_url = driver.current_url
+    srcs = page_images(driver, args)
+
+    if not srcs:
         raise MirrorError("Element path for this site is not stored.", EXIT_NO_IMAGE, "image element not found")
 
+    if len(srcs) > 1:
+        #said once, when it changes: a comic that starts serving several pages an address goes on scraping
+        #without complaint, and nothing but the page count would ever have shown the rest being left behind
+        if scrape_state["most_per_url"] < 2:
+            if scrape_state["pages_saved"]:
+                print("{0} holds {1} pages of the comic where every address so far held one, so this comic "
+                      "has started putting several pages on one address. Each is saved in turn, numbered "
+                      "on from the last.".format(current_url, len(srcs)))
+            else:
+                print("{0} holds {1} pages of the comic, so this comic puts several pages on one address. "
+                      "Each is saved in turn.".format(current_url, len(srcs)))
+        if scrape_state["first_multi_url"] is None:
+            scrape_state["first_multi_url"] = current_url
+        scrape_state["multi_urls"] += 1
+    scrape_state["most_per_url"] = max(scrape_state["most_per_url"], len(srcs))
+
+    #a resume starts by re-saving the address it stopped on, which for several pages an address means all
+    #of them. every one of them is that re-save, not a page the comic has gained
+    resuming = scrape_state["pages_saved"] == 0
+    for at, src in enumerate(srcs):
+        save_one(driver, src, increment + at, file_format, args, resuming)
+    return True
+
+
+def save_one(driver, src, increment, file_format, args, resuming):
     #will save the file as a .gif instead of a .png
     if "gif" in src:
         file_format = 'gif'
@@ -1110,7 +1231,7 @@ def img_save(driver, increment, file_format, args):
             EXIT_BACKWARDS, "next link runs backwards")
 
     #the page a resume starts on gets saved a second time, under whatever name the site uses now
-    if args.prefix and scrape_state["pages_saved"] == 0:
+    if args.prefix and resuming:
         drop_superseded(folder, increment, image)
 
     #prefix image with output folder name or url origin for folder structure
@@ -1119,7 +1240,9 @@ def img_save(driver, increment, file_format, args):
     #to request the url
     req = fetch(src)
 
-    if would_lose_a_page(target, args.prefix, scrape_state["pages_saved"], req.content):
+    #the whole of the address a resume starts on is exempt, not just its first page: every page on it is
+    #being written over itself, which is what a re-save is
+    if would_lose_a_page(target, args.prefix, 0 if resuming else scrape_state["pages_saved"], req.content):
         raise MirrorError(
             "{0} is already saved here and holds a different image, so this site uses one filename for a "
             "page of every chapter. Saving it would write over the page already held. Run this comic with "
@@ -1200,6 +1323,27 @@ def ele_get(driver,element):
     except se.NoSuchElementException: #if path is not valid with this error, false is returned, making the for loop try again
         if verbose: print("\nThe element {0} src could not be found.".format(element))
         return None
+
+
+def ele_get_all(driver,element):
+    #every image this path matches, in the order the page lists them, rather than only the first. asking
+    #for one is what makes a comic with several pages on one address look like a comic with one.
+    global verbose
+    try:
+        found = driver.find_elements(By.XPATH, element)
+    except se.WebDriverException:
+        if verbose: print("\nThe element {0} could not be searched for.".format(element))
+        return []
+    srcs = []
+    for one in found:
+        try:
+            src = one.get_attribute('src')
+        except (se.StaleElementReferenceException, AttributeError):
+            continue
+        #the same image twice on one page is one page of the comic, however the markup repeats it
+        if src and src not in srcs:
+            srcs.append(src)
+    return srcs
 
 
 def test_next_ele_get(driver,element): #this runs through all of the possible next elements and tests them, but does not click them.
@@ -1299,7 +1443,9 @@ if __name__ == "__main__":
                       "download the rest.".format(driver.current_url))
                 stop_reason = "primed"
                 break
-            increment += 1
+            #asked rather than counted, because an address holding several pages uses several numbers
+            increment = increment + 1 if scrape_state["last_increment"] is None \
+                else scrape_state["last_increment"] + 1
     except MirrorError as error:
         print("\nERROR: {0}".format(error))
         stop_reason = error.reason

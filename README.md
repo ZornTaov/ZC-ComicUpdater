@@ -757,6 +757,37 @@ python mirror_base.py --check "https://example.com/comic/some-page"
 It loads the page, says which known paths match and which one a scrape would use, and when none match,
 suggests paths from the images and links it can see. It saves nothing.
 
+### Several pages on one address
+
+Most comics put one page at one address. Some change their minds partway through: `avasdemon.com` began
+serving a whole scroll of pages at `2617.html`, and `limbero.org/jl8` began serving six at `270_1`. A
+scrape that asks a page for *the* comic image saves the first of them, walks on, and says nothing — the
+folder simply comes out a fraction of the size it should be, which nothing notices until pages are
+missing in the reader.
+
+So every image the comic's image path matches is saved, in the order the page lists them, each numbered on
+from the last. Where a path matches more than one image and some of them carry no page number — the back
+and next buttons, an RSS icon — the unnumbered ones are left out and said out loud, because a page is
+numbered and a button is not. Where none of them is numbered, all are kept: leaving a page out is the
+failure worth avoiding.
+
+The change is reported the first time it happens, so a comic that has started doing this is visible in
+the log rather than only in the page count:
+
+```
+https://limbero.org/jl8/270_1 holds 6 pages of the comic where every address so far held one, so this
+comic has started putting several pages on one address. Each is saved in turn, numbered on from the last.
+```
+
+`--check` says it before anything is downloaded (*that path finds 14 images here, 14 of them pages*), the
+metadata records `pages_per_url` and the `multi_page_from` address under `state`, and the index gets a line
+per page rather than per address, so chapters built on it still line up. `--no-multi-page` reads one page
+an address however many are there, and is remembered in the comic's settings.
+
+A comic like this wants a path scoped to the container holding the pages — `//*[@id="mama"]/img` rather
+than a path to one image — since that is the path that finds all of them. `--check` suggests exactly that
+for an image with no id, class or alt of its own to match on.
+
 ## The metadata file
 
 `mirror_metadata.json` sits in each comic's folder and is packed into its archive. It is plain JSON,
@@ -775,6 +806,8 @@ meant to be edited by hand, and split into three parts:
     "firefox":   false,
     "waittime":  0,
     "cbz":       true,
+    "direction_check": true,
+    "multi_page": true,
     "ended":     false
   },
   "state":   { "page_count": 412, "image_xpath": "...", "completed": false },
@@ -825,6 +858,9 @@ python update_comics.py "D:/Comics" --only MyComic --dry-run
   one the comic already holds, and treats a next link that climbs out of the comic's own folder
   as the end. `--no-direction-check` turns the first off for a comic that genuinely reuses its
   filenames.
+- A comic that serves several pages at one address is scraped a page at a time all the same, numbered on
+  from the last, and the change is reported the first time an address holds more than one. See
+  [Several pages on one address](#several-pages-on-one-address).
 - A page keeps one filename. Resuming re-saves the page it starts on, and if the name that lands
   differs from the one already there, the newer name wins and the older file is dropped from the
   folder and from the archive. That matters for comics whose pages were numbered by hand, or

@@ -51,7 +51,7 @@ config_defaults = {
     "schedule": None,
     #what the web page's add form starts with ticked
     "add_defaults": {"prime": False, "prefix": False, "increment": 1, "javascript": False,
-                     "waittime": 0, "cbz": True, "direction_check": True},
+                     "waittime": 0, "cbz": True, "direction_check": True, "multi_page": True},
 }
 
 
@@ -214,6 +214,10 @@ def settings_to_argv(settings):
     #also on by default, so only turning it off is worth saying
     if settings.get("direction_check") is False:
         argv.append("--no-direction-check")
+    #likewise: saving every page an address holds is the default, and only a comic told to read one page
+    #an address regardless needs the flag carried forward
+    if settings.get("multi_page") is False:
+        argv.append("--no-multi-page")
     if settings.get("cbz_path"):
         argv += ["--cbz-path", settings["cbz_path"]]
     argv.append(url)
@@ -242,6 +246,8 @@ def argv_to_settings(argv):
             settings[flagged[token]] = True
         elif token == "--no-cbz":
             settings["cbz"] = False
+        elif token == "--no-multi-page":
+            settings["multi_page"] = False
         elif not token.startswith('-'):
             #the only bare word in a mirror_base command is the url it starts from
             settings["url"] = token

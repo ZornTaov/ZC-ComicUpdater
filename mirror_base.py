@@ -1423,7 +1423,17 @@ def next_ele_get(driver,element):
     if found is None:
         if verbose: print("\nThe next button {0} could not be found.".format(element))
         return False
+    try:
+        shown = found.is_displayed()
+    except se.WebDriverException:
+        shown = False
     for way in ("a plain click", "a click after scrolling to it", "a script click"):
+        #waiting for an element that cannot be seen to become clickable is waiting for something that
+        #cannot happen: selenium calls an element clickable only once it is displayed. it costs the whole
+        #of the timeout on every page of a comic whose only next button is hidden, and the script click
+        #that follows would have worked at once
+        if not shown and way.startswith("a click after"):
+            continue
         try:
             if way.startswith("a plain"):
                 found.click()

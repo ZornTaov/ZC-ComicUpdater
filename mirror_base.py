@@ -168,6 +168,14 @@ first_ele_names = [
                    '//*[@alt="First"]',
                    '//a[contains(translate(text(),"FIRST","first"), "first")]']
 
+#what the page before this one showed, so an image that appears again can be told from a page of the
+#comic. kept as the raw matches rather than what was kept of them, so furniture is recognised even on a
+#page where it was already left out for another reason
+last_page_url = None
+last_page_srcs = set()
+#how many pages of this run each image has turned up on. a button is on every page there is, while a
+#picture the comic re-uses shows twice in the whole comic, which is what tells the two apart
+seen_on_pages = {}
 #the xpaths that matched this comic, cached so each page does not repeat the whole search. kept in their
 #own variables rather than written back into the lists above, so a re-search still has every candidate.
 image_xpath = None
@@ -1187,6 +1195,7 @@ def page_images(driver, args):
     #every comic image on the page the browser is on, in reading order, with the path that found them
     #remembered for the pages that follow
     global image_xpath
+    global last_page_url, last_page_srcs, seen_on_pages
     if args.element_find_manual: #manual editing location
         #element = d.find_element(By.XPATH, '//*[@id="comic"]')
         element = driver.find_elements(By.TAG_NAME, 'img')
@@ -1204,6 +1213,27 @@ def page_images(driver, args):
     if len(srcs) > 1 and not getattr(args, "multi_page", True):
         #told to read this comic as one page an address whatever the page holds
         return srcs[:1]
+
+    #an image that was on the page before as well is the site's furniture - a button, a banner, a logo -
+    #rather than a page of the comic. numbering sorts most of them out on its own, but a page whose
+    #images are all unnumbered has nothing to tell them apart by, and avasdemon.com has several: its
+    #mermaid book and its hiatus pages would otherwise have counted first.png and archive.png as pages.
+    #this needs no list of what buttons are called, which is the point: it works on a site nobody has
+    #described, and on one that renames its buttons tomorrow.
+    here = getattr(driver, "current_url", None)
+    if here != last_page_url:
+        was_here = last_page_srcs
+        last_page_url, last_page_srcs = here, set(srcs)
+        for src in set(srcs):
+            seen_on_pages[src] = seen_on_pages.get(src, 0) + 1
+        #a comic that re-uses one of its own pictures later on - avasdemon.com serves page 2747 as
+        #1273.png - shows it twice in a whole run, so twice is not enough to call something furniture.
+        #a button is on every page there is, and three is plenty to tell them apart by.
+        fresh = [src for src in srcs if src not in was_here and seen_on_pages.get(src, 0) < 3]
+        #every one of them repeating is the same page over again, or a page whose picture really is
+        #shown throughout the comic, and either way leaving it out would lose the page
+        if fresh:
+            srcs = fresh
     return comic_images(srcs)
 
 

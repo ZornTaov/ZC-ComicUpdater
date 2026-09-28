@@ -711,7 +711,7 @@ async function openEditor(name) {
   //counts /comic/issue-4-page-7 often reads better from those than from an archive with no headings
   $("e-chapters-note").textContent = (chapters.count
     ? `${chapters.count} chapter(s) worked out from ${chapters.source === "archive" && chapters.source_url ? "that page" : "the comic's own addresses"}${chapters.packed ? ", archives written " + when(chapters.packed) : ""}. `
-    : detail.indexed ? "Which page is which is already known, so this needs no walk. "
+    : detail.indexed_pages > 1 ? `Which page is which is known for ${detail.indexed_pages} page(s); the walk carries on from there. `
     : "Working these out walks the comic once, downloading nothing. It can take a few minutes. ")
     + "Leave it blank to read the chapters out of the comic's own page addresses instead.";
   flags.forEach((key) => { $("e-" + key).checked = onByDefault.includes(key) ? s[key] !== false : !!s[key]; });

@@ -545,6 +545,20 @@ def read_metadata(path):
     return metadata
 
 
+def index_pages(args, uc, comic):
+    #how many pages this comic's record of which-page-is-which holds. counted rather than trusted, since
+    #the file is written a line at a time as a walk goes and can stop anywhere
+    named = ((comic.metadata.get("history") or {}).get("index_cache"))
+    if not named:
+        return 0
+    path = os.path.join(uc.config_folder(), "index", named)
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return sum(1 for line in f if line.strip())
+    except OSError:
+        return 0
+
+
 def comic_detail(args, uc, runner, name):
     comic = find_comic(args, uc, name)
     if comic is None:
@@ -566,6 +580,9 @@ def comic_detail(args, uc, runner, name):
                      "source": chapters.get("source"), "list": chapters.get("list") or [],
                      "fixes": chapters.get("fixes") or []},
         "indexed": bool((metadata.get("history") or {}).get("index_cache")),
+        #how much of the comic that record actually covers. a comic with a record of one page has been
+        #walked in name only, and saying the number is what makes that visible
+        "indexed_pages": index_pages(args, uc, comic),
         "state": metadata.get("state") or {},
         "first_page_url": history.get("first_page_url"),
         "runs": [{key: run.get(key) for key in ("started", "start_url", "start_page_number", "last_url",
@@ -1079,7 +1096,11 @@ def make_handler(runner, args, uc, tee):
                     #that counts /comic/issue-4-page-7 and has no archive page worth reading
                     listing = (str(body.get("url") or "").strip()
                                or (comic.metadata.get("chapters") or {}).get("source_url"))
-                    walk = not (comic.metadata.get("history") or {}).get("index_cache")
+                    #a record of a single page is a walk that never happened: started on the comic's
+                    #newest page, found no next link there, and wrote that one page down. taking the
+                    #existence of the file to mean the comic was walked made that stop the chaptering
+                    #of a 3,500 page comic with nothing to align against
+                    walk = index_pages(args, uc, comic) < 2
                     job = runner.submit_chapterize(comic, listing, walk)
                     self.reply({"queued": job.id, "label": job.label, "walking": walk,
                                 "from": "archive" if listing else "addresses"})

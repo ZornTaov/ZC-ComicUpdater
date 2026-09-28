@@ -1615,6 +1615,16 @@ def walk(folder, args):
             args.first = True
     command = [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "mirror_base.py"),
                "--index", cache]
+    #a walk drives the same site a scrape does, so it needs to be told the same things about it. a comic
+    #whose pages are built by javascript shows nothing at all without it - not its images and not its next
+    #link - so a walk without these settings ends on the page it started, having seen nothing.
+    settings = metadata.get("settings") or {}
+    if settings.get("javascript"):
+        command.append("--enable_javascript")
+    if settings.get("firefox"):
+        command.append("--firefox")
+    if settings.get("waittime"):
+        command += ["--waittime", str(settings["waittime"])]
     if args.first:
         command.append("--index-first")
     if args.limit:

@@ -51,7 +51,10 @@ element_names = [
                  '//*[@class="col-sm-12 comic-holder"]/a/img', #AWARE
                  '//*[@id="comicimg"]', #How MG Works
                  '//*[@id="maintxt"]/img', #Double-U Tea F, GotF, ATH
-                 '//*[@id="mama"]/img', #Ava's Demon, which serves several pages on one address
+                 #Ava's Demon, which serves several pages on one address. a descendant rather than a child,
+                 #because its one-off pages wrap the image in a link to the next one and its ordinary pages
+                 #do not, and a path that only matched the bare one stopped the run dead at every one-off
+                 '//*[@id="mama"]//img',
                  '//*[@id="strip"]//img', #Megatokyo
                  '//*[@id="strip"]', #Questionable Content
                  '/html/body/main/div/div/div[1]/img', #VickiFox
@@ -1327,14 +1330,17 @@ def next(driver,args):
         return True
 
     else: #automatic mode
-        #as with the image, the remembered path is tried first and the list is re-searched if it is gone
-        if next_xpath and test_next_ele_get(driver,next_xpath):
-            return next_ele_get(driver,next_xpath)
-        for element in next_ele_names: #sends a possible path to be tested
-            if test_next_ele_get(driver,element):
-                next_xpath = element
-                return next_ele_get(driver,element)
-        #nothing in the list matched, which on an ongoing comic usually just means the last page
+        #as with the image, the remembered path is tried first and the list is re-searched if it is gone.
+        #a path that matches but will not press is not the end of the comic either: another path may point
+        #at something that will, so the search carries on rather than taking the first failure as final
+        for element in ([next_xpath] if next_xpath else []) + next_ele_names: #sends a possible path to be tested
+            if not test_next_ele_get(driver,element):
+                continue
+            if next_ele_get(driver,element):
+                next_xpath = element #the path that actually worked is the one worth trying first next time
+                return True
+        #nothing in the list matched, or nothing that matched could be pressed, which on an ongoing comic
+        #usually just means the last page
         return False
 
 
@@ -1380,38 +1386,64 @@ def ele_get_all(driver,element):
     return srcs
 
 
+def next_element(driver,element):
+    #the element a next path points at: the first one that can be seen, rather than simply the first. a
+    #page can hold a hidden copy of its own navigation - avasdemon.com's viewer keeps a next button at no
+    #size at all, beside the one a reader presses - and the hidden one would otherwise be what is pressed,
+    #on a path that looked for all the world like it had matched. a page where every match is hidden still
+    #hands back the first, since a hidden element can be pressed with a script and often has to be.
+    try:
+        found = driver.find_elements(By.XPATH, element)
+    except se.WebDriverException:
+        return None
+    for one in found:
+        try:
+            if one.is_displayed():
+                return one
+        except se.WebDriverException:
+            continue
+    return found[0] if found else None
+
+
 def test_next_ele_get(driver,element): #this runs through all of the possible next elements and tests them, but does not click them.
     global verbose
-    try: #tries the path to see if it is valid
-        driver.find_element(By.XPATH, element)
+    if next_element(driver, element) is not None:
         return True
-    except se.NoSuchElementException: #if path is not valid with this error, false is returned, making the for loop try again
-        if verbose: print("\nThe next button {0} could not be found.".format(element))
-        return False
+    if verbose: print("\nThe next button {0} could not be found.".format(element))
+    return False
 
 
 def next_ele_get(driver,element):
+    #three ways to press a link, each tried on its own. they used to be nested, which meant the script
+    #click - the one that works on a page whose navigation is an onclick handler rather than a link - only
+    #ever ran for a click that was intercepted, and never for one that was never possible in the first
+    #place. a page like that ended every run with "there is no next button", ten seconds after there was.
     global verbose
-    try: #try to do a basic click
-        driver.find_element(By.XPATH, element).click()
-        return True
-    except (se.NoSuchElementException, AttributeError, se.ElementNotInteractableException, se.ElementClickInterceptedException):
-        try: #try to scroll to the element then click it
-            wait = WebDriverWait(driver, 10)
-            ele = wait.until(EC.element_to_be_clickable((By.XPATH, element)))
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", ele)
-            sleep(0.2)
-            try:
-                ele.click()
-            except se.ElementClickInterceptedException:
-                #try to click the element using JavaScript
-                if verbose: print("\nThe next button {0} was intercepted; trying a JavaScript click.".format(element))
-                driver.execute_script("arguments[0].click();", ele)
+    found = next_element(driver, element)
+    if found is None:
+        if verbose: print("\nThe next button {0} could not be found.".format(element))
+        return False
+    for way in ("a plain click", "a click after scrolling to it", "a script click"):
+        try:
+            if way.startswith("a plain"):
+                found.click()
+            elif way.startswith("a click after"):
+                ready = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, element)))
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", ready)
+                sleep(0.2)
+                ready.click()
+            else:
+                #a hidden element, or one behind something else, still runs whatever its onclick says
+                driver.execute_script("arguments[0].click();", found)
+            if verbose and not way.startswith("a plain"):
+                print("\nThe next button {0} took {1}.".format(element, way))
             return True
-        except (se.NoSuchElementException, AttributeError, se.ElementNotInteractableException, se.TimeoutException, se.StaleElementReferenceException):
-            #the next button vanishing is how many comics end, so this stops the run rather than failing it
-            if verbose: print("\nThe next button {0} could not be clicked.".format(element))
-            return False
+        except (se.WebDriverException, AttributeError) as error:
+            if verbose:
+                print("\n{0} on the next button {1} failed: {2}".format(way, element, type(error).__name__))
+    #the next button vanishing is how many comics end, so this stops the run rather than failing it
+    if verbose: print("\nThe next button {0} could not be pressed at all.".format(element))
+    return False
 
 
 if __name__ == "__main__":

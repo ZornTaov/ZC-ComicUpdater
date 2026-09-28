@@ -7,6 +7,7 @@
 !.gitattributes
 !.dockerignore
 !README.md
+!CLAUDE.md
 !NOTICE
 !LICENSE
 !requirements.txt

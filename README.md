@@ -757,6 +757,21 @@ python mirror_base.py --check "https://example.com/comic/some-page"
 It loads the page, says which known paths match and which one a scrape would use, and when none match,
 suggests paths from the images and links it can see. It saves nothing.
 
+One thing to watch: `--check` loads the page the way a browser really would, with JavaScript on, because a
+site that builds its page with JavaScript shows nothing useful otherwise. A **scrape** runs with JavaScript
+off, since pages load faster without it. So a path `--check` finds can be one a run never sees, and the run
+says only that the path is not stored — which sends you back to a path that was right all along. `--check`
+now compares what the browser found against what the server actually sent, and says so when the difference
+is the point:
+
+```
+image: 1 of the known paths match; a scrape would use //*[@id="content"]/img
+  that image is not in the page the server sends, only in the one javascript builds, so this comic
+  needs javascript as well as the path: -ej, or "javascript": true in its settings.
+```
+
+A run that finds no image says the same thing the other way round, so the two ends of the problem meet.
+
 ### Several pages on one address
 
 Most comics put one page at one address. Some change their minds partway through: `avasdemon.com` began

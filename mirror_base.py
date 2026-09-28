@@ -70,6 +70,7 @@ next_ele_names = [
                   '//*[@class="comic-nav-img comic-nav-img-next"]',
                   '//*[@alt="Next comic"]',
                   '//*[@id="btnNext"]',
+                  '//*[@id="nextPageLink"]', #Ava's Demon's own viewer, which needs javascript on
                   '//*[@class="cc-next"]', #Snafu Comics
                   '//*[@class="navi navi-next"]', #ExterminatusNow
                   '//*[@class="navi-next"]', #consessioncomic
@@ -421,6 +422,18 @@ def suggest_paths(driver):
     return once[:5], links[:5]
 
 
+def built_by_javascript(url, src):
+    #whether the image is only in the page javascript builds. --check deliberately runs with javascript on,
+    #so a path it reports as working can be one a scrape - which runs with it off - never sees. comparing
+    #what the browser found against what the server actually sent is the whole of telling the two apart.
+    try:
+        body = fetch(url).text
+    except (MirrorError, UnicodeDecodeError, ValueError):
+        return None
+    name = src.rsplit('/', 1)[-1].split('?')[0]
+    return bool(name) and name not in body
+
+
 def check_page(driver):
     #every path that matches, in the order a scrape would try them, so it is clear which one would win
     found = {"url": driver.current_url, "title": driver.title, "image": [], "next": []}
@@ -441,6 +454,8 @@ def check_page(driver):
     if not found["image"] or not found["next"]:
         images, links = suggest_paths(driver)
         found["suggestions"] = {"image": images, "next": links}
+    if found["image"]:
+        found["needs_javascript"] = built_by_javascript(found["url"], found["image"][0]["src"])
 
     print("Checked {0}".format(found["url"]))
     for kind in ("image", "next"):
@@ -453,6 +468,12 @@ def check_page(driver):
                       "several pages of the comic: {2}".format(
                           found[kind][0]["count"], len(pages),
                           ", ".join(src.rsplit('/', 1)[-1] for src in pages[:6])))
+            if kind == "image" and found.get("needs_javascript"):
+                #the difference that makes a working path look like a broken one, since this check turns
+                #javascript on and a scrape does not
+                print("    that image is not in the page the server sends, only in the one javascript "
+                      "builds, so this comic needs javascript as well as the path: -ej, or "
+                      "\"javascript\": true in its settings.")
         else:
             print("  {0}: nothing matched".format(kind))
             for guess in found.get("suggestions", {}).get(kind, []):
@@ -1167,7 +1188,16 @@ def img_save(driver, increment, file_format, args):
     srcs = page_images(driver, args)
 
     if not srcs:
-        raise MirrorError("Element path for this site is not stored.", EXIT_NO_IMAGE, "image element not found")
+        #the path can be perfectly right and still match nothing, because the browser runs a scrape with
+        #javascript off while --check turns it on: a page that builds itself arrives empty here and full
+        #there. said here, because "the path is not stored" otherwise sends you back to a path that is fine
+        hint = ""
+        if not getattr(args, "enable_javascript", False):
+            hint = (" Javascript is off for this comic, so a page that builds itself with javascript arrives"
+                    " empty - if --check finds the image and a run does not, that is why. Turn it on with"
+                    " -ej, or \"javascript\": true in the comic's settings.")
+        raise MirrorError("Element path for this site is not stored." + hint,
+                          EXIT_NO_IMAGE, "image element not found")
 
     if len(srcs) > 1:
         #said once, when it changes: a comic that starts serving several pages an address goes on scraping

@@ -458,6 +458,25 @@ def same_page(url):
     return url.rstrip('/').lower()
 
 
+def drawn_heading(attrs):
+    #a site that draws its chapter headings instead of writing them. avasdemon.com heads each chapter with
+    #<img src="chapter12.png"> and no words at all, so the only name on the page is in the picture - and
+    #the picture's own filename is where the number is. the alt is preferred when there is one, since that
+    #is the site saying what the picture means.
+    text = (attrs.get("alt") or "").strip()
+    if not text:
+        name = (attrs.get("src") or "").rsplit('/', 1)[-1].partition('?')[0]
+        text = re.sub(r'\s+', ' ', re.sub(r'[_-]+', ' ', re.sub(r'\.\w+$', '', name))).strip()
+    #the word has to be followed by its number or by nothing, or "partners" and "bookmark" would head
+    #chapters of their own
+    if not re.match(r'^(chapters?|chap|arcs?|volumes?|vol|books?|parts?|episodes?|seasons?)'
+                    r'\s*[-_.]?\s*(\d|$)', text, re.I):
+        return None
+    #"chapter12" is a name with its number run into it, which reads better - and sorts better - apart
+    text = re.sub(r'^([^\W\d_]+)(\d)', r'\1 \2', text)
+    return text[:1].upper() + text[1:]
+
+
 class ArchiveReader(html.parser.HTMLParser):
     #reads a comic's archive page as a sequence of two things: headings, and links. what a heading looks
     #like differs from site to site - a real heading tag on one, a bold line or a table cell on another -
@@ -473,6 +492,10 @@ class ArchiveReader(html.parser.HTMLParser):
         self.heading = None
         self.rank = 1
         self.said = []
+        #what the heading says in its own right, with the words of the links inside it left out. a real
+        #heading is usually one or the other, and telling them apart is what saves a container full of
+        #links from reading as a heading whose name is every link in it, run together
+        self.said_alone = []
         self.inside = []
         self.link = None
         self.link_text = []
@@ -490,6 +513,15 @@ class ArchiveReader(html.parser.HTMLParser):
             self.link = got["value"]
             self.link_text = []
             return
+        if tag == "img" and self.heading not in self.title_tags:
+            #a drawn heading, which stands on its own. inside a written heading the picture is part of what
+            #that heading says and is left to it - but a container named "chapters", which is what wraps
+            #the whole list on a page like this, is not a heading that can say anything
+            drawn = drawn_heading(got)
+            if drawn:
+                #ranked below a written heading, so a site that has both is named by its words
+                self.events.append(("heading", drawn, 1))
+            return
         #whole words only: a class called comic-archive-date holds "arc" inside "archive" and is a date,
         #not a heading
         words = set(re.split(r'[^a-z]+', "{0} {1}".format(got.get("class") or "", got.get("id") or "").lower()))
@@ -506,6 +538,28 @@ class ArchiveReader(html.parser.HTMLParser):
             self.rank = 0 if tag in self.title_tags else 1
             self.said = []
 
+    def words_of_its_own(self):
+        #whether this candidate says anything beyond the links it holds. the separators between links are
+        #not words, and neither is the whitespace laying them out
+        return bool(re.search(r'[^\W_]', "".join(self.said_alone)))
+
+    def stop_holding(self):
+        #this candidate is holding a list of links rather than naming something, so it is a container and
+        #not a heading: avasdemon.com wraps its whole chapter list in <div id="chapters"> and gives each
+        #chapter's table an id of chapter12_table, and both read as headings by their names alone. given
+        #up as soon as it is plain, so everything after it - drawn headings included - is read where it
+        #stands rather than being held back and handed out at the closing tag, out of order.
+        said = re.sub(r'\s+', ' ', "".join(self.said_alone)).strip()
+        if re.search(r'[^\W_]', said):
+            #whatever words it has of its own can still name what follows; the bars between its links cannot
+            self.events.append(("heading", said, self.rank))
+        for href, text in self.inside:
+            self.events.append(("link", href, text))
+        self.heading = None
+        self.said = []
+        self.said_alone = []
+        self.inside = []
+
     def handle_endtag(self, tag):
         if tag in ("a", "option") and self.link is not None:
             said = re.sub(r'\s+', ' ', "".join(self.link_text)).strip()
@@ -514,13 +568,24 @@ class ArchiveReader(html.parser.HTMLParser):
                 #it. held back and given out after the heading, so it still reads as "this heading, then
                 #the page it starts at" - which is what every other archive says plainly.
                 self.inside.append((self.link, said))
-            else:
-                self.events.append(("link", self.link, said))
+                self.link = None
+                self.link_text = []
+                #one link inside a name is a heading pointing at its own chapter. more than one, with
+                #nothing said around them, is a list of pages: a table of links and the bars between them
+                #says "0008|0009|" for itself, which is not a name however much it looks like text. a
+                #third link settles it either way, since no heading is built out of three links.
+                if len(self.inside) > 2 or (len(self.inside) > 1 and not self.words_of_its_own()):
+                    self.stop_holding()
+                return
+            self.events.append(("link", self.link, said))
             self.link = None
             self.link_text = []
             return
         if self.heading and tag == self.heading:
             said = re.sub(r'\s+', ' ', "".join(self.said)).strip()
+            if not re.search(r'[^\W_]', said):
+                #punctuation and the separators between links are not a name
+                said = ""
             if said:
                 self.events.append(("heading", said, self.rank))
             for href, text in self.inside:
@@ -530,6 +595,7 @@ class ArchiveReader(html.parser.HTMLParser):
                 self.events.append(("owned", href, said) if said else ("link", href, text))
             self.heading = None
             self.said = []
+            self.said_alone = []
             self.inside = []
 
     def handle_data(self, data):
@@ -538,6 +604,8 @@ class ArchiveReader(html.parser.HTMLParser):
             self.link_text.append(data)
         if self.heading:
             self.said.append(data)
+            if self.link is None:
+                self.said_alone.append(data)
 
 
 def read_archive(url, browser=False, script=None):

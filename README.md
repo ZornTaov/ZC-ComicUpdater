@@ -587,6 +587,15 @@ three writes anything without `--save`:
    `<h4>1. <a href="c1/p1">Simple Pleasures</a> <span>(6 pages)</span></h4>` - and that reads the same
    way. A real heading tag beats a container whose class merely says "chapter", because such a container
    usually holds the description and the icon too, and none of that is a name.
+   An archive that **draws** its chapter headings is read too: `avasdemon.com/chapters.php` heads each
+   chapter with `<img src="chapter12.png">` and no words at all, so the picture's alt — or failing that
+   its filename — is the name. Only a picture named for a chapter, arc, volume, book, part, episode or
+   season counts, and the word has to be followed by its number, so `partners.png` and `bookmark.png`
+   head nothing.
+   A container that turns out to hold a *list* of page links, rather than a name, is not read as a
+   heading however much its own name says "chapter" — `<div id="chapters">` around the whole page, and
+   `<table id="chapter12_table">` around each chapter's links, are both containers. Without that, every
+   page link inside one became a chapter of its own: a 3,500 page comic read as 3,500 chapters.
 2. **The addresses themselves**, for a comic that counts `/c4/p7`, `/ss/4-7` or
    `/comic/issue-4-page-7`: every number in the address is tried as the chapter, and whichever reads best
    wins. A chapter counts up from where a comic starts counting, which is what keeps a date from being

@@ -22,6 +22,10 @@ import shlex
 import subprocess
 import uuid
 import zipfile
+
+#the drawn page that stands in for one no reader can show. shared with chapters.py, so a page reads the
+#same whether a comic keeps one archive or one per chapter
+import standin
 from datetime import datetime, timezone
 from time import sleep
 
@@ -1116,6 +1120,17 @@ def cbz_update(args):
     pages = [f for f in on_disk if f != metadata_file]
     if not pages:
         return None, 0
+    #a page no reader can show - a recording, a note saying where the video is - goes in as a drawn page
+    #saying so, named for the file with a png on the end so it falls where the page belongs. the file
+    #itself stays in the folder, which is the copy that keeps everything.
+    drawn = {}
+    for name in pages:
+        entry, made = standin.archive_entry(folder, name)
+        if made is not None:
+            drawn[name] = (entry, made)
+    if drawn:
+        print("{0} page(s) no reader can show, which the archive gets a stand-in for: {1}{2}".format(
+            len(drawn), sorted(drawn)[:3], "..." if len(drawn) > 3 else ""))
 
     if not os.path.exists(cbz):
         #an explicit path may point somewhere that does not exist yet
@@ -1125,7 +1140,10 @@ def cbz_update(args):
         #images are already compressed, so storing them saves the cpu for no meaningful size difference
         with zipfile.ZipFile(cbz, 'w', zipfile.ZIP_STORED) as zf:
             for name in pages:
-                zf.write(os.path.join(folder, name), name)
+                if name in drawn:
+                    zf.writestr(drawn[name][0], drawn[name][1])
+                else:
+                    zf.write(os.path.join(folder, name), name)
             if metadata_file in on_disk:
                 zf.write(os.path.join(folder, metadata_file), metadata_file)
         return cbz, len(pages)
@@ -1135,7 +1153,9 @@ def cbz_update(args):
     with zipfile.ZipFile(cbz) as zf:
         prefix = archive_prefix(zf, folder)
         existing = set(zf.namelist())
-    added = [name for name in pages if prefix + name not in existing]
+    #a page held otherwise counts as present when its stand-in is there, not when the file is
+    added = [name for name in pages
+             if prefix + (drawn[name][0] if name in drawn else name) not in existing]
     #a page whose filename was replaced this run has to leave the archive under its old name too, or the
     #comic shows that page twice for good
     stale_pages = [prefix + name for name in superseded if prefix + name in existing]
@@ -1168,7 +1188,10 @@ def cbz_update(args):
             if was_last:
                 zf.start_dir = stale.header_offset
         for name in added:
-            zf.write(os.path.join(folder, name), prefix + name)
+            if name in drawn:
+                zf.writestr(prefix + drawn[name][0], drawn[name][1])
+            else:
+                zf.write(os.path.join(folder, name), prefix + name)
         if metadata_file in on_disk:
             zf.write(os.path.join(folder, metadata_file), meta_name)
     return cbz, len(added)

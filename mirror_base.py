@@ -607,10 +607,10 @@ def build_index(driver, args):
                 print("Stopping at {0} pages, as asked.".format(args.index_limit))
                 break
             if not next(driver, args):
-                print("No next link, so that is the end of the comic.")
+                print("No next link, so this is the latest page.")
                 break
             if driver.current_url == here:
-                print("The next link stays on the same page, so that is the end of the comic.")
+                print("The next link stays on the same page, so this is the latest page.")
                 break
     print("Index holds {0} pages, written to {1}".format(at, path))
     return at
@@ -1519,12 +1519,12 @@ if __name__ == "__main__":
         while img_save(driver,increment,format,args):
             if not next(driver,args):
                 #the image was found, so the site is fine; the comic has simply run out of next buttons
-                print("Reached last page since there is no next button to press!")
+                print("Caught up: there is no next button to press, so this is the latest page.")
                 stop_reason = "no next button"
                 completed = True
                 break
             if current_url == driver.current_url: 
-                print("Reached last page since pressing Next goes to the same page!")
+                print("Caught up: pressing next goes to the same page, so this is the latest page.")
                 stop_reason = "next goes to the same page"
                 completed = True
                 break
@@ -1549,8 +1549,8 @@ if __name__ == "__main__":
                 else scrape_state["last_increment"] + 1
         if scrape_state["ran_out"]:
             #the loop ended because the page the next link led to holds no comic at all
-            print("The next link led to {0}, which has no page of the comic on it, so that is the end. "
-                  "The next run carries on from {1}.".format(
+            print("The next link led to {0}, which has no page of the comic on it, so this is as far as the "
+                  "comic goes for now. The next run carries on from {1}.".format(
                       scrape_state["ran_out"], scrape_state["last_page_url"]))
             stop_reason = "the next link led off the comic"
             completed = True

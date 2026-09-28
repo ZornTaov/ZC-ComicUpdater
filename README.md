@@ -873,12 +873,18 @@ python update_comics.py "D:/Comics" --only MyComic --dry-run
   one the comic already holds. `--no-direction-check` turns that off for a comic that genuinely
   reuses its filenames.
 - A next link that leads somewhere with no comic image on it — usually the front page, which is
-  where `avasdemon.com` and `missmab.com` both send you from their last page — is the end of the
-  comic rather than a fault, once the run has saved at least one page. The address it landed on is
-  reported, and **the resume address stays at the last page actually saved**, so the next run
-  carries on from the comic rather than starting again at the front page. The same holds for a
-  comic that wraps round to its own beginning. A run that finds no image on its *first* page is
-  still a fault (code 3): that is a comic the script has no path for, not a comic that ended.
+  where `avasdemon.com` and `missmab.com` both send you from their last page — means the comic has
+  no more pages for now, rather than being a fault, once the run has saved at least one page. The
+  address it landed on is reported, and **the resume address stays at the last page actually
+  saved**, so the next run carries on from the comic rather than starting again at the front page.
+  The same holds for a comic that wraps round to its own beginning. A run that finds no image on
+  its *first* page is still a fault (code 3): that is a comic the script has no path for.
+- **A scrape never decides that a comic has finished.** It can only tell that it has caught up with
+  the latest page, which is all it ever says. `ended` is yours to set — in the report's `ended`
+  column, in the comic's settings on the web page, or by hand in `mirror_metadata.json` — and a
+  scrape carries whatever is already there straight through, run after run. `state.completed` in
+  the metadata is a different thing: it means that particular run reached the latest page rather
+  than stopping early.
 - A comic that serves several pages at one address is scraped a page at a time all the same, numbered on
   from the last, and the change is reported the first time an address holds more than one. See
   [Several pages on one address](#several-pages-on-one-address).

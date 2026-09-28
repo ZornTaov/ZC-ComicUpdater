@@ -465,7 +465,7 @@ def check_page(driver):
             #anything is downloaded rather than after the folder comes out a fraction of the size
             #the pages, worked out here rather than by whatever reads this: the rule for which of several
             #images is a page belongs in one place, and the web page should not have a second copy of it
-            pages = comic_images(srcs) if len(srcs) > 1 else srcs
+            pages = comic_images(srcs, found["url"]) if len(srcs) > 1 else srcs
             found["image"].append({"xpath": element, "src": srcs[0], "count": len(srcs),
                                    "srcs": srcs[:20], "pages": pages[:20], "page_count": len(pages)})
     for element in next_ele_names:
@@ -1174,7 +1174,7 @@ def cbz_update(args):
     return cbz, len(added)
 
 
-def comic_images(srcs):
+def comic_images(srcs, where=None):
     #which of several images on one address are pages of the comic. a path that matches more than one is
     #usually a comic serving several pages at once, but a path written loosely enough can also catch the
     #buttons sitting beside them. a page is numbered, because numbering pages is how every site names
@@ -1185,8 +1185,10 @@ def comic_images(srcs):
     numbered = [src for src in srcs if re.search(r'\d', src.rsplit('/', 1)[-1].split('?')[0])]
     if numbered and len(numbered) < len(srcs):
         left = [src.rsplit('/', 1)[-1] for src in srcs if src not in numbered]
-        print("Ignoring {0} image(s) here that carry no page number, so are not pages: {1}".format(
-            len(left), ", ".join(left[:6])))
+        #named, because a walk of a few thousand pages says this a few dozen times and every one of them
+        #is a page worth looking at yourself: the line is no use without knowing which page it came from
+        print("{0}: ignoring {1} image(s) that carry no page number, so are not pages: {2}".format(
+            where or "this page", len(left), ", ".join(left[:6])))
         return numbered
     return srcs
 
@@ -1234,7 +1236,7 @@ def page_images(driver, args):
         #shown throughout the comic, and either way leaving it out would lose the page
         if fresh:
             srcs = fresh
-    return comic_images(srcs)
+    return comic_images(srcs, here)
 
 
 def img_save(driver, increment, file_format, args):

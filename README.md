@@ -79,7 +79,7 @@ saves only the first page, follows the next link once to prove it works, writes 
 archive, and stops:
 
 ```sh
-python mirror_base.py --prime -o "Q:/Comics/Uncompressed/MyComic" "https://example.com/comic/first-page/"
+python mirror_base.py --prime -o "D:/Comics/Uncompressed/MyComic" "https://example.com/comic/first-page/"
 ```
 
 The metadata resumes on the second page, so the next `update_comics.py` run, on the machine that holds

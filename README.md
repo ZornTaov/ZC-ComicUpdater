@@ -870,9 +870,15 @@ python update_comics.py "D:/Comics" --only MyComic --dry-run
   button on the last page pointing at the front page. Both make a scrape walk somewhere it
   should not: the first re-downloads the whole archive backwards under fresh numbers, the second
   looks like the site changed its layout. A run stops with code 8 if the page after the first is
-  one the comic already holds, and treats a next link that climbs out of the comic's own folder
-  as the end. `--no-direction-check` turns the first off for a comic that genuinely reuses its
-  filenames.
+  one the comic already holds. `--no-direction-check` turns that off for a comic that genuinely
+  reuses its filenames.
+- A next link that leads somewhere with no comic image on it — usually the front page, which is
+  where `avasdemon.com` and `missmab.com` both send you from their last page — is the end of the
+  comic rather than a fault, once the run has saved at least one page. The address it landed on is
+  reported, and **the resume address stays at the last page actually saved**, so the next run
+  carries on from the comic rather than starting again at the front page. The same holds for a
+  comic that wraps round to its own beginning. A run that finds no image on its *first* page is
+  still a fault (code 3): that is a comic the script has no path for, not a comic that ended.
 - A comic that serves several pages at one address is scraped a page at a time all the same, numbered on
   from the last, and the change is reported the first time an address holds more than one. See
   [Several pages on one address](#several-pages-on-one-address).

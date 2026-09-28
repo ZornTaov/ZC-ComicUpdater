@@ -258,6 +258,13 @@ scrape_state = {
     "most_per_url": 0,
     "first_multi_url": None,
     "multi_urls": 0,
+    #the page this run followed a next link to and meant to save. where a later run carries on from, and
+    #deliberately not "wherever the browser ended up": a comic whose last page leads back to the front
+    #page, as avasdemon.com and missmab.com both do, leaves the browser somewhere that is not a page of
+    #the comic at all, and writing that down would send the next run to the front page instead
+    "walked_to": None,
+    #set when a page turns out to hold no comic image at all, after this run has already saved some
+    "ran_out": None,
 }
 
 def setup():
@@ -326,6 +333,9 @@ def setup():
     increment = args.increment
     #driver.maximize_window()
     current_url = driver.current_url
+    #the page this run was pointed at counts as one it means to save, so a run that falls over before it
+    #saves anything still writes down where it was trying to start rather than nothing at all
+    scrape_state["walked_to"] = driver.current_url
     #image format being saved. png, jpg, etc. Program will always save gif's as gifs, so no need to specify.
     format = "png"
     verbose = args.verbose
@@ -866,15 +876,19 @@ def output_folder(args):
     return args.output if args.output else current_url.split('/')[2]
 
 
-def resume_point(driver):
-    #where a follow-up run should pick up: the page after the last saved one, if we already moved on
+def resume_point():
+    #where a follow-up run should pick up: the page after the last saved one, if we already moved on.
+    #
+    #what counts as "moved on" is a page this run walked to meaning to save it - not wherever the browser
+    #happens to be standing. a comic whose last page's next button goes back to the front page leaves the
+    #browser on the front page, and a comic that wraps round leaves it on page one; writing either of
+    #those down as the place to carry on from is how a finished comic starts itself again from the top.
     url = scrape_state["last_page_url"]
     increment = scrape_state["last_increment"]
-    try:
-        if driver.current_url and driver.current_url != url:
-            return driver.current_url, increment + 1
-    except Exception:
-        pass
+    walked = scrape_state["walked_to"]
+    if walked and walked != url:
+        #a page walked to but never saved: carry on there, counting it as the page after the last saved one
+        return walked, increment + 1 if increment is not None else increment
     return url, increment
 
 
@@ -968,7 +982,7 @@ def metadata_save(driver, args, completed=False, exit_code=None):
     if len(runs) > max_runs:
         runs = runs[:1] + runs[-(max_runs - 1):]
 
-    resume_url, resume_increment = resume_point(driver)
+    resume_url, resume_increment = resume_point()
     metadata = {
         "schema": 2,
         "generator": "mirror_base.py",
@@ -1195,6 +1209,14 @@ def img_save(driver, increment, file_format, args):
     srcs = page_images(driver, args)
 
     if not srcs:
+        #a page with no comic image on it, reached after this run has already saved some, is how a comic
+        #ends on plenty of sites: the last page's next button goes back to the front page rather than
+        #going nowhere. that is the comic running out, not the site being broken - and the page it landed
+        #on is emphatically not somewhere to carry on from, so the last page really saved stands instead.
+        if scrape_state["pages_saved"]:
+            scrape_state["ran_out"] = current_url
+            scrape_state["walked_to"] = scrape_state["last_page_url"]
+            return False
         #the path can be perfectly right and still match nothing, because the browser runs a scrape with
         #javascript off while --check turns it on: a page that builds itself arrives empty here and full
         #there. said here, because "the path is not stored" otherwise sends you back to a path that is fine
@@ -1512,6 +1534,9 @@ if __name__ == "__main__":
                 stop_reason = "looped back to an already saved page"
                 completed = True
                 break
+            #a page followed a next link to, and meant to be saved: this is what a later run carries on
+            #from if this one stops before it gets there, and the only thing that counts as having moved on
+            scrape_state["walked_to"] = driver.current_url
             if args.prime:
                 #the next link has been found and followed, so the metadata resumes on the second page and the
                 #rest of the comic is left for update_comics, wherever that runs
@@ -1522,6 +1547,13 @@ if __name__ == "__main__":
             #asked rather than counted, because an address holding several pages uses several numbers
             increment = increment + 1 if scrape_state["last_increment"] is None \
                 else scrape_state["last_increment"] + 1
+        if scrape_state["ran_out"]:
+            #the loop ended because the page the next link led to holds no comic at all
+            print("The next link led to {0}, which has no page of the comic on it, so that is the end. "
+                  "The next run carries on from {1}.".format(
+                      scrape_state["ran_out"], scrape_state["last_page_url"]))
+            stop_reason = "the next link led off the comic"
+            completed = True
     except MirrorError as error:
         print("\nERROR: {0}".format(error))
         stop_reason = error.reason

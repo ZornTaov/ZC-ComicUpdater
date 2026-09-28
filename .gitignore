@@ -15,6 +15,7 @@
 !update_comics.py
 !adopt_comic.py
 !chapters.py
+!standin.py
 !web_ui.py
 !web_ui.html
 

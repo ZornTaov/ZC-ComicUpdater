@@ -656,7 +656,13 @@ def open_index(folder, args=None):
         if not (args and args.keep_index):
             return
         #a comic being scraped from its first page can have its index built as it goes, which is the whole
-        #of what a walk would have had to do afterwards
+        #of what a walk would have had to do afterwards. one being scraped from anywhere else cannot: a
+        #record begun in the middle calls whatever page it starts on page one, and a walk that later
+        #carries on from it stops there, having already "reached" the comic's newest page.
+        if (args.increment or 1) > 1:
+            print("Not starting a record of which page is which at page {0}: it has to begin at the "
+                  "comic's first page, so chapters.py walks for it instead.".format(args.increment))
+            return
         if not os.path.isdir(os.path.dirname(path)):
             os.makedirs(os.path.dirname(path))
         open(path, 'a', encoding='utf-8').close()

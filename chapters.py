@@ -1599,6 +1599,14 @@ def walk(folder, args):
     #the slow part: mirror_base follows the comic from its first page, saving nothing
     cache = index_path(folder, args.root, args)
     start = args.start
+    if getattr(args, "restart", False) and os.path.exists(cache):
+        #a record written from somewhere other than the first page cannot be carried on from: its page
+        #numbers are counted from wherever it began, and a walk resuming from its last line starts at the
+        #comic's newest page and stops there. said plainly and thrown away, rather than merged into.
+        held = read_index(cache)
+        print("Throwing away the record of {0} page(s) in {1}, and walking from the start.".format(
+            len(held), cache))
+        os.remove(cache)
     metadata = read_metadata(folder)
     history = metadata.get("history") or {}
     if not start and not os.path.exists(cache):
@@ -2080,6 +2088,10 @@ def setup():
                              "repack: write the .cbz afresh from the folder.")
     params.add_argument("folder", help="The comic's folder.")
     params.add_argument("--start", default=None, help="The comic's first page, when its metadata does not know.")
+    params.add_argument("--restart", action='store_true', default=False,
+                        help="With index, throw away what is already recorded and walk the comic from the "
+                             "start. For a record that begins somewhere other than the first page, which "
+                             "cannot be carried on from because its page numbers count from the wrong place.")
     params.add_argument("--first", action='store_true', default=False,
                         help="Follow the comic's first-page link before walking.")
     params.add_argument("--limit", type=int, default=0, help="Stop the walk after this many pages.")

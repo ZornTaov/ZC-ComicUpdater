@@ -20,6 +20,10 @@ import requests
 
 metadata_file = "mirror_metadata.json"
 page_types = re.compile(r'\.(png|jpe?g|gif|webp|bmp)$', re.I)
+#a page can be held as a video: a comic that animates a page is sometimes only capturable that way, and
+#avasdemon.com has seven such pages. it is a page of the comic and belongs in the folder, so the lining
+#up has to know it is there - but no reader can show one, so it stays out of the archives.
+video_types = re.compile(r'\.(mp4|m4v|webm|mov|mkv)$', re.I)
 #the number this script gave a page when it saved it: 0742_something.jpg, or a plain 0742.jpg
 numbered = re.compile(r'^(\d+)(?:[._])')
 
@@ -48,9 +52,12 @@ def sort_key(name):
     return [int(bit) if bit.isdigit() else bit.lower() for bit in re.split(r'(\d+)', name)]
 
 
-def folder_pages(folder):
+def folder_pages(folder, videos=False):
+    #the comic's pages as files. videos are asked for only where a page held as one has to be accounted
+    #for - the lining up - and left out everywhere a reader is being written for
     names = [f for f in os.listdir(folder)
-             if page_types.search(f) and os.path.isfile(os.path.join(folder, f))]
+             if (page_types.search(f) or (videos and video_types.search(f)))
+             and os.path.isfile(os.path.join(folder, f))]
     #the order the comic reads in: by the number this script saved it under where there is one, and by
     #name otherwise. the number is the order pages were fetched, which is the order they were published.
     if names and all(page_number(name) is not None for name in names):
@@ -328,7 +335,14 @@ def describe(folder, pages, files, aligned, how, anchors, trouble, rescued=(), r
             len(spare), spare[:4], "..." if len(spare) > 4 else ""))
         print("      a page the site has lost, that you found elsewhere, is not a stray: say so with "
               "chapters.py recovered {0} --file <name>".format(folder))
-    named = [(page, name) for page, name in zip(pages, aligned) if name and page.get("src")]
+    #a page held as a video never matches the name of the image the site draws it with, and saying so
+    #once is worth more than listing every one of them as a file that is not what the walk saw
+    filmed = [name for name in aligned if name and video_types.search(name)]
+    if filmed:
+        print("  {0} page(s) are held as video rather than as a picture: {1}{2}".format(
+            len(filmed), filmed[:4], "..." if len(filmed) > 4 else ""))
+    named = [(page, name) for page, name in zip(pages, aligned)
+             if name and page.get("src") and not video_types.search(name)]
     astray = [(page, name) for page, name in named
               if page_key(os.path.basename(page["src"].split('?')[0])) != page_key(name)]
     #only worth saying when most files ARE named after their image: then the few that are not stand out
@@ -1252,11 +1266,23 @@ def chapter_contents(folder, chapters, pages):
     #which files belong to which chapter, in reading order. a page the comic has and this folder does not
     #simply is not there; the pages either side of it still sit in the right chapter.
     by_page = {page["n"]: page for page in pages}
-    parcels = []
+    parcels, as_video = [], []
     for chapter in chapters:
-        names = [by_page[n]["file"] for n in range(chapter["start_page"], chapter["end_page"] + 1)
-                 if by_page.get(n) and by_page[n].get("file")]
+        names = []
+        for n in range(chapter["start_page"], chapter["end_page"] + 1):
+            name = (by_page.get(n) or {}).get("file")
+            if not name:
+                continue
+            #a page held as a video stays in the folder and out of the archive: no reader can show one,
+            #and an archive it cannot read is worse than a page it knows is missing
+            if video_types.search(name):
+                as_video.append(name)
+                continue
+            names.append(name)
         parcels.append((chapter, names))
+    if as_video:
+        print("  {0} page(s) are held as video and stay out of the archives: {1}{2}".format(
+            len(as_video), as_video[:3], "..." if len(as_video) > 3 else ""))
     #a page the site no longer serves cannot be in `pages`, because the walk never saw it. it still has
     #to end up in a chapter, or packing would refuse to write around it.
     held = folder_pages(folder)
@@ -1683,7 +1709,9 @@ def do_align(folder, args):
     #a page the site has lost belongs to no walked page, so it takes no part in the lining up: left in,
     #it would leave a stretch with one more file than pages and nothing would settle
     recovered = recovered_files(folder)
-    held = folder_pages(folder)
+    #videos count here, and only here: a page held as one is a page this folder has, and leaving it out
+    #made it read as a page gone missing and the file itself as something nothing claims
+    held = folder_pages(folder, videos=True)
     files = [name for name in held if name not in recovered]
     rescued = [name for name in held if name in recovered]
     fill_sizes(cache, pages)

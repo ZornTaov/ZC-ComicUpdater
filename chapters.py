@@ -13,17 +13,22 @@ import shutil
 import subprocess
 import sys
 from urllib.parse import urljoin
+import struct
 import zipfile
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
 metadata_file = "mirror_metadata.json"
 page_types = re.compile(r'\.(png|jpe?g|gif|webp|bmp)$', re.I)
-#a page can be held as a video: a comic that animates a page is sometimes only capturable that way, and
-#avasdemon.com has seven such pages. it is a page of the comic and belongs in the folder, so the lining
-#up has to know it is there - but no reader can show one, so it stays out of the archives.
+#a page can be held as something no reader can show: a recording of a page that animated, a flash file
+#from before flash went away, or a note saying where the page lives now. it is still that page, so the
+#lining up has to see it - and the archive gets a stand-in saying where the real thing is.
 video_types = re.compile(r'\.(mp4|m4v|webm|mov|mkv)$', re.I)
+flash_types = re.compile(r'\.swf$', re.I)
+link_types = re.compile(r'\.(txt|url|webloc)$', re.I)
+a_web_address = re.compile(r'^(https?://\S+)$')
 #the number this script gave a page when it saved it: 0742_something.jpg, or a plain 0742.jpg
 numbered = re.compile(r'^(\d+)(?:[._])')
 
@@ -52,11 +57,196 @@ def sort_key(name):
     return [int(bit) if bit.isdigit() else bit.lower() for bit in re.split(r'(\d+)', name)]
 
 
-def folder_pages(folder, videos=False):
-    #the comic's pages as files. videos are asked for only where a page held as one has to be accounted
-    #for - the lining up - and left out everywhere a reader is being written for
+#five columns and seven rows of dots per letter, written out rather than packed into numbers so that a
+#letter that comes out wrong is a letter you can see is wrong. a nine keeps a straight stem and a g hooks
+#to the left, because a video's address must not be readable two ways.
+GLYPHS = {
+    ' ': "...../...../...../...../...../...../.....",
+    '!': "..#../..#../..#../..#../..#../...../..#..",
+    '"': ".#.#./.#.#./...../...../...../...../.....",
+    '#': ".#.#./.#.#./#####/.#.#./#####/.#.#./.#.#.",
+    '$': "..#../.####/#.#../.###./..#.#/####./..#..",
+    '%': "##.../##..#/...#./..#../.#.../#..##/...##",
+    '&': ".##../#..#./#.#../.#.../#.#.#/#..#./.##.#",
+    "'": "..#../..#../...../...../...../...../.....",
+    '(': "...#./..#../.#.../.#.../.#.../..#../...#.",
+    ')': ".#.../..#../...#./...#./...#./..#../.#...",
+    '*': "...../#.#.#/.###./#####/.###./#.#.#/.....",
+    '+': "...../..#../..#../#####/..#../..#../.....",
+    ',': "...../...../...../...../...../..#../.#...",
+    '-': "...../...../...../#####/...../...../.....",
+    '.': "...../...../...../...../...../.##../.##..",
+    '/': "....#/...#./..#../..#../.#.../#..../#....",
+    '0': ".###./#...#/#..##/#.#.#/##..#/#...#/.###.",
+    '1': "..#../.##../..#../..#../..#../..#../.###.",
+    '2': ".###./#...#/....#/...#./..#../.#.../#####",
+    '3': "#####/...#./..#../...#./....#/#...#/.###.",
+    '4': "...#./..##./.#.#./#..#./#####/...#./...#.",
+    '5': "#####/#..../####./....#/....#/#...#/.###.",
+    '6': "..##./.#.../#..../####./#...#/#...#/.###.",
+    '7': "#####/....#/...#./..#../.#.../.#.../.#...",
+    '8': ".###./#...#/#...#/.###./#...#/#...#/.###.",
+    '9': ".###./#...#/#...#/.####/....#/....#/....#",
+    ':': "...../.##../.##../...../.##../.##../.....",
+    ';': "...../.##../.##../...../.##../..#../.#...",
+    '<': "...#./..#../.#.../#..../.#.../..#../...#.",
+    '=': "...../...../#####/...../#####/...../.....",
+    '>': ".#.../..#../...#./....#/...#./..#../.#...",
+    '?': ".###./#...#/....#/...#./..#../...../..#..",
+    '@': ".###./#...#/#.###/#.#.#/#.###/#..../.###.",
+    'A': "..#../.#.#./#...#/#...#/#####/#...#/#...#",
+    'B': "####./#...#/#...#/####./#...#/#...#/####.",
+    'C': ".###./#...#/#..../#..../#..../#...#/.###.",
+    'D': "###../#..#./#...#/#...#/#...#/#..#./###..",
+    'E': "#####/#..../#..../####./#..../#..../#####",
+    'F': "#####/#..../#..../####./#..../#..../#....",
+    'G': ".###./#...#/#..../#.###/#...#/#...#/.####",
+    'H': "#...#/#...#/#...#/#####/#...#/#...#/#...#",
+    'I': ".###./..#../..#../..#../..#../..#../.###.",
+    'J': "....#/....#/....#/....#/#...#/#...#/.###.",
+    'K': "#...#/#..#./#.#../##.../#.#../#..#./#...#",
+    'L': "#..../#..../#..../#..../#..../#..../#####",
+    'M': "#...#/##.##/#.#.#/#.#.#/#...#/#...#/#...#",
+    'N': "#...#/#...#/##..#/#.#.#/#..##/#...#/#...#",
+    'O': ".###./#...#/#...#/#...#/#...#/#...#/.###.",
+    'P': "####./#...#/#...#/####./#..../#..../#....",
+    'Q': ".###./#...#/#...#/#...#/#.#.#/#..#./.##.#",
+    'R': "####./#...#/#...#/####./#.#../#..#./#...#",
+    'S': ".####/#..../#..../.###./....#/....#/####.",
+    'T': "#####/..#../..#../..#../..#../..#../..#..",
+    'U': "#...#/#...#/#...#/#...#/#...#/#...#/.###.",
+    'V': "#...#/#...#/#...#/#...#/#...#/.#.#./..#..",
+    'W': "#...#/#...#/#...#/#.#.#/#.#.#/##.##/#...#",
+    'X': "#...#/#...#/.#.#./..#../.#.#./#...#/#...#",
+    'Y': "#...#/#...#/.#.#./..#../..#../..#../..#..",
+    'Z': "#####/....#/...#./..#../.#.../#..../#####",
+    '[': ".###./.#.../.#.../.#.../.#.../.#.../.###.",
+    '\\': "#..../#..../.#.../..#../..#../...#./....#",
+    ']': ".###./...#./...#./...#./...#./...#./.###.",
+    '^': "..#../.#.#./#...#/...../...../...../.....",
+    '_': "...../...../...../...../...../...../#####",
+    '`': ".#.../..#../...../...../...../...../.....",
+    'a': "...../...../.###./....#/.####/#...#/.####",
+    'b': "#..../#..../####./#...#/#...#/#...#/####.",
+    'c': "...../...../.####/#..../#..../#..../.####",
+    'd': "....#/....#/.####/#...#/#...#/#...#/.####",
+    'e': "...../...../.###./#...#/#####/#..../.###.",
+    'f': "..##./.#..#/.#.../####./.#.../.#.../.#...",
+    'g': "...../.####/#...#/#...#/.####/....#/.###.",
+    'h': "#..../#..../####./#...#/#...#/#...#/#...#",
+    'i': "..#../...../.##../..#../..#../..#../.###.",
+    'j': "...#./...../..##./...#./...#./#..#./.##..",
+    'k': "#..../#..../#..#./#.#../##.../#.#../#..#.",
+    'l': ".##../..#../..#../..#../..#../..#../.###.",
+    'm': "...../...../##.#./#.#.#/#.#.#/#...#/#...#",
+    'n': "...../...../####./#...#/#...#/#...#/#...#",
+    'o': "...../...../.###./#...#/#...#/#...#/.###.",
+    'p': "...../####./#...#/#...#/####./#..../#....",
+    'q': "...../.####/#...#/#...#/.####/....#/...##",
+    'r': "...../...../#.##./##..#/#..../#..../#....",
+    's': "...../...../.####/#..../.###./....#/####.",
+    't': ".#.../.#.../####./.#.../.#.../.#..#/..##.",
+    'u': "...../...../#...#/#...#/#...#/#..##/.##.#",
+    'v': "...../...../#...#/#...#/#...#/.#.#./..#..",
+    'w': "...../...../#...#/#...#/#.#.#/#.#.#/.#.#.",
+    'x': "...../...../#...#/.#.#./..#../.#.#./#...#",
+    'y': "...../#...#/#...#/#...#/.####/....#/.###.",
+    'z': "...../...../#####/...#./..#../.#.../#####",
+    '{': "...##/..#../..#../.#.../..#../..#../...##",
+    '|': "..#../..#../..#../..#../..#../..#../..#..",
+    '}': "##.../..#../..#../...#./..#../..#../##...",
+    '~': "...../.#..#/#.#.#/#..#./...../...../.....",
+}
+UNKNOWN = "#####/#...#/#...#/#...#/#...#/#...#/#####"
+
+
+def grey_png(width, height, lit, background, ink):
+    #a greyscale png written by hand: a header, the rows each behind a filter byte, and an end. zlib and
+    #struct are standard, which is the point - the container carries selenium and requests and nothing
+    #else, and a page saying where its video went is not worth rebuilding an image over.
+    rows = bytearray()
+    for y in range(height):
+        rows.append(0)
+        rows.extend(ink if (x, y) in lit else background for x in range(width))
+
+    def chunk(kind, body):
+        return (struct.pack('>I', len(body)) + kind + body
+                + struct.pack('>I', zlib.crc32(kind + body) & 0xffffffff))
+
+    return (b'\x89PNG\r\n\x1a\n'
+            + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 0, 0, 0, 0))
+            + chunk(b'IDAT', zlib.compress(bytes(rows), 9))
+            + chunk(b'IEND', b''))
+
+
+def stand_in(lines, width=1000, height=1400, background=28, ink=235):
+    #the lines centred on a page of their own, as big as the longest of them allows
+    longest = max((len(line) for line in lines), default=1) or 1
+    scale = max(2, min((width - 80) // (longest * 6), (height - 80) // (len(lines) * 10), 14))
+    lit = set()
+    wide, high = longest * 6 * scale, len(lines) * 10 * scale
+    left0, top = (width - wide) // 2, (height - high) // 2
+    for row, line in enumerate(lines):
+        left = left0 + (wide - len(line) * 6 * scale) // 2
+        for at, letter in enumerate(line):
+            for y, dots in enumerate(GLYPHS.get(letter, UNKNOWN).split('/')):
+                for x, dot in enumerate(dots):
+                    if dot != '#':
+                        continue
+                    for dy in range(scale):
+                        for dx in range(scale):
+                            lit.add((left + (at * 6 + x) * scale + dx, top + (row * 10 + y) * scale + dy))
+    return grey_png(width, height, lit, background, ink)
+
+
+def archive_entry(folder, name):
+    #what goes into the archive for this file: the file itself, or a stand-in page saying where the real
+    #thing is. the original is never touched - the folder is the copy that keeps everything.
+    lines = held_otherwise(folder, name)
+    if not lines:
+        return name, None
+    return os.path.splitext(name)[0] + ".png", stand_in(lines)
+
+
+def address_in(path):
+    #the web address a note beside the pages holds, when that is all it holds. a comic's readme mentions
+    #all sorts of things and is not a page, so only a file whose first line is an address counts
+    try:
+        if os.path.getsize(path) > 4096:
+            return None
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                found = a_web_address.match(line)
+                return found.group(1) if found else None
+    except OSError:
+        return None
+    return None
+
+
+def held_otherwise(folder, name):
+    #whether this file is a page of the comic kept in some form a reader cannot show, and what a stand-in
+    #for it should say. the page is not lost - it is right there in the folder - so the stand-in's job is
+    #to say so, and where.
+    if video_types.search(name):
+        return ["This page is a video.", "", "It is in the comic's folder as", name]
+    if flash_types.search(name):
+        return ["This page was Flash.", "", "It is in the comic's folder as", name]
+    if link_types.search(name):
+        address = address_in(os.path.join(folder, name))
+        if address:
+            return ["This page is at", "", address, "", "noted in the comic's folder as", name]
+    return None
+
+
+def folder_pages(folder, others=False):
+    #the comic's pages as files. a page held as a video, as flash, or as a note saying where it lives now
+    #is asked for only where a page has to be accounted for - the lining up, and the packing that puts a
+    #stand-in in its place
     names = [f for f in os.listdir(folder)
-             if (page_types.search(f) or (videos and video_types.search(f)))
+             if (page_types.search(f) or (others and held_otherwise(folder, f)))
              and os.path.isfile(os.path.join(folder, f))]
     #the order the comic reads in: by the number this script saved it under where there is one, and by
     #name otherwise. the number is the order pages were fetched, which is the order they were published.
@@ -1266,23 +1456,22 @@ def chapter_contents(folder, chapters, pages):
     #which files belong to which chapter, in reading order. a page the comic has and this folder does not
     #simply is not there; the pages either side of it still sit in the right chapter.
     by_page = {page["n"]: page for page in pages}
-    parcels, as_video = [], []
+    parcels, otherwise = [], []
     for chapter in chapters:
         names = []
         for n in range(chapter["start_page"], chapter["end_page"] + 1):
             name = (by_page.get(n) or {}).get("file")
             if not name:
                 continue
-            #a page held as a video stays in the folder and out of the archive: no reader can show one,
-            #and an archive it cannot read is worse than a page it knows is missing
-            if video_types.search(name):
-                as_video.append(name)
-                continue
+            #a page held as a video, as flash, or as a note saying where it lives now stays in the
+            #parcel: the packing puts a stand-in in the archive where it belongs, saying where to go
+            if held_otherwise(folder, name):
+                otherwise.append(name)
             names.append(name)
         parcels.append((chapter, names))
-    if as_video:
-        print("  {0} page(s) are held as video and stay out of the archives: {1}{2}".format(
-            len(as_video), as_video[:3], "..." if len(as_video) > 3 else ""))
+    if otherwise:
+        print("  {0} page(s) no reader can show, which the archives get a stand-in for: {1}{2}".format(
+            len(otherwise), otherwise[:3], "..." if len(otherwise) > 3 else ""))
     #a page the site no longer serves cannot be in `pages`, because the walk never saw it. it still has
     #to end up in a chapter, or packing would refuse to write around it.
     held = folder_pages(folder)
@@ -1316,6 +1505,11 @@ def already_packed(path, names, folder):
         return False
     wanted = {}
     for name in names:
+        entry, made = archive_entry(folder, name)
+        if made is not None:
+            #a stand-in is drawn the same way every time, so its size is what says it is already there
+            wanted[entry] = len(made)
+            continue
         try:
             wanted[name] = os.path.getsize(os.path.join(folder, name))
         except OSError:
@@ -1341,7 +1535,7 @@ def pack(folder, args):
     parcels = chapter_contents(folder, chapters, pages)
     held = {name for _, names in parcels for name in names}
     print("  listing what is in the comic's folder ...", flush=True)
-    on_disk = set(folder_pages(folder))
+    on_disk = set(folder_pages(folder, others=True))
     astray = sorted(on_disk - held)
     if astray:
         print("ERROR: {0} file(s) belong to no chapter, so nothing was written: {1}{2}".format(
@@ -1376,7 +1570,13 @@ def pack(folder, args):
         with zipfile.ZipFile(spare, 'w', zipfile.ZIP_STORED) as zf:
             zf.writestr("ComicInfo.xml", comic_info(folder, chapter, len(parcels), names))
             for name in names:
-                zf.write(os.path.join(folder, name), name)
+                entry, made = archive_entry(folder, name)
+                if made is None:
+                    zf.write(os.path.join(folder, name), entry)
+                else:
+                    #a page no reader can show gets a page saying where the real one is, named so it
+                    #falls where the page belongs
+                    zf.writestr(entry, made)
         os.replace(spare, path)
         written += 1
         print("  wrote {0} ({1} page(s))".format(os.path.basename(path), len(names)), flush=True)
@@ -1412,14 +1612,17 @@ def verify_chapters(folder, shelf, parcels):
             trouble.append("c{0:03d}: {1}".format(chapter["number"], error))
             continue
         for name in names:
-            size = os.path.getsize(os.path.join(folder, name))
-            if held.get(name) != size:
+            #a page held as something no reader can show is in the archive as its stand-in, so that is
+            #what has to be there and at the size the drawing comes to
+            entry, made = archive_entry(folder, name)
+            size = len(made) if made is not None else os.path.getsize(os.path.join(folder, name))
+            if held.get(entry) != size:
                 trouble.append("c{0:03d}: {1} is {2} in the archive, {3} on disk".format(
-                    chapter["number"], name, held.get(name), size))
+                    chapter["number"], entry, held.get(entry), size))
             if name in seen:
                 trouble.append("{0} is in both c{1:03d} and c{2:03d}".format(name, seen[name], chapter["number"]))
             seen[name] = chapter["number"]
-    missing = sorted(set(folder_pages(folder)) - set(seen))
+    missing = sorted(set(folder_pages(folder, others=True)) - set(seen))
     for name in missing[:5]:
         trouble.append("{0} is in no chapter archive".format(name))
     if trouble:
@@ -1711,7 +1914,7 @@ def do_align(folder, args):
     recovered = recovered_files(folder)
     #videos count here, and only here: a page held as one is a page this folder has, and leaving it out
     #made it read as a page gone missing and the file itself as something nothing claims
-    held = folder_pages(folder, videos=True)
+    held = folder_pages(folder, others=True)
     files = [name for name in held if name not in recovered]
     rescued = [name for name in held if name in recovered]
     fill_sizes(cache, pages)

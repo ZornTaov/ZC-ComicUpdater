@@ -28,7 +28,8 @@ page_types = re.compile(r'\.(png|jpe?g|gif|webp|bmp)$', re.I)
 video_types = re.compile(r'\.(mp4|m4v|webm|mov|mkv)$', re.I)
 flash_types = re.compile(r'\.swf$', re.I)
 link_types = re.compile(r'\.(txt|url|webloc)$', re.I)
-a_web_address = re.compile(r'^(https?://\S+)$')
+#not anchored: a note can run its own words straight into the address, and wapsisquare's do
+a_web_address = re.compile(r'(https?://\S+)')
 #the number this script gave a page when it saved it: 0742_something.jpg, or a plain 0742.jpg
 numbered = re.compile(r'^(\d+)(?:[._])')
 
@@ -132,7 +133,7 @@ GLYPHS = {
     'd': "....#/....#/.####/#...#/#...#/#...#/.####",
     'e': "...../...../.###./#...#/#####/#..../.###.",
     'f': "..##./.#..#/.#.../####./.#.../.#.../.#...",
-    'g': "...../.####/#...#/#...#/.####/....#/.###.",
+    'g': "...../...../.####/#...#/.####/....#/.###.",
     'h': "#..../#..../####./#...#/#...#/#...#/#...#",
     'i': "..#../...../.##../..#../..#../..#../.###.",
     'j': "...#./...../..##./...#./...#./#..#./.##..",
@@ -141,8 +142,8 @@ GLYPHS = {
     'm': "...../...../##.#./#.#.#/#.#.#/#...#/#...#",
     'n': "...../...../####./#...#/#...#/#...#/#...#",
     'o': "...../...../.###./#...#/#...#/#...#/.###.",
-    'p': "...../####./#...#/#...#/####./#..../#....",
-    'q': "...../.####/#...#/#...#/.####/....#/...##",
+    'p': "...../...../####./#...#/####./#..../#....",
+    'q': "...../...../.####/#...#/.####/....#/....#",
     'r': "...../...../#.##./##..#/#..../#..../#....",
     's': "...../...../.####/#..../.###./....#/####.",
     't': ".#.../.#.../####./.#.../.#.../.#..#/..##.",
@@ -150,7 +151,7 @@ GLYPHS = {
     'v': "...../...../#...#/#...#/#...#/.#.#./..#..",
     'w': "...../...../#...#/#...#/#.#.#/#.#.#/.#.#.",
     'x': "...../...../#...#/.#.#./..#../.#.#./#...#",
-    'y': "...../#...#/#...#/#...#/.####/....#/.###.",
+    'y': "...../...../#...#/#...#/.####/....#/.###.",
     'z': "...../...../#####/...#./..#../.#.../#####",
     '{': "...##/..#../..#../.#.../..#../..#../...##",
     '|': "..#../..#../..#../..#../..#../..#../..#..",
@@ -180,8 +181,11 @@ def grey_png(width, height, lit, background, ink):
 
 
 def stand_in(lines, width=1000, height=1400, background=28, ink=235):
-    #the lines centred on a page of their own, as big as the longest of them allows
+    #the lines centred on a page of their own, as big as the longest of them allows. a long address is
+    #never broken across lines, since a broken one cannot be read back, so the page widens for it rather
+    #than shrinking the letters to where nobody can make out a video's id
     longest = max((len(line) for line in lines), default=1) or 1
+    width = max(width, longest * 6 * 4 + 80)
     scale = max(2, min((width - 80) // (longest * 6), (height - 80) // (len(lines) * 10), 14))
     lit = set()
     wide, high = longest * 6 * scale, len(lines) * 10 * scale
@@ -209,21 +213,26 @@ def archive_entry(folder, name):
 
 
 def address_in(path):
-    #the web address a note beside the pages holds, when that is all it holds. a comic's readme mentions
-    #all sorts of things and is not a page, so only a file whose first line is an address counts
+    #the web address a note beside the pages holds, and whatever it calls it. wapsisquare's notes run the
+    #two straight together - "Wapsi Square's The Library Ghost Story trailerhttps://youtube.com/..." -
+    #so the address is looked for inside the line rather than as the whole of it.
+    #
+    #a comic's readme is not a page, though, and the difference is that a note about one page says almost
+    #nothing else: it is short, and most of what it says is the address. a readme is longer than that,
+    #whatever addresses it happens to mention.
     try:
-        if os.path.getsize(path) > 4096:
-            return None
+        if os.path.getsize(path) > 1024:
+            return None, None
         with open(path, encoding="utf-8", errors="replace") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                found = a_web_address.match(line)
-                return found.group(1) if found else None
+            text = f.read(1024).strip()
     except OSError:
-        return None
-    return None
+        return None, None
+    found = a_web_address.search(text)
+    if not found:
+        return None, None
+    address = found.group(1).rstrip('.,;)')
+    called = text[:found.start()].strip().strip('-:|').strip()
+    return address, called or None
 
 
 def held_otherwise(folder, name):
@@ -234,11 +243,33 @@ def held_otherwise(folder, name):
         return ["This page is a video.", "", "It is in the comic's folder as", name]
     if flash_types.search(name):
         return ["This page was Flash.", "", "It is in the comic's folder as", name]
-    if link_types.search(name):
-        address = address_in(os.path.join(folder, name))
+    #a note about a page is named like a page - wapsisquare's are 4017.txt, beside 4016.png - which is
+    #what tells it from a comic's readme. a readme can mention all the addresses it likes; it is still
+    #not page 4017, and a ratio of address to prose could never have told the two apart reliably: one of
+    #these notes is a long video title and one line of address.
+    if link_types.search(name) and page_number(name) is not None:
+        address, called = address_in(os.path.join(folder, name))
         if address:
-            return ["This page is at", "", address, "", "noted in the comic's folder as", name]
+            #the name the note gives it is worth showing: "Wapsi Square's The Library Ghost Story
+            #trailer" says more about the page than the address does
+            return (["This page is a video."] + (wrapped(called) if called else [])
+                    + ["", address, "", "noted in the comic's folder as", name])
     return None
+
+
+def wrapped(text, width=46):
+    #prose broken into lines that fit. only ever used on what a note calls its page: an address is left
+    #whole, because a broken one cannot be read back
+    words, lines, line = text.split(), [], ""
+    for word in words:
+        if line and len(line) + 1 + len(word) > width:
+            lines.append(line)
+            line = word
+        else:
+            line = "{0} {1}".format(line, word).strip()
+    if line:
+        lines.append(line)
+    return [""] + lines if lines else []
 
 
 def folder_pages(folder, others=False):
@@ -548,6 +579,11 @@ def describe(folder, pages, files, aligned, how, anchors, trouble, rescued=(), r
                 print("      ... and {0} more".format(len(astray) - 6))
             print("      chapters.py refetch {0} --page <n> --as-named puts one right.".format(folder))
     agree, changed, conflict = verify(folder, files, pages, aligned)
+    #a size says where a page is only where sizes say anything at all. a site that re-exported its whole
+    #archive - avasdemon.com did, at four fifths the size - leaves every one of them different, and then
+    #a size that happens to match some other file among thousands is a coincidence rather than a page in
+    #the wrong place. so they are still reported, and they stop counting as a fault.
+    sizes_tell = agree >= changed
     print("  checked against the site's own sizes: {0} match exactly, {1} differ (re-uploaded since, "
           "and their size is held by no other file here), {2} land on another page's file".format(
               agree, changed, len(conflict)))
@@ -555,11 +591,14 @@ def describe(folder, pages, files, aligned, how, anchors, trouble, rescued=(), r
         print("      page {0:<5} placed at {1:<26} but its size belongs to {2}".format(n, name[:26], others))
     if len(conflict) > 8:
         print("      ... and {0} more".format(len(conflict) - 8))
+    if conflict and not sizes_tell:
+        print("      only {0} of {1} sizes match the site at all, so these are coincidences among "
+              "thousands of files rather than pages out of place.".format(agree, agree + changed))
     for problem in trouble:
         print("  UNRESOLVED {0}: {1}".format(problem["where"], problem["detail"]))
     #what chaptering needs is that every file is placed. a page the comic has and this folder does not
     #leaves a gap in the reading, but the files either side of it are still placed correctly.
-    settled = not trouble and not spare and not conflict
+    settled = not trouble and not spare and not (conflict and sizes_tell)
     if settled and missing:
         print("  settled: every file is placed. The {0} page(s) above are missing from this folder, "
               "not misplaced.".format(len(missing)))

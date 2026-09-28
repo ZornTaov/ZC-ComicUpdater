@@ -113,7 +113,9 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .runs td, .runs th { padding: 3px 6px; position: static; cursor: default; }
 .link { background: none; border: none; color: var(--accent); padding: 0; font-size: 12px; cursor: pointer; }
 #elements { width: min(900px, calc(100vw - 32px)); }
-.ep { display: grid; grid-template-columns: auto auto minmax(0, 1fr) 150px auto; gap: 6px; align-items: center;
+/*grip, on/off, the path, a note, what the last check found, and the buttons. the check column is empty
+  until a page has been checked, and an empty column takes no width, so the row is unchanged until then*/
+.ep { display: grid; grid-template-columns: auto auto minmax(0, 1fr) 150px auto auto; gap: 6px; align-items: center;
   padding: 3px 0; background: var(--bg); }
 .grip { cursor: grab; color: var(--muted); user-select: none; padding: 0 2px; line-height: 1; touch-action: none; }
 .ep.dragging { opacity: .4; }
@@ -134,7 +136,10 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .ep .moves { display: flex; gap: 2px; }
 .ep .moves button { padding: 1px 6px; font-size: 11px; line-height: 1.4; }
 @media (max-width: 620px) { .ep { grid-template-columns: auto auto minmax(0, 1fr) auto; }
-  .ep .note-in { grid-column: 3 / 5; } }
+  .ep .note-in { grid-column: 3 / 5; }
+  /*on a narrow screen the note drops to a second line; what the check found rides beside it rather than
+    taking a line of its own*/
+  .ep .ep-hit { grid-column: 1 / 3; padding-left: 7px; } }
 .ep-list { max-height: 300px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px;
   padding: 6px 8px; background: var(--bg); }
 .ep-head { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 6px; }
@@ -145,6 +150,17 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .check-result { margin-top: 10px; font-size: 12.5px; }
 .check-result .hit { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; padding: 3px 0; }
 .check-result code { overflow-wrap: anywhere; }
+/*what the check worked out about the page, as opposed to which paths matched it: a comic serving several
+  pages at one address, and a page whose image only exists once javascript has built it*/
+.check-result .note { margin: 6px 0; padding: 6px 8px; background: var(--soft); border-radius: 6px; }
+.check-result .note.warn { background: transparent; color: var(--warn); border: 1px solid var(--warn); }
+/*what the last check found for one path, beside the path itself*/
+.ep-hit { font-size: 11px; white-space: nowrap; color: var(--muted); }
+.ep-hit.on { color: var(--ok); font-weight: 600; }
+/*a list of thirty paths is long enough that a badge alone would be missed, so the rows the last check
+  matched are marked, and the one a scrape would use is marked more strongly*/
+.ep.hit-some { background: var(--soft); }
+.ep.hit-used { background: var(--soft); box-shadow: inset 3px 0 0 var(--ok); }
 .first { font-size: 11px; font-weight: 600; color: var(--ok); text-transform: uppercase; }
 code { font-family: var(--mono); font-size: 12px; background: var(--soft); padding: 0 4px; border-radius: 4px; }
 </style>
@@ -415,6 +431,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
           <label class="check"><input type="checkbox" id="e-firefox"> firefox</label>
           <label class="check"><input type="checkbox" id="e-cbz"> make cbz</label>
           <label class="check"><input type="checkbox" id="e-direction_check"> direction check</label>
+          <label class="check" title="Save every page the comic puts on one address, not just the first. Off reads one page an address however many are there."><input type="checkbox" id="e-multi_page"> several pages an address</label>
         </div>
       </div>
       <div class="field">
@@ -651,7 +668,10 @@ $("comics").addEventListener("click", (event) => {
 });
 
 // ---- metadata editor ----
-const flags = ["prefix", "javascript", "firefox", "cbz", "direction_check", "ended"];
+const flags = ["prefix", "javascript", "firefox", "cbz", "direction_check", "multi_page", "ended"];
+//the ones a comic has unless it says otherwise, so a file written before the setting existed shows the
+//behaviour it actually gets rather than an unticked box
+const onByDefault = ["cbz", "direction_check", "multi_page"];
 let editing = null;
 
 function link(url) {
@@ -678,7 +698,8 @@ async function openEditor(name) {
     <dt>Pages held</dt><dd>${detail.pages_in_folder}${st.page_count != null && st.page_count !== detail.pages_in_folder ? ` (metadata says ${st.page_count})` : ""}</dd>
     <dt>Last saved file</dt><dd>${esc(st.last_image_file || "") || '<span class="muted">none</span>'}</dd>
     <dt>Last run ended</dt><dd>${last.stop_reason ? esc(last.stop_reason) + (last.exit_code ? ` (exit ${last.exit_code})` : "") + " at " + link(last.last_url) : '<span class="muted">never run</span>'}</dd>
-    <dt>First page</dt><dd>${link(detail.first_page_url)}</dd>`;
+    <dt>First page</dt><dd>${link(detail.first_page_url)}</dd>
+    ${perAddress(s, st)}`;
   $("e-url").value = s.url || "";
   $("e-url-hints").innerHTML = s.url ? ` <a href="${esc(s.url)}" target="_blank" rel="noreferrer" class="link">open it</a>` : "";
   $("e-increment").value = s.increment ?? "";
@@ -693,7 +714,7 @@ async function openEditor(name) {
     : detail.indexed ? "Which page is which is already known, so this needs no walk. "
     : "Working these out walks the comic once, downloading nothing. It can take a few minutes. ")
     + "Leave it blank to read the chapters out of the comic's own page addresses instead.";
-  flags.forEach((key) => { $("e-" + key).checked = key === "cbz" || key === "direction_check" ? s[key] !== false : !!s[key]; });
+  flags.forEach((key) => { $("e-" + key).checked = onByDefault.includes(key) ? s[key] !== false : !!s[key]; });
   const next = detail.pages_in_folder + 1;
   $("e-next-number").textContent = `use ${next}, the number after the pages held`;
   $("e-next-number").onclick = () => { $("e-increment").value = next; };
@@ -737,23 +758,52 @@ async function saveEditor(updateAfter) {
 // ---- element paths ----
 let paths = { image: [], next: [] };
 let checkJob = null;
+//the last page checked, kept so the path list can say what each path actually found there. a path that
+//catches the buttons alongside the pages is worth seeing while the list is being edited, not afterwards
+let lastCheck = null;
 
-function renderPaths() {
+function checkedPaths(kind) {
+  const found = {};
+  ((lastCheck && lastCheck[kind]) || []).forEach((h, at) => {
+    found[h.xpath] = { first: at === 0, count: h.count || 1, pages: h.page_count || 0 };
+  });
+  return found;
+}
+
+function pathBadge(kind, hit) {
+  //always a cell, even when empty, so every row keeps the same columns and nothing shifts about
+  if (!hit) return `<span class="ep-hit"></span>`;
+  //a count only tells you something when it is not one, and "pages" only differs from it when some of the
+  //matches were not pages at all
+  const what = hit.count > 1
+    ? `${hit.count} images${hit.pages !== hit.count ? `, ${hit.pages} pages` : ""}`
+    : "matched";
+  const why = hit.count > 1
+    ? `the last check found ${hit.count} images with this path, ${hit.pages} of them pages of the comic`
+    : "this path matched the last page checked";
+  return `<span class="ep-hit ${hit.first ? "on" : ""}" title="${esc(why)}">${hit.first ? "used · " : ""}${what}</span>`;
+}
+
+function renderPaths(fromCheck) {
   //moving a row rebuilds the lists, and a rebuilt list would otherwise jump back to the top
   const scrolled = {};
   $("ep-lists").querySelectorAll(".ep-list").forEach((list) => { scrolled[list.dataset.list] = list.scrollTop; });
+  //worked out once for both lists, since a row cannot declare anything of its own inside the markup below
+  const hits = { image: checkedPaths("image"), next: checkedPaths("next") };
   $("ep-lists").innerHTML = ["image", "next"].map((kind) => `
     <div class="ep-head"><h4>${kind === "image" ? "Comic image" : "Next page"} paths</h4>
-      <span class="muted">${paths[kind].filter((p) => p.enabled).length} on, ${paths[kind].length} listed</span>
+      <span class="muted">${paths[kind].filter((p) => p.enabled).length} on, ${paths[kind].length} listed${
+        lastCheck && lastCheck.url ? `, counts from the check of ${esc(lastCheck.url)}` : ""}</span>
       <button type="button" class="link" data-add="${kind}">add one</button></div>
     <div class="ep-list" data-list="${kind}">${paths[kind].map((p, at) => `
-      <div class="ep ${p.enabled ? "" : "off"}" draggable="true" data-kind="${kind}" data-at="${at}">
+      <div class="ep ${p.enabled ? "" : "off"} ${hits[kind][p.xpath] ? (hits[kind][p.xpath].first ? "hit-used" : "hit-some") : ""}" draggable="true" data-kind="${kind}" data-at="${at}">
         <span class="grip" title="drag to move">⠿</span>
         <input type="checkbox" ${p.enabled ? "checked" : ""} data-kind="${kind}" data-at="${at}" data-field="enabled"
           title="${p.enabled ? "in use" : "turned off"}">
         <input type="text" value="${esc(p.xpath)}" data-kind="${kind}" data-at="${at}" data-field="xpath" spellcheck="false">
         <input type="text" class="note-in" value="${esc(p.note || "")}" placeholder="note, e.g. the comic"
           data-kind="${kind}" data-at="${at}" data-field="note">
+        ${pathBadge(kind, hits[kind][p.xpath])}
         <span class="moves">
           <button type="button" data-move="up" data-kind="${kind}" data-at="${at}" ${at === 0 ? "disabled" : ""} title="earlier">↑</button>
           <button type="button" data-move="down" data-kind="${kind}" data-at="${at}" ${at === paths[kind].length - 1 ? "disabled" : ""} title="later">↓</button>
@@ -763,6 +813,10 @@ function renderPaths() {
       </div>`).join("")}</div>`).join("");
   $("ep-lists").querySelectorAll(".ep-list").forEach((list) => {
     if (scrolled[list.dataset.list]) list.scrollTop = scrolled[list.dataset.list];
+    //a check just came back: the path it used is what you came to look at, and it can be anywhere in a
+    //list this long. only then, since otherwise this would fight with whatever you were scrolled to
+    const used = fromCheck && list.querySelector(".ep.hit-used");
+    if (used) list.scrollTop = Math.max(used.offsetTop - list.clientHeight / 2, 0);
   });
 }
 
@@ -862,19 +916,63 @@ function hit(kind, xpath, detail, first) {
     ${already ? "" : `<button type="button" class="link" data-add-path="${esc(xpath)}" data-add-kind="${kind}">add it</button>`}</div>`;
 }
 
+function perAddress(settings, state) {
+  //only worth a row when there is something to say: most comics put one page at one address and always
+  //will, and a row saying "one" on every comic in the library teaches nothing
+  const most = state.pages_per_url || 1;
+  if (most < 2) return "";
+  const since = state.multi_page_from ? `, first seen at ${link(state.multi_page_from)}` : "";
+  //a comic serving several while told to read one is saving a fraction of itself, which is worth flagging
+  //here rather than leaving to be noticed as a short page count
+  const off = settings.multi_page === false
+    ? ` <span class="s-stopped">— but this comic is set to read one an address, so the rest are skipped</span>` : "";
+  return `<dt>Pages an address</dt><dd>up to ${most}${since}${off}</dd>`;
+}
+
+function fileName(src) {
+  return String(src || "").split("?")[0].split("/").pop();
+}
+
+function pageNotes(found, top) {
+  //what the check learned about the page itself, rather than which paths matched it. both of these turn a
+  //path that looks right into a run that saves nothing, or a fraction of what it should, so they are said
+  //here where the path is being chosen rather than left for the log of a run that has already gone wrong
+  const notes = [];
+  if ((top.count || 1) > 1) {
+    const names = (top.pages || []).map(fileName);
+    const left = (top.count || 0) - (top.page_count || 0);
+    notes.push(`<div class="note"><b>Several pages on one address.</b> That path finds ${top.count} images
+      here, ${top.page_count} of them pages${left > 0 ? `, and ${left} carrying no page number, so left
+      out as buttons rather than pages` : ""}. A run saves each in turn, numbered on from the last:
+      <code>${esc(names.slice(0, 8).join(", "))}</code>${names.length > 8 ? " …" : ""}</div>`);
+  }
+  if (found.needs_javascript) {
+    notes.push(`<div class="note warn"><b>This comic needs javascript.</b> That image is not in the page the
+      server sends, only in the one javascript builds. A check runs with javascript on and a scrape runs
+      with it off, so the path above will match nothing and the run will say only that the path is not
+      stored — until <b>javascript</b> is ticked in this comic's settings.</div>`);
+  }
+  return notes.join("");
+}
+
 function renderCheck(found, host) {
   if (!found) return;
   if (found.error) {
     $("check-result").innerHTML = `<div class="s-failed">${esc(found.error)}</div>`;
     return;
   }
+  lastCheck = found;
+  //the path list is behind this dialog and may already be on screen, so its counts are brought up to date
+  //here rather than waiting for it to be reopened. an untouched list has nothing to redraw yet
+  if (paths.image.length || paths.next.length) renderPaths(true);
   const parts = [`<div class="muted">${esc(found.title || "")}</div>`];
   ["image", "next"].forEach((kind) => {
     const label = kind === "image" ? "Comic image" : "Next page";
     const hits = found[kind] || [];
     if (hits.length) {
       parts.push(`<div style="margin-top:8px"><b>${label}</b>: ${hits.length} match${hits.length === 1 ? "" : "es"}</div>` +
-        hits.map((h, at) => hit(kind, h.xpath, h.src || (h.found && (h.found.href || h.found.title || h.found.class)) || "", at === 0)).join(""));
+        hits.map((h, at) => hit(kind, h.xpath, h.src || (h.found && (h.found.href || h.found.title || h.found.class)) || "", at === 0)).join("") +
+        (kind === "image" ? pageNotes(found, hits[0]) : ""));
     } else {
       const guesses = (found.suggestions || {})[kind] || [];
       parts.push(`<div style="margin-top:8px"><b>${label}</b>: <span class="s-failed">nothing matched</span>${guesses.length ? ", but this is on the page:" : ""}</div>` +

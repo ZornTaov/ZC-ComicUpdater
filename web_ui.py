@@ -30,6 +30,7 @@ editable = {
     "waittime": "count",
     "cbz": "flag",
     "direction_check": "flag",
+    "multi_page": "flag",
     "ended": "flag",
 }
 max_edits = 50

@@ -442,8 +442,11 @@ def check_page(driver):
         if srcs:
             #how many pages the path finds here, so a comic serving several on one address is plain before
             #anything is downloaded rather than after the folder comes out a fraction of the size
+            #the pages, worked out here rather than by whatever reads this: the rule for which of several
+            #images is a page belongs in one place, and the web page should not have a second copy of it
+            pages = comic_images(srcs) if len(srcs) > 1 else srcs
             found["image"].append({"xpath": element, "src": srcs[0], "count": len(srcs),
-                                   "srcs": srcs[:20]})
+                                   "srcs": srcs[:20], "pages": pages[:20], "page_count": len(pages)})
     for element in next_ele_names:
         if test_next_ele_get(driver, element):
             try:
@@ -463,11 +466,12 @@ def check_page(driver):
             print("  {0}: {1} of the known paths match; a scrape would use {2}".format(
                 kind, len(found[kind]), found[kind][0]["xpath"]))
             if kind == "image" and found[kind][0].get("count", 1) > 1:
-                pages = comic_images(found[kind][0]["srcs"])
+                #worked out once, above, so this says the same as what the web page is handed
+                top = found[kind][0]
                 print("    that path finds {0} images here, {1} of them pages, so this address holds "
                       "several pages of the comic: {2}".format(
-                          found[kind][0]["count"], len(pages),
-                          ", ".join(src.rsplit('/', 1)[-1] for src in pages[:6])))
+                          top["count"], top["page_count"],
+                          ", ".join(src.rsplit('/', 1)[-1] for src in top["pages"][:6])))
             if kind == "image" and found.get("needs_javascript"):
                 #the difference that makes a working path look like a broken one, since this check turns
                 #javascript on and a scrape does not

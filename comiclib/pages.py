@@ -158,6 +158,35 @@ def reading_order(folder, names):
     return sorted(names, key=sort_key)
 
 
+#what a page is written as until it is whole, so no reader or run ever sees half of one
+UNFINISHED = ".writing"
+
+
+def write_page(target, content):
+    spare = target + UNFINISHED
+    with open(spare, 'wb') as f:
+        f.write(content)
+    os.replace(spare, target)
+
+
+def clear_unfinished(folder):
+    #pages a killed run was part way through writing. only ever made by write_page, and only ever half a
+    #page, so nothing is lost by them going - and left, the archive would take them for pages
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    gone = []
+    for name in names:
+        if name.endswith(UNFINISHED) and os.path.isfile(os.path.join(folder, name)):
+            try:
+                os.remove(os.path.join(folder, name))
+                gone.append(name)
+            except OSError:
+                pass
+    return gone
+
+
 def count(folder):
     #how many files the comic holds, for the progress a run reports while it goes
     try:

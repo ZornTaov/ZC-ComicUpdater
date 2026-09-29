@@ -2,7 +2,8 @@
 #says the file is called - and that name read back as a page.
 import pytest
 
-from comiclib.pages import page_key, page_number, saved_name
+from comiclib import pages as pages_module
+from comiclib.pages import clear_unfinished, page_key, page_number, saved_name, write_page
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"rest of it"
 WEBP = b"RIFF\x10\x00\x00\x00WEBPVP8 "
@@ -63,6 +64,24 @@ def test_a_saved_name_reads_back_as_the_same_page():
     name = saved_name("https://example.com/comics/0042.png?cache=1")
     assert page_key("0042_" + name) == page_key(name)
     assert page_number("0042_" + name) == 42
+
+
+def test_a_page_is_never_half_written_under_its_own_name(tmp_path, monkeypatch):
+    #killed after writing but before moving it into place: whatever the page was before is still there,
+    #whole, and the half-finished copy is only ever under the name that says so
+    target = tmp_path / "0003_p3.jpg"
+    target.write_bytes(b"the page as it was")
+
+    def killed(*ignored):
+        raise KeyboardInterrupt("stopped here")
+
+    monkeypatch.setattr(pages_module.os, "replace", killed)
+    with pytest.raises(KeyboardInterrupt):
+        write_page(str(target), b"a new copy of the page")
+    assert target.read_bytes() == b"the page as it was"
+    monkeypatch.undo()
+    assert clear_unfinished(str(tmp_path)) == ["0003_p3.jpg.writing"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["0003_p3.jpg"]
 
 
 def test_a_page_saved_the_old_way_is_the_same_page_saved_now():

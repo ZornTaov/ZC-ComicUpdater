@@ -15,7 +15,7 @@ from selenium.webdriver.common.by import By
 from comiclib import browser, cbz, download, elements, exits, guards, pagecheck, runrecord, walk
 from comiclib.chapters.index import KeptIndex
 from comiclib.metadata import METADATA_FILE, now_stamp
-from comiclib.pages import held_pages, page_key, page_number, saved_name
+from comiclib.pages import clear_unfinished, held_pages, page_key, page_number, saved_name, write_page
 from comiclib.standin import held_otherwise
 from comiclib.paths import element_paths_file
 from comiclib.guards import would_lose_a_page
@@ -240,6 +240,8 @@ def setup():
     #what the comic already holds, read before anything is saved, so a backwards next link is caught
     #against the pages of earlier runs rather than only the ones this run has written
     global existing_pages
+    for name in clear_unfinished(output_folder(args)):
+        print("Removed {0}, half a page left by a run that was stopped while writing it.".format(name))
     existing_pages = held_pages(output_folder(args))
 
     #a comic that has been walked has a record of which page is which, and chapters are built on it. it is
@@ -444,9 +446,10 @@ def save_one(driver, src, increment, args, resuming):
     if not os.path.exists(target):
         scrape_state["fresh_pages"] += 1
 
-    #requests and downloads the content in the url
-    with open(target,'wb') as f:
-        f.write(req.content)
+    #written aside and moved into place, like everything else here. a run killed part way through writing
+    #a page - a timeout - otherwise left half a picture under the page's own name, which the next run then
+    #took for a different page held under that name and stopped on, for a comic without --prefix, for good
+    write_page(target, req.content)
 
     #track progress and rewrite the metadata each page, so it stays accurate even if the run is cut short
     if scrape_state["first_page_url"] is None:

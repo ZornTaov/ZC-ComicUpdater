@@ -134,6 +134,86 @@ def test_no_index_is_started_part_way_in_or_when_told_not_to(tmp_path, serve, co
     assert not os.listdir(str(config / "index")), os.listdir(str(config / "index"))
 
 
+class Flaky(Jpegs):
+    #five pages whose third image fails until the site is told to mend it, the way a run dies part way
+    pages = 5
+    broken = True
+
+    def image(self, name):
+        if name == "p3.jpg" and Flaky.broken:
+            raise ConnectionError("the third image will not come")
+        return super().image(name)
+
+    def do_GET(self):
+        try:
+            Comic.do_GET(self)
+        except ConnectionError:
+            self.send_error(500)
+
+
+def index_lines(config, folder):
+    named = read_meta(folder)["history"].get("index_cache")
+    assert named, "the metadata does not name an index"
+    with open(str(config / "index" / named), encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def resume(tmp_path, folder):
+    #the next run, the way update_comics starts it: the command rebuilt from the comic's own settings
+    from comiclib.metadata import settings_to_argv
+    return run("mirror_base.py", *settings_to_argv(read_meta(folder)["settings"]), cwd=tmp_path, timeout=240)
+
+
+def test_a_first_run_that_dies_part_way_has_its_index_carried_on_by_the_next(tmp_path, serve, config):
+    Flaky.broken = True
+    site = serve(Flaky)
+    out = tmp_path / "Stopped"
+    done = scrape(tmp_path, out, site + "/p/1", "-p")
+    assert done.returncode == 4, "the first run should die at the third page: {0}".format(done.stdout[-300:])
+    assert [line["file"] for line in index_lines(config, out)] == ["0001_p1.jpg", "0002_p2.jpg"]
+    Flaky.broken = False
+    done = resume(tmp_path, out)
+    assert done.returncode == 0, done.stdout[-400:]
+    lines = index_lines(config, out)
+    #every page once, in order, numbered from one with no gap and no repeat where the two runs meet
+    assert [(line["n"], line["file"]) for line in lines] == \
+        [(n, "{0:04d}_p{0}.jpg".format(n)) for n in range(1, 6)], lines
+
+
+def test_an_index_line_cut_off_by_a_kill_is_mended_and_the_index_carried_on(tmp_path, serve, config):
+    #a run killed outright - a timeout - can stop part way through writing a line. the next run has to mend
+    #the end of the file and carry on, not find it unreadable and quietly stop keeping it for good
+    Flaky.broken = True
+    site = serve(Flaky)
+    out = tmp_path / "Killed"
+    scrape(tmp_path, out, site + "/p/1", "-p")
+    named = read_meta(out)["history"]["index_cache"]
+    with open(str(config / "index" / named), "a", encoding="utf-8") as f:
+        f.write('{"n": 3, "url": "http://127.0.0.1/p/3", "src": "htt')
+    Flaky.broken = False
+    done = resume(tmp_path, out)
+    assert done.returncode == 0, done.stdout[-400:]
+    lines = index_lines(config, out)
+    assert [(line["n"], line["file"]) for line in lines] == \
+        [(n, "{0:04d}_p{0}.jpg".format(n)) for n in range(1, 6)], lines
+
+
+def test_half_a_page_left_by_a_killed_run_goes_and_never_reaches_the_archive(tmp_path, serve):
+    #a comic without --prefix, stopped while writing its third page: the next run clears what was left and
+    #carries on, rather than taking it for a different page under the same name and stopping for good
+    site = serve(Jpegs)
+    out = tmp_path / "Halfway"
+    scrape(tmp_path, out, site + "/p/1", "--no-keep-index")
+    (out / "p3.jpg").unlink()
+    (out / "p3.jpg.writing").write_bytes(JPEG[:3])
+    done = resume(tmp_path, out)
+    assert done.returncode == 0, done.stdout[-400:]
+    assert "half a page left by a run that was stopped" in done.stdout, done.stdout[-400:]
+    assert sorted(os.listdir(str(out))) == ["mirror_metadata.json", "p1.jpg", "p2.jpg", "p3.jpg"]
+    with zipfile.ZipFile(str(tmp_path / "Halfway.cbz")) as zf:
+        assert not [name for name in zf.namelist() if name.endswith(".writing")], zf.namelist()
+
+
 def test_a_walk_or_a_check_starts_no_index_of_its_own(tmp_path, serve, config):
     #both start at a comic's first page with nothing saved, which is what a fresh scrape looks like - but
     #neither saves a page, and a check from the web page must not leave a file behind every time

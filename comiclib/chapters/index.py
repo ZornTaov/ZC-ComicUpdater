@@ -202,6 +202,32 @@ def one_page(url, args):
     return held[0] if held else None
 
 
+def mend_cut_off_line(path):
+    #the index's lines, with the one a run was killed part way through writing taken off the end. each line
+    #is written whole with its newline last, so a last line that will not read and has no newline after it
+    #can only be one cut short - and it is the page the killed run never finished recording, which the next
+    #run records again. anything else that will not read is not this, and raises.
+    with open(path, 'rb') as f:
+        raw = f.read()
+    lines, kept = [], 0
+    for line in raw.split(b"\n"):
+        if not line.strip():
+            kept += len(line) + 1
+            continue
+        try:
+            lines.append(json.loads(line.decode("utf-8")))
+        except ValueError:
+            if kept + len(line) == len(raw):
+                print("The last line of {0} was cut off part way through, by a run that was stopped; it is "
+                      "taken off and that page recorded again.".format(path))
+                with open(path, 'r+b') as f:
+                    f.truncate(kept)
+                return lines
+            raise
+        kept += len(line) + 1
+    return lines
+
+
 class KeptIndex:
     #the index a scrape keeps up to date as it saves pages, so a comic that has been walked never has to be
     #walked again. empty, and adding nothing, until open() finds one this comic keeps or is told to start
@@ -258,12 +284,17 @@ class KeptIndex:
             open(path, 'a', encoding='utf-8').close()
             print("Keeping an index of which page is which in {0}".format(path))
         try:
-            for held in read_index(path):
-                self.urls.add(held.get("url"))
-                self.pages.add((held.get("url"), held.get("src")))
-                self.last = max(self.last, held.get("n") or 0)
-        except (OSError, ValueError):
+            lines = mend_cut_off_line(path)
+        except (OSError, ValueError) as error:
+            #not a line a kill cut short but something else wrong with the file, which is not this run's
+            #to guess at: said out loud, since carrying on silently would leave the index to fall behind
+            print("WARNING: not adding to the record of which page is which, {0}: {1}. chapters.py index "
+                  "--restart walks the comic afresh.".format(path, error))
             return
+        for held in lines:
+            self.urls.add(held.get("url"))
+            self.pages.add((held.get("url"), held.get("src")))
+            self.last = max(self.last, held.get("n") or 0)
         self.file = path
         if self.last:
             print("This comic keeps an index of which page is which ({0} pages); new pages are added to "

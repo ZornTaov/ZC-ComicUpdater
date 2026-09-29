@@ -48,9 +48,13 @@ def saved_name(src, file_format="png"):
     #the name a scrape gives an image: the last part of its address, with an extension added where the
     #address has none. a gif stays a gif. every file a scrape writes is named by this, so anything that
     #needs to know what a page will be called - the index, a page put in by hand - asks here.
+    #the image is fetched with requests rather than saved by a browser, so nothing strips a query string
+    #or a fragment on the way: that is done here, since page.png?v=2 is page.png, and a ? cannot be in a
+    #filename on windows at all
     if "gif" in src:
         file_format = "gif"
-    name = src[src.rfind("/") + 1:]
+    path = src.split('#')[0].split('?')[0].rstrip('/')
+    name = path[path.rfind("/") + 1:]
     return name if name.lower().endswith(file_format) else "{0}.{1}".format(name, file_format)
 
 

@@ -1746,12 +1746,6 @@ def renumber(folder, args):
     return 0
 
 
-def saved_as(src):
-    #the name a scrape would give this image, worked out here rather than taken from the walk's record,
-    #so putting a page in does not depend on that record being right about it. the query string is left
-    #out, which a scrape does not do: a ? cannot be in a filename on windows at all
-    return saved_name(src.split('?')[0].rstrip('/'))
-
 
 def one_page(url, args):
     #what a single page holds, found the way a scrape finds it: the element paths this script knows,
@@ -1813,7 +1807,9 @@ def insert_page(folder, args):
         print("ERROR: no comic image was found on {0}. Check it in the browser, or add an element path "
               "for this site.".format(args.url))
         return 2
-    name = "{0:04d}_{1}".format(at, saved_as(found["src"]))
+    #the name a scrape would give this image, worked out here rather than taken from the walk's record, so
+    #putting a page in does not depend on that record being right about it
+    name = "{0:04d}_{1}".format(at, saved_name(found["src"]))
     #fetched before anything is moved, so a page that cannot be had leaves the comic exactly as it was
     session = requests.Session()
     session.headers.update({"User-Agent": "Mozilla/5.0"})

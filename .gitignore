@@ -27,6 +27,8 @@
 # what the scripts share. two lines, because * matches at every depth: the folder first, then its files
 !comiclib/
 !comiclib/*.py
+!comiclib/chapters/
+!comiclib/chapters/*.py
 !web_ui.py
 !web_ui.html
 

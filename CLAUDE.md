@@ -15,7 +15,7 @@ archives, and keep them up to date unattended.
 | File | Lines | What it is |
 | --- | ---: | --- |
 | `mirror_base.py` | ~1450 | Scrapes one comic: drives a browser, follows next links, downloads pages, writes the metadata, packs the single archive |
-| `chapters.py` | ~2180 | Everything about chapters: walking a comic to record which page is which, lining that up against the files, reading an archive page, packing one archive per chapter |
+| `chapters.py` | ~190 | The command for everything about chapters; the work is in `comiclib/chapters/`, below |
 | `web_ui.py` | ~1140 | The web page's server: a job runner and a JSON API over the library |
 | `web_ui.html` | ~1460 | The whole front end, one file, no build step |
 | `update_comics.py` | ~760 | Finds every comic in a library and updates them on a schedule; hosts the web page |
@@ -32,6 +32,7 @@ archives, and keep them up to date unattended.
 | `cbz` | Every archive any script writes: a new one, one added to, a chapter's, a repack. The Uncompressed/CBZs shelf rule |
 | `standin` | Draws a page for a page no reader can show. `cbz` asks it about every file, so every archive agrees |
 | `exits` | `mirror_base`'s exit codes and what each means |
+| `chapters/` | Walking a comic to record which page is which (`index`), lining that up against the files (`align`), reading an archive page (`archive_page`) or the addresses (`addresses`) for chapters, the chapter list and its corrections (`chapterlist`), packing per chapter (`packing`), and renumbering, inserting and refetching pages (`pageops`) |
 
 The scripts import what they use by its old name (`chapters.page_key`, `mirror_base.metadata_file`), so
 code reaching into a script still finds it; new code should import from `comiclib`.

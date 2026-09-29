@@ -1,0 +1,4 @@
+# what the test suite needs on top of requirements.txt. kept apart on purpose: the container runs the
+# scripts, not the tests, and every dependency in requirements.txt is one more thing to rebuild it for
+-r requirements.txt
+pytest>=8

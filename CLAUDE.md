@@ -84,16 +84,19 @@ anything new.
 
 ## Testing
 
-There is no test runner in the repo. The suite is ~50 `t_*.py` scripts kept outside it, run directly
-(`python t_chapters.py`), each printing `ok`/`FAIL` lines and ending in `ALL PASS`. They stand up fake
-comics on a local HTTP server and drive the real scripts, and several drive a real browser.
+The suite is `tests/`, run with pytest (`pip install -r requirements-dev.txt`, which the container never
+needs). `python -m pytest tests` runs all of it in about eight minutes; `-m "not browser"` runs the
+offline half in seconds. Tests that need Chrome skip themselves on a machine without it.
 
-**They live outside the repo and are easily lost.** Moving them in is worth proposing.
+`tests/conftest.py` is the harness: a fake comic served on a local port, a stalling server, a library
+and config folder of each test's own under `tmp_path` (named through `MIRROR_CONFIG`, so every script a
+test starts reads that and not the real one), the web page started over it, and fixtures that import
+`mirror_base` and `chapters` afresh - `mirror_base` keeps its run in module globals and reads its
+element paths on import, so a plain import would carry one test into the next.
 
-Before changing shared behaviour, run the suites that touch it — the chapter ones for `chapters.py`,
-`t_regress`/`t_multipage`/`t_endings`/`t_prime` for scraping, `t_web`/`t_elements` for the web page.
-Two are known to fail for reasons that predate this work (`t_save`, `t_direction`); check against `HEAD`
-before assuming a change caused a failure.
+Nothing in the suite reaches the internet or a real library, and nothing names a real comic: a behaviour
+a real site forced is reproduced with a made-up one of the same shape. Run it before and after changing
+shared behaviour; it passes in full at `HEAD`, so a failure is yours.
 
 ## Things that have bitten, more than once
 

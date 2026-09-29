@@ -214,6 +214,29 @@ def test_half_a_page_left_by_a_killed_run_goes_and_never_reaches_the_archive(tmp
         assert not [name for name in zf.namelist() if name.endswith(".writing")], zf.namelist()
 
 
+def test_starting_a_comic_over_needs_only_its_pages_and_archive_deleted(tmp_path, serve, config):
+    #a comic scraped, then deleted and started again from its first page: the index and the alignment left
+    #from its first life are moved aside, not added to, and nothing in the config folder had to be touched
+    site = serve(Jpegs)
+    out = tmp_path / "Again"
+    scrape(tmp_path, out, site + "/p/1", "-p", "--prime")
+    named = read_meta(out)["history"]["index_cache"]
+    (config / "index" / named.replace(".jsonl", ".align.json")).write_text("{}", encoding="utf-8")
+    for leftover in list(out.iterdir()):
+        leftover.unlink()
+    (tmp_path / "Again.cbz").unlink()
+
+    done = scrape(tmp_path, out, site + "/p/1", "-p")
+    assert done.returncode == 0, done.stdout[-400:]
+    assert "left from before this folder was started over" in done.stdout, done.stdout[-500:]
+    assert read_meta(out)["history"]["index_cache"] == named, "the same name, for a fresh record"
+    #this run's pages alone, numbered from one - not page one twice
+    assert [(line["n"], line["file"]) for line in index_lines(config, out)] == \
+        [(n, "{0:04d}_p{0}.jpg".format(n)) for n in range(1, 4)]
+    aside = sorted(name for name in os.listdir(str(config / "index")) if ".replaced-" in name)
+    assert len(aside) == 2 and aside[0].endswith(".align.json") and aside[1].endswith(".jsonl"), aside
+
+
 def test_a_walk_or_a_check_starts_no_index_of_its_own(tmp_path, serve, config):
     #both start at a comic's first page with nothing saved, which is what a fresh scrape looks like - but
     #neither saves a page, and a check from the web page must not leave a file behind every time

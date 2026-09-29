@@ -72,6 +72,10 @@ which page is which as it goes - the same record `chapters.py index` would other
 whole comic again to build, but with the names and sizes actually saved. `--no-keep-index` leaves it out;
 `--keep-index` asks for one outright.
 
+To start a comic over from scratch, delete its folder and its archive, and add it again from its first
+page. The record of which page was which from its first life is moved aside in `config/index`, renamed
+with `.replaced-<date>`, rather than added to - nothing there needs deleting by hand.
+
 `--prefix` matters more than it looks. Many comics change their filename scheme partway through
 their run — a date stamp becomes `NAME_0421.jpg` — and once that happens the files no longer sort
 into reading order. A prefix pins the order to the order you downloaded them in, which is the order

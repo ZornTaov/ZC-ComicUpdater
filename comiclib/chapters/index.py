@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 
 import requests
 
@@ -202,6 +203,20 @@ def one_page(url, args):
     return held[0] if held else None
 
 
+def set_aside(cache):
+    #an index, and the alignment beside it, renamed out of the way rather than deleted: nothing reads a
+    #name like this, and anything worth having in them is still there to look at. (old, new) for each moved
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    moved = []
+    for path, ending in ((cache, ".jsonl"), (alignment_path(cache), ".align.json")):
+        if not path.endswith(ending) or not os.path.exists(path):
+            continue
+        aside = "{0}.replaced-{1}{2}".format(path[:-len(ending)], stamp, ending)
+        os.replace(path, aside)
+        moved.append((path, aside))
+    return moved
+
+
 def mend_cut_off_line(path):
     #the index's lines, with the one a run was killed part way through writing taken off the end. each line
     #is written whole with its newline last, so a last line that will not read and has no newline after it
@@ -262,12 +277,15 @@ class KeptIndex:
             return
         #the name chapters.py would pick for this comic's index, from the one rule both follow
         path = os.path.join(index_folder(), named or index_name(folder))
-        if not named and asked is None and os.path.exists(path) and os.path.getsize(path):
-            #a record left from an earlier life of this folder: it numbers pages the folder no longer
-            #holds, and adding this run's to the end of it would put every one of them in the wrong place
-            print("Not keeping a record of which page is which: {0} is left from before and does not match "
-                  "this folder. chapters.py index --restart walks the comic afresh.".format(path))
-            return
+        if fresh and keep and not named and os.path.exists(path) and os.path.getsize(path):
+            #a record left from an earlier life of this folder - a comic deleted and started over. it numbers
+            #pages the folder no longer holds, and adding this run's to the end of it would put every one of
+            #them in the wrong place. the folder being empty says it describes nothing here, so it is moved
+            #aside, with the alignment made from it, and this run starts the record afresh: starting a comic
+            #over is deleting its pages and its archive, and nothing in the config folder besides
+            for moved in set_aside(path):
+                print("Moved {0} aside as {1}: it was left from before this folder was started "
+                      "over.".format(os.path.basename(moved[0]), os.path.basename(moved[1])))
         if not os.path.exists(path):
             if not keep:
                 return

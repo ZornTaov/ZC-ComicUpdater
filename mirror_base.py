@@ -559,8 +559,8 @@ def build_index(driver, args):
     #each line is written as it is reached, so a walk that is stopped or times out keeps what it had.
     path = args.index
     folder = os.path.dirname(os.path.abspath(path))
-    if folder and not os.path.isdir(folder):
-        os.makedirs(folder)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
     done = index_read(path)
     held = {line["url"] for line in done}
     if done and args.URL and args.URL not in held:
@@ -675,8 +675,8 @@ def open_index(folder, args=None):
             print("Not starting a record of which page is which at page {0}: it has to begin at the "
                   "comic's first page, so chapters.py walks for it instead.".format(args.increment))
             return
-        if not os.path.isdir(os.path.dirname(path)):
-            os.makedirs(os.path.dirname(path))
+        #every comic keeps its index in the one folder, so two starting at once can both find it missing
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         open(path, 'a', encoding='utf-8').close()
         print("Keeping an index of which page is which in {0}".format(path))
     try:
@@ -1135,8 +1135,10 @@ def cbz_update(args):
     if not os.path.exists(cbz):
         #an explicit path may point somewhere that does not exist yet
         parent = os.path.dirname(cbz)
-        if parent and not os.path.isdir(parent):
-            os.makedirs(parent)
+        #two comics in one new group finishing together can both find the shelf missing, and the one to
+        #make it second would otherwise fail with an error the caller takes for a broken archive
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         #images are already compressed, so storing them saves the cpu for no meaningful size difference
         with zipfile.ZipFile(cbz, 'w', zipfile.ZIP_STORED) as zf:
             for name in pages:
@@ -1332,8 +1334,7 @@ def save_one(driver, src, increment, file_format, args, resuming):
 
     folder = output_folder(args)
     #creates the folder structure for the url origin if it does not exist
-    if not os.path.exists(folder):
-        os.makedirs(folder)
+    os.makedirs(folder, exist_ok=True)
 
     #a backwards next link looks exactly like a working one page by page: every url is new, so the loop
     #check never fires, and the comic re-saves itself under fresh numbers until it runs out of archive.

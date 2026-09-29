@@ -325,8 +325,8 @@ def build_archive(folder, cbz):
     if not pages:
         return 0
     parent = os.path.dirname(cbz)
-    if parent and not os.path.isdir(parent):
-        os.makedirs(parent)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     #images are already compressed, so storing them saves the cpu for no meaningful size difference.
     #written aside and moved into place, so a run stopped halfway leaves no half-archive behind
     spare = cbz + ".writing"
@@ -538,8 +538,7 @@ def adopt_one(args, quiet=False):
                 print("  would build   : {0} from {1} page(s)".format(archive, waiting))
         return False, "would adopt: " + summary
 
-    if not os.path.isdir(folder):
-        os.makedirs(folder)
+    os.makedirs(folder, exist_ok=True)
     with open(target, 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=2)
         f.write('\n')

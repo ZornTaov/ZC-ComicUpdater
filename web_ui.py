@@ -301,8 +301,7 @@ def remember_listing(comic, listing, make_folder=False):
         if not make_folder:
             return
         #nothing there yet: the comic is about to be scraped for the first time
-        if not os.path.isdir(comic.folder):
-            os.makedirs(comic.folder)
+        os.makedirs(comic.folder, exist_ok=True)
         metadata = {}
     block = metadata.setdefault("chapters", {})
     if block.get("source_url") == listing:

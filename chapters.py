@@ -1383,8 +1383,7 @@ def pack(folder, args):
         print("Nothing was written. Run it again without --dry-run.")
         return 0
 
-    if not os.path.isdir(shelf):
-        os.makedirs(shelf)
+    os.makedirs(shelf, exist_ok=True)
     written = 0
     for chapter, names in todo:
         path = os.path.join(shelf, chapter_file(folder, chapter))
@@ -1860,8 +1859,7 @@ def one_page(url, args):
     #what a single page holds, found the way a scrape finds it: the element paths this script knows,
     #in a real browser. a walk of one page into a scratch index is exactly that, and needs no new mode.
     spare = os.path.join(config_folder(), "index", "one-page-{0}.jsonl".format(os.getpid()))
-    if not os.path.isdir(os.path.dirname(spare)):
-        os.makedirs(os.path.dirname(spare))
+    os.makedirs(os.path.dirname(spare), exist_ok=True)
     command = [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "mirror_base.py"),
                "--index", spare, "--index-limit", "1", url]
     try:

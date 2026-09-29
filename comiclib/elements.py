@@ -62,7 +62,6 @@ def comic_images(srcs, where=None):
 
 
 def test_ele_get(driver,element): #this runs through all of the possible next elements and tests them, but does not click them.
-    global verbose
     try: #tries the path to see if it is valid
         driver.find_element(By.XPATH, element)
         return True
@@ -72,7 +71,6 @@ def test_ele_get(driver,element): #this runs through all of the possible next el
 
 
 def ele_get(driver,element):
-    global verbose
     try: #tries the path to see if it is valid
         element2 = driver.find_element(By.XPATH, element)
         #gets the source url of the image
@@ -86,7 +84,6 @@ def ele_get(driver,element):
 def ele_get_all(driver,element):
     #every image this path matches, in the order the page lists them, rather than only the first. asking
     #for one is what makes a comic with several pages on one address look like a comic with one.
-    global verbose
     try:
         found = driver.find_elements(By.XPATH, element)
     except se.WebDriverException:
@@ -124,7 +121,6 @@ def next_element(driver,element):
 
 
 def test_next_ele_get(driver,element): #this runs through all of the possible next elements and tests them, but does not click them.
-    global verbose
     if next_element(driver, element) is not None:
         return True
     if verbose: print("\nThe next button {0} could not be found.".format(element))
@@ -136,7 +132,6 @@ def next_ele_get(driver,element):
     #click - the one that works on a page whose navigation is an onclick handler rather than a link - only
     #ever ran for a click that was intercepted, and never for one that was never possible in the first
     #place. a page like that ended every run with "there is no next button", ten seconds after there was.
-    global verbose
     found = next_element(driver, element)
     if found is None:
         if verbose: print("\nThe next button {0} could not be found.".format(element))

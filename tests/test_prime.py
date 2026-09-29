@@ -63,7 +63,8 @@ def test_prime_on_a_single_page_comic_says_there_is_no_next_link(site, library):
 
 @pytest.fixture
 def update(config):
-    module = fresh("update_comics")
+    #the schedule's own module, looking for a trigger file five times a second rather than every half minute
+    module = fresh("comiclib.schedule")
     module.trigger_poll = 0.2
     return module
 

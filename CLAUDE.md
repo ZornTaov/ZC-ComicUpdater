@@ -18,7 +18,7 @@ archives, and keep them up to date unattended.
 | `chapters.py` | ~190 | The command for everything about chapters; the work is in `comiclib/chapters/`, below |
 | `web_ui.py` | ~20 | Where `update_comics` finds the web page's server; the server is in `comiclib/web/`, below |
 | `web_ui.html` | ~1460 | The whole front end, one file, no build step |
-| `update_comics.py` | ~760 | Finds every comic in a library and updates them on a schedule; hosts the web page |
+| `update_comics.py` | ~190 | The long-running process: its arguments, the schedule loop, and starting the web page. The work is `comiclib` `config`, `library`, `batch` and `schedule` |
 | `adopt_comic.py` | ~700 | Takes a folder of pages someone else scraped and makes it a comic this tool can update |
 | `comiclib/` | ~760 | What more than one script needs to agree on, below |
 
@@ -39,6 +39,10 @@ archives, and keep them up to date unattended.
 | `guards` | The checks before a page is written: running backwards, writing over another page, one page under two names |
 | `runrecord` | What a scrape writes into the metadata about itself: settings, where it is up to, the run record |
 | `walk` | `--index`: following a comic saving nothing, with the scrape's own image-finding and next |
+| `config` | `ComicScraper.json`: the setup's settings and their defaults, read fresh before every run |
+| `library` | `Comic`, finding every comic in a library, and the command each resumes with |
+| `batch` | One update of a library: each comic its own process, the lock, chapters packed after, the summary |
+| `schedule` | The daily time, and the `update-now` file that starts a run sooner |
 | `web/` | The web page's server: the one job queue (`jobs`), what the page is shown (`views`), the element paths as it edits them (`elementpaths`), the add form (`adding`), the changes it can make (`edits`), and the http handler (`server`). The page itself is `web_ui.html`, at the top |
 | `chapters/` | Walking a comic to record which page is which, and `KeptIndex`, the index a scrape adds to as it goes (`index`), lining that up against the files (`align`), reading an archive page (`archive_page`) or the addresses (`addresses`) for chapters, the chapter list and its corrections (`chapterlist`), packing per chapter (`packing`), and renumbering, inserting and refetching pages (`pageops`) |
 

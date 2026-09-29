@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from conftest import PNG_240, Site, console_errors, read_meta, write_meta
+from conftest import PNG_240, Site, checked, console_errors, open_page, read_meta, wait_until, write_meta
 
 NAME = "Uncompressed/Multi"
 
@@ -118,8 +118,7 @@ def test_the_setting_can_be_changed_from_the_page(web, comic):
 def run_check_in_page(browser, url):
     browser.execute_script("document.getElementById('check-url').value = arguments[0];", url)
     browser.execute_script("document.getElementById('check-go').click()")
-    time.sleep(12)
-    return browser.execute_script("return document.getElementById('check-result').innerText")
+    return checked(browser)
 
 
 @pytest.mark.browser
@@ -127,11 +126,9 @@ def run_check_in_page(browser, url):
 def test_what_the_page_shows(web, site, comic, browser):
     page = web()
     browser.set_window_size(1300, 1050)
-    browser.get(page.base + "/")
-    time.sleep(2)
+    open_page(browser, page.base + "/")
     #the elements dialog holds the check, and the path list behind it takes the counts
     browser.execute_script("document.getElementById('open-elements').click();")
-    time.sleep(0.5)
     result = run_check_in_page(browser, site + "/p/2")
     assert "Several pages on one address" in result, result[:300]
     assert "4 images" in result and "3 of them pages" in result, result[:300]
@@ -141,10 +138,6 @@ def test_what_the_page_shows(web, site, comic, browser):
     assert "4 images, 3 pages" in listed, [line for line in listed.splitlines() if "images" in line]
     #and marks the one a scrape would use
     assert "used ·" in listed, [line for line in listed.splitlines() if "used" in line]
-    browser.set_window_size(430, 1200)
-    time.sleep(1)
-    browser.set_window_size(1300, 1050)
-    time.sleep(1)
 
     #and the javascript warning, on the page that needs it
     result = run_check_in_page(browser, site + "/js/3")
@@ -153,8 +146,9 @@ def test_what_the_page_shows(web, site, comic, browser):
     #the comic's own settings: the row about addresses, and the tick box
     browser.execute_script("document.getElementById('elements').close();")
     browser.execute_script("openEditor('{0}')".format(NAME))
-    time.sleep(3)
-    facts = browser.execute_script("return document.getElementById('edit-facts').innerText")
+    facts = wait_until(lambda: (lambda said: said if "Pages an address" in said else None)(
+        browser.execute_script("return document.getElementById('edit-facts').innerText")),
+        why="the editor never showed the comic's facts")
     assert "Pages an address" in facts and "up to 6" in facts, facts[:400]
     assert browser.execute_script("return document.getElementById('e-multi_page').checked") is True, \
         "the several-pages box should be ticked for a comic that reads them all"

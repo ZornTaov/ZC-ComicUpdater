@@ -2,3 +2,6 @@
 # scripts, not the tests, and every dependency in requirements.txt is one more thing to rebuild it for
 -r requirements.txt
 pytest>=8
+#runs the tests side by side, one worker per core. most of the suite's time is spent waiting on a browser
+#to start, which is time several can spend at once; every test works in a folder and on ports of its own
+pytest-xdist>=3

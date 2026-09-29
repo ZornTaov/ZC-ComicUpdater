@@ -12,6 +12,7 @@
 !LICENSE
 !requirements.txt
 !requirements-dev.txt
+!pytest.ini
 
 # the suite. two lines each, because * matches at every depth: the folder has to be let in before its
 # files can be, and anything not named here - __pycache__, a stray screenshot - stays out

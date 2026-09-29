@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from conftest import console_errors
+from conftest import console_errors, open_page, wait_until
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
@@ -18,8 +18,7 @@ PASTE = ("ComicName | ComicName/ComicName.cbz | https://example.com/comic\n"
 def page(web, browser):
     started = web()
     browser.set_window_size(1350, 1000)
-    browser.get(started.base + "/")
-    time.sleep(2)
+    open_page(browser, started.base + "/")
     return started
 
 
@@ -40,11 +39,15 @@ def test_a_pasted_list_fills_the_add_table(page, browser):
 def test_the_element_lists_reorder_by_button_and_by_drag(page, browser):
     #the settings dialog opens and closes on the way, as it did when these were only looked at
     browser.execute_script("document.getElementById('open-config').click()")
-    time.sleep(1)
+    time.sleep(0.3)
     browser.execute_script("document.getElementById('cfg-cancel').click()")
 
     browser.execute_script("document.getElementById('open-elements').click()")
-    time.sleep(1.5)
+    #the lists arrive by fetch once the dialog opens
+    wait_until(lambda: browser.execute_script("return typeof paths !== 'undefined' && paths.image "
+                                              "&& paths.image.length && document.querySelectorAll("
+                                              "'[data-list=\"image\"] [data-move=\"up\"]').length"),
+               why="the element lists never arrived")
     #a row well down the list, so moving it happens somewhere a re-render could scroll away from
     at = browser.execute_script("return Math.min(8, paths.image.length - 1)")
     assert at >= 1, "the image list is too short to move a row up"
@@ -75,7 +78,7 @@ def test_the_element_lists_reorder_by_button_and_by_drag(page, browser):
     assert dragged[0] == dragged[1], "the dragged row did not land where it was dropped: {0}".format(dragged)
 
     browser.set_window_size(430, 1200)
-    browser.get(page.base + "/")
-    time.sleep(2)
+    open_page(browser, page.base + "/")
+    time.sleep(1)
     errors = console_errors(browser)
     assert not errors, errors

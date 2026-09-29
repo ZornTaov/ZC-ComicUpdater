@@ -10,7 +10,7 @@ import tokenize
 
 import pytest
 
-from conftest import PNG_240, PROJECT, Site, console_errors, pages_in, run
+from conftest import PNG_240, PROJECT, Site, checked, console_errors, open_page, pages_in, run
 
 PAGES = 5
 ADDED_IMAGE = '//img[@class="strip-art"]'
@@ -180,12 +180,10 @@ def test_the_elements_dialog_runs_a_check_without_console_errors(web, site, brow
     save_added_paths(page)
     for width, height in ((1300, 1000), (430, 1200)):
         browser.set_window_size(width, height)
-        browser.get(page.base + "/")
-        time.sleep(2)
+        open_page(browser, page.base + "/")
         browser.execute_script("document.getElementById('open-elements').click();"
                                "document.getElementById('check-url').value = arguments[0];", site + "/p/2")
-        time.sleep(0.5)
         browser.execute_script("document.getElementById('check-go').click()")
-        time.sleep(9)
+        checked(browser)
     errors = console_errors(browser)
     assert not errors, errors

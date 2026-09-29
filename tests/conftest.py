@@ -272,6 +272,34 @@ def browser(mirror):
     mirror.quit_quietly(driver)
 
 
+def wait_until(check, limit=60, every=0.1, why="the page never got there"):
+    #the moment something is true, rather than a pause long enough for the slowest machine. a fixed sleep
+    #waits the whole of it every time, and was most of what the browser tests spent
+    end = time.time() + limit
+    while True:
+        found = check()
+        if found:
+            return found
+        if time.time() > end:
+            raise AssertionError(why)
+        time.sleep(every)
+
+
+def open_page(driver, address):
+    #loaded, and its script run, so its buttons do something when pressed
+    driver.get(address)
+    wait_until(lambda: driver.execute_script("return document.readyState") == "complete",
+               why="the page never finished loading")
+
+
+def checked(driver, box="check-result"):
+    #what a check shows once it is done: the box says it is checking until the answer arrives
+    def done():
+        said = driver.execute_script("return document.getElementById(arguments[0]).innerText", box)
+        return said if said.strip() and not said.startswith("Checking") else None
+    return wait_until(done, limit=120, why="the check never finished")
+
+
 def console_errors(driver):
     try:
         return [entry for entry in driver.get_log("browser") if entry.get("level") == "SEVERE"]

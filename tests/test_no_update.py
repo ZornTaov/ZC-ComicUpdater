@@ -78,8 +78,8 @@ def test_a_run_with_nothing_new_writes_nothing_down(comic):
     assert os.path.getmtime(folder / "mirror_metadata.json") == was_mtime and meta.get("updated") == was_updated, \
         "the metadata was rewritten: {0} vs {1}".format(meta.get("updated"), was_updated)
 
-    #and again, five times over, as a daily run would
-    for _ in range(5):
+    #and again, twice more, as a daily run would: a history that stacks would already show it
+    for _ in range(2):
         scrape(folder, meta["settings"]["url"])
     meta, runs = runs_of(folder)
     assert len(runs) == 1, "the history should still be one run, not several: {0}".format(summary(runs))

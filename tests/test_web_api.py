@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from conftest import PNG, Site, console_errors, pages_in, read_meta
+from conftest import PNG, Site, console_errors, open_page, pages_in, read_meta, wait_until
 
 PASSWORD = "hunter2"
 PAGES = 6
@@ -133,13 +133,16 @@ def test_the_page_shows_running_jobs_without_console_errors(page, site, browser)
     page.call("/api/add", {"rows": [{"folder": "Slow2", "url": site + "/slow/1"},
                                     {"folder": "Slow3", "url": site + "/slow/1"}]})
     page.call("/api/update", {"names": ["Uncompressed/Group/*"]})
-    time.sleep(9)
+    #until a comic is really being scraped and the update is waiting behind it, which is what is shown
+    wait_until(lambda: (page.call("/api/state")[1].get("current") or {}).get("comics")
+               and page.call("/api/state")[1].get("waiting"), why="the jobs never got going")
     try:
         browser.set_window_size(1400, 1000)
-        browser.get(page.base.replace("http://", "http://me:{0}@".format(PASSWORD)) + "/")
-        time.sleep(3)
+        open_page(browser, page.base.replace("http://", "http://me:{0}@".format(PASSWORD)) + "/")
+        #the page polls for the state once a second, so two of those have drawn the jobs
+        time.sleep(2)
         browser.set_window_size(420, 1400)
-        time.sleep(1)
+        time.sleep(0.5)
         errors = console_errors(browser)
         assert not errors, errors
     finally:

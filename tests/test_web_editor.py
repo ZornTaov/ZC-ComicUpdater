@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from conftest import PNG, Site, console_errors, pages_in, read_meta, run, write_meta
+from conftest import PNG, Site, console_errors, open_page, pages_in, read_meta, run, wait_until, write_meta
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 LAST = 8
@@ -145,10 +145,12 @@ def test_the_editor_opens_without_console_errors(scraped, web, browser):
     page = web()
     for width, height in ((1300, 950), (420, 1100)):
         browser.set_window_size(width, height)
-        browser.get(page.base + "/")
-        time.sleep(2)
+        open_page(browser, page.base + "/")
+        #the library table is filled in by a fetch after the page loads
+        wait_until(lambda: browser.execute_script(
+            "return document.querySelector('[data-edit=\"{0}\"]')".format(NAME)), why="the comic never listed")
         browser.execute_script("document.querySelector('[data-edit=\"{0}\"]').click()".format(NAME))
-        time.sleep(1.5)
+        time.sleep(1)
         browser.execute_script("document.getElementById('edit-runs-box').open = true")
         time.sleep(0.3)
     errors = console_errors(browser)

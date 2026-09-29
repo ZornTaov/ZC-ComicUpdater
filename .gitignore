@@ -31,6 +31,8 @@
 !comiclib/chapters/*.py
 !comiclib/web/
 !comiclib/web/*.py
+!comiclib/adopt/
+!comiclib/adopt/*.py
 !web_ui.py
 !web_ui.html
 

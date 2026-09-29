@@ -19,7 +19,7 @@ archives, and keep them up to date unattended.
 | `web_ui.py` | ~20 | Where `update_comics` finds the web page's server; the server is in `comiclib/web/`, below |
 | `web_ui.html` | ~1460 | The whole front end, one file, no build step |
 | `update_comics.py` | ~190 | The long-running process: its arguments, the schedule loop, and starting the web page. The work is `comiclib` `config`, `library`, `batch` and `schedule` |
-| `adopt_comic.py` | ~700 | Takes a folder of pages someone else scraped and makes it a comic this tool can update |
+| `adopt_comic.py` | ~120 | Takes a folder of pages someone else scraped and makes it a comic this tool can update. The work is `comiclib/adopt/`: `scan`, `report`, `adopting` |
 | `comiclib/` | ~760 | What more than one script needs to agree on, below |
 
 `comiclib` is where anything two scripts both need goes, so the answer cannot drift between them:

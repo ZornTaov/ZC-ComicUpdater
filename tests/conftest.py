@@ -82,10 +82,10 @@ class Site(BaseHTTPRequestHandler):
         pass
 
 
-def comic_page(image, onward=None, title="Comic", size=240, image_id="comic-image", next_class="cc-next"):
+def comic_page(image, onward=None, title="Comic", size=240, image_id="cc-comic", rel="next"):
     #the markup most comics come down to: one image with an id the shipped element paths know, and a next
-    #link with a class they know. a page with no onward address is the newest one
-    link = '<a class="{0}" href="{1}">Next</a>'.format(next_class, onward) if onward else ''
+    #link marked the way they know. a page with no onward address is the newest one
+    link = '<a rel="{0}" href="{1}">Next</a>'.format(rel, onward) if onward else ''
     return ('<html><head><title>{0}</title></head><body><div id="wrap">'
             '<img id="{1}" width="{2}" height="{2}" src="{3}"></div>{4}</body></html>'.format(
                 title, image_id, size, image, link))

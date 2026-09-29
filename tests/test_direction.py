@@ -12,7 +12,7 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 def html(img, onward):
     link = '<a href="{0}">Next</a>'.format(onward) if onward else ''
     return ('<html><body><div id="wrap">{1}'
-            '<img id="comic-image" src="{0}"></div></body></html>'.format(img, link))
+            '<img id="cc-comic" src="{0}"></div></body></html>'.format(img, link))
 
 
 class TwoWays(Site):

@@ -22,10 +22,10 @@ import zlib
 video_types = re.compile(r"\.(mp4|m4v|webm|mov|mkv)$", re.I)
 flash_types = re.compile(r"\.swf$", re.I)
 link_types = re.compile(r"\.(txt|url|webloc)$", re.I)
-#not anchored: a note can run its own words straight into the address, which is what Wapsi Square does
+#not anchored: a note can run its own words straight into the address, with no space between
 a_web_address = re.compile(r"(https?://\S+)")
-#a note about a page is named like a page - 4017.txt, beside 4016.png - which is what tells it from a
-#comic's readme. a readme can mention all the addresses it likes; it is still not page 4017.
+#a note about a page is named like a page - 0102.txt, beside 0101.png - which is what tells it from a
+#comic's readme. a readme can mention all the addresses it likes; it is still not page 102.
 named_for_a_page = re.compile(r"^(\d+)(?:[._])")
 
 
@@ -184,9 +184,9 @@ def archive_entry(folder, name):
 
 
 def address_in(path):
-    #the web address a note beside the pages holds, and whatever it calls it. wapsisquare's notes run the
-    #two straight together - "Wapsi Square's The Library Ghost Story trailerhttps://youtube.com/..." -
-    #so the address is looked for inside the line rather than as the whole of it.
+    #the web address a note beside the pages holds, and whatever it calls it. a note can run the two
+    #straight together - "My Comic's trailerhttps://example.com/video/..." - so the address is looked
+    #for inside the line rather than as the whole of it.
     #
     #a comic's readme is not a page, though, and the difference is that a note about one page says almost
     #nothing else: it is short, and most of what it says is the address. a readme is longer than that,
@@ -214,15 +214,15 @@ def held_otherwise(folder, name):
         return ["This page is a video.", "", "It is in the comic's folder as", name]
     if flash_types.search(name):
         return ["This page was Flash.", "", "It is in the comic's folder as", name]
-    #a note about a page is named like a page - wapsisquare's are 4017.txt, beside 4016.png - which is
-    #what tells it from a comic's readme. a readme can mention all the addresses it likes; it is still
-    #not page 4017, and a ratio of address to prose could never have told the two apart reliably: one of
-    #these notes is a long video title and one line of address.
+    #a note about a page is named like a page - 0102.txt, beside 0101.png - which is what tells it from
+    #a comic's readme. a readme can mention all the addresses it likes; it is still not page 102, and a
+    #ratio of address to prose could never have told the two apart reliably: a note can be a long video
+    #title and one line of address.
     if link_types.search(name) and named_for_a_page.match(name):
         address, called = address_in(os.path.join(folder, name))
         if address:
-            #the name the note gives it is worth showing: "Wapsi Square's The Library Ghost Story
-            #trailer" says more about the page than the address does
+            #the name the note gives it is worth showing: "My Comic's trailer" says more about the page
+            #than the address does
             return (["This page is a video."] + (wrapped(called) if called else [])
                     + ["", address, "", "noted in the comic's folder as", name])
     return None

@@ -10,7 +10,7 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 def page(img, onward, label):
     link = '<a href="{0}">Next</a>'.format(onward) if onward else ''
     return ('<html><body><div id="wrap">{2}'
-            '<img id="comic-image" src="{0}">'
+            '<img id="cc-comic" src="{0}">'
             '</div><p>{1}</p></body></html>'.format(img, label, link))
 
 

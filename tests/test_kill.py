@@ -22,7 +22,7 @@ class Endless(Site):
         number = int(number)
         time.sleep(1)
         self.send('<html><body><div id="wrap"><a href="/s/{1}">Next</a>'
-                  '<img id="comic-image" src="/img/{0:04d}.png"></div></body></html>'.format(number, number + 1))
+                  '<img id="cc-comic" src="/img/{0:04d}.png"></div></body></html>'.format(number, number + 1))
 
 
 def test_a_scrape_past_its_timeout_is_killed_on_time_and_says_what_it_was_doing(serve, library):

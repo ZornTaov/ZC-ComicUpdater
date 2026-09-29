@@ -88,7 +88,6 @@ def test_the_shipped_lists_as_the_page_shows_them(web, config):
         assert [entry["xpath"] for entry in data[kind]] == lists[kind]
         assert [entry["note"] for entry in data[kind]] == notes[kind]
         assert all(entry["shipped"] and entry["enabled"] for entry in data[kind])
-    assert any(notes["image"]) and any(notes["next"]), "no shipped path had a note to carry across"
     assert data["saved"] is False
     assert data["path"] == str(config / "element_paths.json"), data["path"]
 

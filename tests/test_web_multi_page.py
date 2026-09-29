@@ -19,10 +19,10 @@ class Multi(Site):
             return
         if self.path.startswith("/js/"):
             self.send('<html><head><title>Built by javascript</title></head><body>'
-                      '<div id="strip"></div><a class="cc-next" href="/js/9">Next</a>'
+                      '<div class="comic"></div><a rel="next" href="/js/9">Next</a>'
                       '<script>var bit = "000" + 3 + "_1"; var img = document.createElement("img");'
                       'img.width = 240; img.height = 240; img.src = "/img/" + bit + ".png";'
-                      'document.getElementById("strip").appendChild(img);</script>'
+                      'document.querySelector(".comic").appendChild(img);</script>'
                       '</body></html>')
             return
         number = self.path.rsplit("/", 1)[-1]
@@ -33,8 +33,8 @@ class Multi(Site):
         pages = "".join('<img width="240" height="240" src="/img/{0:04d}_{1}.png">'.format(number, at)
                         for at in (1, 2, 3))
         self.send('<html><head><title>Multi Comic {0}</title></head><body>'
-                  '<div id="strip">{1}<img width="240" height="240" src="/nav/next.png"></div>'
-                  '<a class="cc-next" href="/p/{2}">Next</a>'
+                  '<div class="comic">{1}<img width="240" height="240" src="/nav/next.png"></div>'
+                  '<a rel="next" href="/p/{2}">Next</a>'
                   '</body></html>'.format(number, pages, number + 1))
 
 
@@ -56,8 +56,8 @@ def comic(site, library):
         "settings": {"url": site + "/p/3", "output": NAME, "cbz_path": "CBZs/Multi.cbz",
                      "increment": 4, "prefix": True, "javascript": False, "firefox": False, "waittime": 0,
                      "cbz": False, "direction_check": True, "multi_page": True, "ended": False},
-        "state": {"page_count": 3, "completed": False, "image_xpath": '//*[@id="strip"]//img',
-                  "next_xpath": '//*[@class="cc-next"]', "pages_per_url": 6,
+        "state": {"page_count": 3, "completed": False, "image_xpath": '//*[@class="comic"]/img',
+                  "next_xpath": '//*[@rel="next"]', "pages_per_url": 6,
                   "multi_page_from": site + "/p/2"},
         "history": {"first_page_url": site + "/p/1", "runs": []},
     })
@@ -83,7 +83,7 @@ def run_check(page, url, limit=180):
 def test_the_check_counts_the_pages_on_one_address(web, site, comic):
     found = run_check(web(), site + "/p/2")
     top = (found.get("image") or [{}])[0]
-    assert top.get("xpath") == '//*[@id="strip"]//img', "the winning path is the one that finds them all"
+    assert top.get("xpath") == '//*[@class="comic"]/img', "the winning path is the one that finds them all"
     assert top.get("count") == 4, found.get("image")
     assert top.get("page_count") == 3, top.get("page_count")
     #the button is the one left out

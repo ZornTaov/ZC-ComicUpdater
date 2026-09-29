@@ -38,7 +38,7 @@ def make_site(pages, chapters):
                 return
             link = '<a href="/p/{0}">Next</a>'.format(n + 1) if n < state["pages"] else ""
             self.send('<html><head><title>Page {0}</title></head><body><div id="wrap">{1}'
-                      '<img id="comic-image" src="/img/{0:04d}.png"></div></body></html>'.format(n, link))
+                      '<img id="cc-comic" src="/img/{0:04d}.png"></div></body></html>'.format(n, link))
 
     return Serial, state
 

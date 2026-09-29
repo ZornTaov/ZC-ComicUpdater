@@ -62,8 +62,8 @@ their run — a date stamp becomes `NAME_0421.jpg` — and once that happens the
 into reading order. A prefix pins the order to the order you downloaded them in, which is the order
 the comic was published in.
 
-Some sites make it compulsory rather than merely wise. Bittersweet Candy Bowl numbers each chapter's
-pages from one - `/comics/1/1@2x.png`, then later `/comics/131/1@2x.png` - so every chapter would be
+Some sites make it compulsory rather than merely wise. A site that numbers each chapter's pages from
+one - `/comics/1/1.png`, then later `/comics/131/1.png` - would have every chapter
 written over the last one, the run would look like a success, and only the page count would say
 otherwise. A scrape that is about to do this stops instead and says to turn `--prefix` on.
 
@@ -216,12 +216,12 @@ empty file updates everything; otherwise list comic folders in it, one per line,
 
 ```text
 # lines starting with # are ignored
-Uncompressed/Snafu-Comics/nsma
-gg
-Uncompressed/Snafu-Comics/*
+Uncompressed/SomeAuthor/TheirComic
+MyComic
+Uncompressed/SomeAuthor/*
 ```
 
-Wildcards work, and `*` reaches into subfolders, so `Uncompressed/Snafu-Comics/*` is every comic under
+Wildcards work, and `*` reaches into subfolders, so `Uncompressed/SomeAuthor/*` is every comic under
 that folder however deeply it is nested. The same patterns work with `--only`.
 
 That is the whole interface to a running container: anything that can write to the library share can
@@ -265,14 +265,14 @@ shows:
 - **Queued**: jobs waiting their turn, each removable. Everything goes through one queue, whether it
   was started from the page, by the schedule or by an `update-now` file, so two runs never collide.
 - **Library**: every comic with its page count and how its last run ended. Filter it with a name or a
-  wildcard such as `Uncompressed/Snafu-Comics/*`, then update the checked comics, everything shown,
+  wildcard such as `Uncompressed/SomeAuthor/*`, then update the checked comics, everything shown,
   or one comic from its own row.
 - **Add comics**: a row per comic — where its pages go, where its archive goes, and the page to start
   from. Both folders are inside the ones named in Settings, so they are written once each:
 
   | Pages folder | Archive | First page |
   | --- | --- | --- |
-  | `Snafu-Comics/nsma` | `Snafu-Comics/nsma.cbz` | `https://www.snafu-comics.com/nsma/issue-1-cover` |
+  | `SomeAuthor/TheirComic` | `SomeAuthor/TheirComic.cbz` | `https://example.com/theircomic/issue-1-cover` |
   | `MyComic` | `MyComic/MyComic.cbz` | `https://example.com/comic/first-page` |
 
   **Make cbz** is one switch: whether this comic keeps archives at all. What shape they take is decided
@@ -471,7 +471,7 @@ The result is cached under `config/index/`. It can be deleted at any time; the w
 ### A page the comic's own links skip
 
 Some comics have a page their own next links walk straight past, reachable only from an archive page:
-powerpuffgirls lists 501 pages and its navigation visits 500. Nothing that follows the comic can ever
+the archive lists 501 pages and the navigation visits 500. Nothing that follows the comic can ever
 find such a page, so it is put in by hand.
 
 ```sh
@@ -492,13 +492,13 @@ The web page offers the same thing under **Chapter boundaries**.
 
 ### A page the site itself has lost
 
-Sites lose pages. Snafu's *Nsma* has no `issue-1-page-25` at all - the link jumps straight to the
-latest page - so that page can only come from somewhere else, in this case the artist's own DeviantArt.
+Sites lose pages. A comic can have no `issue-1-page-25` at all - the link jumps straight to the latest
+page - so that page can only come from somewhere else, such as the artist's own gallery.
 A file like that belongs to no walked page, so without being told, everything here calls it a stray:
 the alignment will not settle and packing refuses to write around it.
 
 ```sh
-python chapters.py recovered "D:/Comics/Uncompressed/MyComic" --file "nsma_00026.png"     --note "the site's page 25 leads elsewhere; found on the artist's own page"
+python chapters.py recovered "D:/Comics/Uncompressed/MyComic" --file "page_00026.png"     --note "the site's page 25 leads elsewhere; found on the artist's own page"
 python chapters.py recovered "D:/Comics/Uncompressed/MyComic"            # what has been put back
 python chapters.py recovered "D:/Comics/Uncompressed/MyComic" --file X --forget
 ```
@@ -572,7 +572,7 @@ source.
 
 `try` reads the page through the very code a real run uses, with the archive's own order standing in
 for the comic's, so what it shows is a preview rather than a second opinion. Where an archive states
-each chapter's length - "3. Merry Snow Day (4 pages, 5/8/06)" - that count is taken out of the name and
+each chapter's length - "3. A Day Out (4 pages, 5/8/06)" - that count is taken out of the name and
 kept: the totals say whether the page lists every page or only where chapters start, and a heading that
 states no length where all the others do is flagged, since it is usually some other section of the site
 that happens to link into the comic.
@@ -584,11 +584,11 @@ three writes anything without `--save`:
    *known* to be a page of this comic rather than guessed at, and chapter titles come from whatever
    headings sit above them. Works on hand-built tables and on themed archives alike.
    Some archives put the chapter's link *inside* the heading that names it, rather than under it -
-   `<h4>1. <a href="c1/p1">Simple Pleasures</a> <span>(6 pages)</span></h4>` - and that reads the same
+   `<h4>1. <a href="c1/p1">First Steps</a> <span>(6 pages)</span></h4>` - and that reads the same
    way. A real heading tag beats a container whose class merely says "chapter", because such a container
    usually holds the description and the icon too, and none of that is a name.
-   An archive that **draws** its chapter headings is read too: `avasdemon.com/chapters.php` heads each
-   chapter with `<img src="chapter12.png">` and no words at all, so the picture's alt — or failing that
+   An archive that **draws** its chapter headings is read too: one that heads each chapter with
+   `<img src="chapter12.png">` and no words at all has only the picture to name it, so its alt — or failing that
    its filename — is the name. Only a picture named for a chapter, arc, volume, book, part, episode or
    season counts, and the word has to be followed by its number, so `partners.png` and `bookmark.png`
    head nothing.
@@ -596,13 +596,13 @@ three writes anything without `--save`:
    heading however much its own name says "chapter" — `<div id="chapters">` around the whole page, and
    `<table id="chapter12_table">` around each chapter's links, are both containers. Without that, every
    page link inside one became a chapter of its own: a 3,500 page comic read as 3,500 chapters.
-2. **The addresses themselves**, for a comic that counts `/c4/p7`, `/ss/4-7` or
+2. **The addresses themselves**, for a comic that counts `/c4/p7`, `/mc/4-7` or
    `/comic/issue-4-page-7`: every number in the address is tried as the chapter, and whichever reads best
    wins. A chapter counts up from where a comic starts counting, which is what keeps a date from being
    read as a chapter a year. A page whose address does not follow the shape the rest use - a one-off
    slug, a typo on the site - stays in the chapter it sits in rather than becoming one, and each chapter
    is named by what most of its pages say. A number larger than the comic's own page count is not a
-   chapter either, which is how a filler page at `/ss/20211202` stops reading as chapter twenty million
+   chapter either, which is how a filler page at `/mc/20211202` stops reading as chapter twenty million
    and swallowing everything after it. `--urls` forces this even for a comic that remembers an archive
    page.
 3. **A file of chapter starts**, one address per line, each optionally followed by `|` and a title.
@@ -610,8 +610,8 @@ three writes anything without `--save`:
    The first correction on a comic with no chapters yet makes the first chapter, and the comic is then
    marked as chaptered by hand so that working them out again keeps them rather than finding nothing.
 An archive built as one table per chapter, with the chapter's name in the table's `<th>`, is read the
-same way as one using `<h2>` headings - Tiger Knight's archive is 38 such tables and reads as 38
-chapters, none of which carries a number or the word "chapter" anywhere.
+same way as one using `<h2>` headings - an archive of 38 such tables reads as 38 chapters, even when
+none of them carries a number or the word "chapter" anywhere.
 
 
 Whatever the source, a reading that comes out as **one chapter over the whole comic** is refused: that
@@ -627,13 +627,13 @@ specials labelled by year from being sorted to the end.
 
 ### Putting a boundary right by hand
 
-No rule can read a page the site itself names wrongly. Order of the Black Dog calls every issue cover
-`issue-20-cover` except one, which is `20-the-sovereign`, so that cover lands at the end of issue 19
+No rule can read a page the site itself names wrongly. A comic that calls every issue cover
+`issue-20-cover` except one, which is `20-an-odd-name`, puts that cover at the end of issue 19
 instead of the start of issue 20. `fix` says so:
 
 ```sh
 python chapters.py fix "D:/Comics/Uncompressed/MyComic" \
-  --at "https://example.com/comic/20-the-sovereign/" --label "Issue 20"
+  --at "https://example.com/comic/20-an-odd-name/" --label "Issue 20"
 ```
 
 `--at` takes a page's address or its number. Naming a chapter that is already there **moves** it to
@@ -670,8 +670,8 @@ python chapters.py pack "D:/Comics/Uncompressed/MyComic" --root "D:/Comics" --re
 Chapter archives go in the comic's own folder inside the archive shelf, named to sort:
 
 ```text
-CBZs/Chalodillo/Las_Lindas/Las_Lindas - c001 - Chapter 1.cbz
-CBZs/Chalodillo/Las_Lindas/Las_Lindas - c002 - Chapter 2.cbz
+CBZs/SomeAuthor/TheirComic/TheirComic - c001 - Chapter 1.cbz
+CBZs/SomeAuthor/TheirComic/TheirComic - c002 - Chapter 2.cbz
 ```
 
 Each carries a `ComicInfo.xml` naming the series, the chapter number and how many there are, which is
@@ -783,8 +783,8 @@ A run that finds no image says the same thing the other way round, so the two en
 
 ### Several pages on one address
 
-Most comics put one page at one address. Some change their minds partway through: `avasdemon.com` began
-serving a whole scroll of pages at `2617.html`, and `limbero.org/jl8` began serving six at `270_1`. A
+Most comics put one page at one address. Some change their minds partway through, and begin serving a
+whole scroll of pages at one address, or six at a time. A
 scrape that asks a page for *the* comic image saves the first of them, walks on, and says nothing — the
 folder simply comes out a fraction of the size it should be, which nothing notices until pages are
 missing in the reader.
@@ -799,7 +799,7 @@ The change is reported the first time it happens, so a comic that has started do
 the log rather than only in the page count:
 
 ```
-https://limbero.org/jl8/270_1 holds 6 pages of the comic where every address so far held one, so this
+https://example.com/comic/270 holds 6 pages of the comic where every address so far held one, so this
 comic has started putting several pages on one address. Each is saved in turn, numbered on from the last.
 ```
 
@@ -808,7 +808,7 @@ metadata records `pages_per_url` and the `multi_page_from` address under `state`
 per page rather than per address, so chapters built on it still line up. `--no-multi-page` reads one page
 an address however many are there, and is remembered in the comic's settings.
 
-A comic like this wants a path scoped to the container holding the pages — `//*[@id="mama"]/img` rather
+A comic like this wants a path scoped to the container holding the pages — `//*[@id="pages"]/img` rather
 than a path to one image — since that is the path that finds all of them. `--check` suggests exactly that
 for an image with no id, class or alt of its own to match on.
 
@@ -882,7 +882,7 @@ python update_comics.py "D:/Comics" --only MyComic --dry-run
   one the comic already holds. `--no-direction-check` turns that off for a comic that genuinely
   reuses its filenames.
 - A next link that leads somewhere with no comic image on it — usually the front page, which is
-  where `avasdemon.com` and `missmab.com` both send you from their last page — means the comic has
+  where plenty of comics send you from their last page — means the comic has
   no more pages for now, rather than being a fault, once the run has saved at least one page. The
   address it landed on is reported, and **the resume address stays at the last page actually
   saved**, so the next run carries on from the comic rather than starting again at the front page.

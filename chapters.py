@@ -362,7 +362,7 @@ def describe(folder, pages, files, aligned, how, anchors, trouble, rescued=(), r
             print("      chapters.py refetch {0} --page <n> --as-named puts one right.".format(folder))
     agree, changed, conflict = verify(folder, files, pages, aligned)
     #a size says where a page is only where sizes say anything at all. a site that re-exported its whole
-    #archive - avasdemon.com did, at four fifths the size - leaves every one of them different, and then
+    #archive - every image re-encoded at four fifths the size - leaves every one of them different, and then
     #a size that happens to match some other file among thousands is a coincidence rather than a page in
     #the wrong place. so they are still reported, and they stop counting as a fault.
     sizes_tell = agree >= changed
@@ -484,8 +484,8 @@ def same_page(url):
 
 
 def drawn_heading(attrs):
-    #a site that draws its chapter headings instead of writing them. avasdemon.com heads each chapter with
-    #<img src="chapter12.png"> and no words at all, so the only name on the page is in the picture - and
+    #a site that draws its chapter headings instead of writing them. one that heads each chapter with
+    #<img src="chapter12.png"> and no words at all has the only name on the page in the picture - and
     #the picture's own filename is where the number is. the alt is preferred when there is one, since that
     #is the site saying what the picture means.
     text = (attrs.get("alt") or "").strip()
@@ -531,8 +531,8 @@ class ArchiveReader(html.parser.HTMLParser):
             self.link = got["href"]
             self.link_text = []
             return
-        #some archives are a dropdown rather than a list of links: snafu-comics lists every page of a
-        #comic as an <option>, and its script sends you to the value when you pick one. that is a link
+        #some archives are a dropdown rather than a list of links: every page of a comic as an <option>,
+        #and a script that sends you to the value when you pick one. that is a link
         #by any other name, and without reading it such a page says nothing at all.
         if tag == "option" and got.get("value"):
             self.link = got["value"]
@@ -570,8 +570,8 @@ class ArchiveReader(html.parser.HTMLParser):
 
     def stop_holding(self):
         #this candidate is holding a list of links rather than naming something, so it is a container and
-        #not a heading: avasdemon.com wraps its whole chapter list in <div id="chapters"> and gives each
-        #chapter's table an id of chapter12_table, and both read as headings by their names alone. given
+        #not a heading: a whole chapter list wrapped in <div id="chapters">, and each chapter's table given
+        #an id of chapter12_table, both read as headings by their names alone. given
         #up as soon as it is plain, so everything after it - drawn headings included - is read where it
         #stands rather than being held back and handed out at the closing tag, out of order.
         said = re.sub(r'\s+', ' ', "".join(self.said_alone)).strip()
@@ -646,7 +646,7 @@ def read_archive(url, browser=False, script=None):
 
 
 def heading_says(text):
-    #an archive that says how long each chapter is: "3. Merry Snow Day (4 pages, 5/8/06)". the count is
+    #an archive that says how long each chapter is: "3. A Day Out (4 pages, 5/8/06)". the count is
     #the site's own word on how many pages the chapter holds, which is something a reading can be checked
     #against, and it is not part of the chapter's name.
     found = re.search(r'\(\s*(\d+)\s*pages?\b[^)]*\)\s*$', text or "", re.I)
@@ -664,13 +664,13 @@ def says_it_twice(url):
 def link_targets(base, href):
     #where a link points, allowing for the two ways an archive writes one. a dropdown's value is what its
     #script navigates to, and such values are usually written from the site's root rather than from the
-    #page's own folder - snafu-comics writes "powerpuffgirls/first-day" on a page that already sits in
-    #/powerpuffgirls/. both readings are offered and whichever is a page of the comic is the one meant.
+    #page's own folder - "mycomic/first-day" on a page that already sits in /mycomic/. both readings are
+    #offered and whichever is a page of the comic is the one meant.
     here = urljoin(base, href)
     from_root = urljoin(urljoin(base, '/'), href.lstrip('/'))
     if here == from_root:
         return [here]
-    #joining "powerpuffgirls/first-day" onto a page already inside /powerpuffgirls/ says it twice, and no
+    #joining "mycomic/first-day" onto a page already inside /mycomic/ says it twice, and no
     #site has a path like that. so a reading that repeats a step is tried last, not first.
     return sorted([here, from_root], key=says_it_twice)
 
@@ -759,8 +759,8 @@ def chapter_word(key):
              "volume": "Volume", "b": "Book", "book": "Book", "part": "Part", "arc": "Arc",
              "p": "Chapter", "page": "Chapter", "strip": "Chapter"}
     if word not in known and len(word) <= 3:
-        #a short tag before the number is a site's shorthand for the comic itself - /ss/12-1 is Swords and
-        #Sausages chapter 12 - and naming the chapter after the comic says nothing
+        #a short tag before the number is a site's shorthand for the comic itself - /mc/12-1 is My Comic
+        #chapter 12 - and naming the chapter after the comic says nothing
         word = ""
     return "{0} {1}".format(known.get(word, word.title() or "Chapter"), int(found.group(2)))
 
@@ -818,7 +818,7 @@ def agreement(chapters):
 
 
 def chapters_from_urls(pages):
-    #a comic whose addresses carry the chapter: /c4/p7, /ss/4-7, /comic/issue-4-page-7. every number in
+    #a comic whose addresses carry the chapter: /c4/p7, /mc/4-7, /comic/issue-4-page-7. every number in
     #the address is tried as the chapter, and whichever reads best wins.
     if len(pages) < 4:
         return []
@@ -1887,8 +1887,8 @@ def shift_up(folder, pages, at):
 
 
 def insert_page(folder, args):
-    #a page the comic's own next links skip - powerpuffgirls has one the archive lists and the navigation
-    #walks straight past - can be reached by nothing that follows the comic. so it is put in by hand: the
+    #a page the comic's own next links skip - one the archive lists and the navigation walks straight
+    #past - can be reached by nothing that follows the comic. so it is put in by hand: the
     #page is read, its image saved, and everything after it moves along one so the order still reads true.
     if not args.url or not args.after:
         print("ERROR: say which page to put in with --url, and which page it follows with --after.")

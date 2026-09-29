@@ -25,7 +25,7 @@ class Ending(Comic):
             #the front page: an image, but not a page of the comic
             self.send('<html><head><title>Front</title></head><body>'
                       '<img class="splash" src="/img/front.png" width="240" height="240">'
-                      '<a class="cc-next" href="/p/1">Start reading</a></body></html>')
+                      '<a rel="next" href="/p/1">Start reading</a></body></html>')
             return
         kind, _, number = path.lstrip("/").partition("/")
         if kind not in ("p", "w", "b") or not number.isdigit():

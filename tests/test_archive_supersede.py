@@ -17,7 +17,7 @@ class OnePage(Site):
         if self.path.startswith("/img/"):
             self.send(PNG, "image/png")
         else:
-            self.send('<html><body><div id="wrap"><img id="comic-image" src="/img/b.png"></div></body></html>')
+            self.send('<html><body><div id="wrap"><img id="cc-comic" src="/img/b.png"></div></body></html>')
 
 
 def test_a_page_resaved_under_a_new_name_leaves_the_archive_under_its_old_one(library, serve):

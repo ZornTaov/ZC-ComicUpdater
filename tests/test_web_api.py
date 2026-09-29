@@ -27,7 +27,7 @@ class Linked(Site):
         if kind == "slow":
             time.sleep(1.0)
         link = '<a href="/{0}/{1}">Next</a>'.format(kind, number + 1) if number < pages else ""
-        self.send('<html><body><div id="wrap">{2}<img id="comic-image" src="/img/{0}{1:04d}.png">'
+        self.send('<html><body><div id="wrap">{2}<img id="cc-comic" src="/img/{0}{1:04d}.png">'
                   '</div></body></html>'.format(kind, number, link))
 
 

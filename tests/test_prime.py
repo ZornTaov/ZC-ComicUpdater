@@ -23,7 +23,7 @@ class Forward(Site):
             return
         number = int(number)
         link = '<a href="/{0}/{1}">Next</a>'.format(kind, number + 1) if number < PAGES and kind == "fwd" else ""
-        self.send('<html><body><div id="wrap">{1}<img id="comic-image" src="/img/{0:04d}.png">'
+        self.send('<html><body><div id="wrap">{1}<img id="cc-comic" src="/img/{0:04d}.png">'
                   '</div></body></html>'.format(number, link))
 
 

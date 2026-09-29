@@ -69,9 +69,15 @@ anything new.
 
 ## Conventions worth matching
 
-- Comments explain **why**, in lower case, in prose, often naming the comic that forced the behaviour
-  ("avasdemon.com serves page 2747 as 1273.png"). They are not narration of what the line does. Match
-  the surrounding density; it is high.
+- Comments explain **why**, in lower case, in prose, describing the kind of site that forced the
+  behaviour ("a comic can re-serve an old page's image under a later page"). They are not narration of
+  what the line does. Match the surrounding density; it is high.
+- **No real webcomic is named anywhere in the repo** - not in code, comments, help text, the web page,
+  the tests or the docs. Describe the shape of the site instead, and use `example.com` addresses and
+  names like `MyComic` or `SomeAuthor/TheirComic`. The shipped element paths are the generic set from
+  AChillVamp's original; the ones added for particular comics live in the user's own
+  `config/element_paths.json`, which is where any new site-specific path belongs. AChillVamp's credit
+  (`NOTICE`, the README, the header of `mirror_base.py`) is attribution, not a comic, and stays.
 - Errors say what to do next, not just what failed ("Run this comic with `--prefix` so each page is
   numbered as it is saved").
 - Flags that default on use `argparse.BooleanOptionalAction`, so `--no-thing` turns them off, and only
@@ -105,8 +111,8 @@ shared behaviour; it passes in full at `HEAD`, so a failure is yours.
   or the aligner and had to be pulled out for `mirror_base` to use it.
 - **Presence standing in for completeness.** The web page asked whether an index file *existed* and
   took a one-line stub to mean a walked comic. Ask what something holds, not whether it is there.
-- **A rule that is 99.9% right.** Ava's Demon re-serves an old page's image (`2747` is `1273.png`), so
-  "name the file after the site's image" would have overwritten a page 1,500 earlier. On a library of
+- **A rule that is 99.9% right.** A comic can re-serve an old page's image under a new page, so "name
+  the file after the site's image" would have overwritten a page 1,500 earlier. On a library of
   thousands of files, check the exception before a rename or a delete.
 - **Heredocs.** Do not edit files by piping a script into `python - <<'EOF'`; backslashes are mangled
   before the shell sees them and the failure is silent. Use the editor tools.

@@ -248,9 +248,9 @@ def every_archive(root):
 
 
 def one_comic_split_up(paths):
-    #volumes or chapters of a single comic share their name - "Dr McNinja 04", "Ch.12", "001". a folder of
+    #volumes or chapters of a single comic share their name - "My Comic 04", "Ch.12", "001". a folder of
     #separate comics filed under an author or a site does not. leading numbering is stripped first, so
-    #"[3] NPC - ..." still lines up with "[11] NPC - ...".
+    #"[3] MyComic - ..." still lines up with "[11] MyComic - ...".
     stems = [re.sub(r'^[\[\(]?\d+[\]\)]?[\s._-]*', '', os.path.basename(p)[:-4]).lower() for p in paths]
     if all(not stem for stem in stems):
         return True #nothing but numbers for names, so they are volumes
@@ -259,7 +259,7 @@ def one_comic_split_up(paths):
 
 def comic_names(folder, root, folder_paths):
     #the names an archive for this comic might carry. usually just the folder's own name, but a site mirror
-    #keeps its pages somewhere like TSAT/www.example.com, and the archive is named for the folder above.
+    #keeps its pages somewhere like MyComic/www.example.com, and the archive is named for the folder above.
     #an ancestor holding more than one comic is a grouping folder, not this comic, so the walk stops there.
     names = [os.path.basename(folder).lower()]
     root_abs = os.path.abspath(root)

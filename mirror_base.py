@@ -33,14 +33,11 @@ from time import sleep
 custom_args = [
     ]
 
-element_names = [
-                 '//*[@id="comic"]/img[1]', #concessioncomic
-                 '//*[@id="page"]/img[1]',
-                 '//*[@id="comic"]/a/img',
-                 '//*[@id="comic"]/div/img', #ExterminatusNow
-                 '//img[@alt="Comic goes here."]', #Furthia High
-                 '/html/body/div/div[3]/main/section/article/div[5]/div/div/div/div/div/div/figure/div/div/img', #Scrap & Topheavy
-                 '//*[@id="content"]/article/img|//*[@id="content"]/article/a/img', #TwoKinds
+#the paths this script ships with, as AChillVamp's original had them: a starting point that fits plenty of
+#comics, and nothing more. a library adds its own, puts them in a different order or turns one off without
+#editing this file, by keeping an element_paths.json in its config folder - which is what the web page
+#writes. anything the file does not mention keeps working, so a new entry shipped here later still arrives.
+element_names = ['//*[@id="comic"]/a/img',
                  '//*[@class="comic"]',
                  '//*[@class="comic-wrap"]/img',
                  '//*[@alt="Comic"]',
@@ -50,61 +47,22 @@ element_names = [
                  '//*[@class="ksc"]',
                  '//*[@id="main-comic"]',
                  '//*[@id="comicimage"]',
-                 '/html/body/div/div[3]/img', #Sequential Art
-                 '//*[@id="comic-image"]', #Housepets
-                 '//*[@class="col-sm-12 comic-holder"]/a/img', #AWARE
-                 '//*[@id="comicimg"]', #How MG Works
-                 '//*[@id="maintxt"]/img', #Double-U Tea F, GotF, ATH
-                 #Ava's Demon, which serves several pages on one address. a descendant rather than a child,
-                 #because its one-off pages wrap the image in a link to the next one and its ordinary pages
-                 #do not, and a path that only matched the bare one stopped the run dead at every one-off
-                 '//*[@id="mama"]//img',
-                 '//*[@id="strip"]//img', #Megatokyo
-                 '//*[@id="strip"]', #Questionable Content
-                 '/html/body/main/div/div/div[1]/img', #VickiFox
-                 '/html/body/div[2]/div[2]/div[1]/div[2]/center/a/img', #SatW
-                 '/html/body/table/tbody/tr[2]/td/table/tbody/tr/td/center/img', #DMFA
-                 '/html/body/div[3]/div[1]/div[1]/img[2]', #CaptainSNES
-                 '/html/body/div[1]/div[1]/div[1]/div/div[2]/img', #LICD
-                 '//*[@id="last-path-for-happy-code"]']
-next_ele_names = [
-                  #'//*[@rel="next"]',
+                 '//*[@id="last-path-for-happy-code"]',
+                 "//img[@alt='post image']"]
+next_ele_names = ['//*[@rel="next"]',
                   '//*[@alt="Next>"]',
                   '//*[@title="Next >"]',
                   '//*[@class="navi navi-next-in"]',
                   '//*[@class="navi comic-nav-next navi-next"]',
-                  '//*[@class="comic-nav-base comic-nav-next"]',
-                  '//*[@class="comic-nav-img comic-nav-img-next"]',
                   '//*[@alt="Next comic"]',
-                  '//*[@id="btnNext"]',
-                  '//*[@id="nextPageLink"]', #Ava's Demon's own viewer, which needs javascript on
-                  '//*[@class="cc-next"]', #Snafu Comics
-                  '//*[@class="navi navi-next"]', #ExterminatusNow
-                  '//*[@class="navi-next"]', #consessioncomic
-                  '//*[@class="col-sm-12 comic-holder"]/a', #AWARE
-                  '//*[@id="maintxt"]/a[img[@src="next.gif"]]', #Double-U Tea F, GotF
-                  '//*[@id="strip"]//a', #MegaTokyo
-                  '//*[@id="strip"]', #Questionable Content
-                  '//*[@id="forwardOne"]', #Sequential Art
-                  #SatW wraps the comic image in a link to the PREVIOUS page, so matching the image
-                  #here walks the comic backwards, re-saving every page it already had. the nav
-                  #anchor is the real next link, and is absent on the newest page, which ends the run
-                  '/html/body/div[2]/div[2]/div[1]/div[1]/a[4]', #SatW
-                  '//*[contains(translate(@title,"NEXT","next"), "next")]',
-                  '//*[contains(translate(@src,"NEXT","next"), "next")]',
-                  '//a[contains(translate(text(),"NEXT","next"), "next")]',
-                  #a lone chevron is how plenty of comics label the link, limbero.org/jl8 among them. the
-                  #exact match matters: '>>' is the jump to the newest page, not the next one
-                  '//a[normalize-space(text())=">"]',
+                  '//*[contains( text(), "Next")]',
+                  '//*[contains( text(), "NEXT")]',
                   '//*[@src="next.jpg"]',
                   '//*[@alt="Next Page"]',
                   '//*[@id="Next_"]',
                   '//*[@class="nav-next "]',
-                  '//*[@id="last-path-for-happy-code"]']
-#the two lists above are the ones this script ships with. a library can add to them, put them in a
-#different order or turn one off without editing this file, by keeping an element_paths.json beside its
-#comics - which is what the web page writes. anything the file does not mention keeps working, so a new
-#entry shipped here later still arrives.
+                  '//*[@id="last-path-for-happy-code"]',
+                  "//img[@alt='post image']"]
 element_file = "element_paths.json"
 
 
@@ -165,7 +123,7 @@ load_element_paths()
 #followed once, before the walk begins
 first_ele_names = [
                    '//*[@rel="first"]',
-                   '//*[@class="comic-nav-base comic-nav-first"]', #ComicPress, which kemono.cafe uses
+                   '//*[@class="comic-nav-base comic-nav-first"]', #the ComicPress theme's
                    '//*[@class="navi navi-first"]',
                    '//*[@class="comic-nav-first"]',
                    '//*[@title="First"]',
@@ -264,16 +222,16 @@ scrape_state = {
     #boundary, which looks backwards for exactly one page and then climbs again
     "backwards_run": 0,
     #the most comic images one address has held this run, and the first address that held more than one.
-    #a comic that starts putting several pages on one address - avasdemon.com and limbero.org/jl8 both
-    #did partway through - would otherwise be scraped as though nothing had changed, saving the first
-    #image of each page and leaving the rest behind without a word
+    #a comic that starts putting several pages on one address partway through would otherwise be scraped
+    #as though nothing had changed, saving the first image of each page and leaving the rest behind
+    #without a word
     "most_per_url": 0,
     "first_multi_url": None,
     "multi_urls": 0,
     #the page this run followed a next link to and meant to save. where a later run carries on from, and
     #deliberately not "wherever the browser ended up": a comic whose last page leads back to the front
-    #page, as avasdemon.com and missmab.com both do, leaves the browser somewhere that is not a page of
-    #the comic at all, and writing that down would send the next run to the front page instead
+    #page, as plenty do, leaves the browser somewhere that is not a page of the comic at all, and writing
+    #that down would send the next run to the front page instead
     "walked_to": None,
     #set when a page turns out to hold no comic image at all, after this run has already saved some
     "ran_out": None,
@@ -303,7 +261,7 @@ def setup():
     params.add_argument("--cbz",action=argparse.BooleanOptionalAction,help="Packs the pages into a .cbz beside the output folder once the run finishes, adding only the pages the archive does not already hold. On by default.",default=True)
     params.add_argument("--direction-check",action=argparse.BooleanOptionalAction,default=True,help="Stop if the page after the first turns out to be one the comic already has, which means the next link is running backwards. On by default; turn it off only for a comic that genuinely reuses its filenames.")
     params.add_argument("--cbz-path",type=str,default=None,help="Where this comic's .cbz lives. Left off, an archive already beside the output folder is used, otherwise a library laid out as Uncompressed/<comic> files it as CBZs/<comic>.cbz, and failing both it goes beside the folder.")
-    params.add_argument("--multi-page",action=argparse.BooleanOptionalAction,default=True,help="Save every page the comic puts on one address, not just the first. Comics that serve several pages at once - avasdemon.com, limbero.org/jl8 - are otherwise scraped a fraction at a time without saying so. On by default; --no-multi-page reads one page an address however many are there.")
+    params.add_argument("--multi-page",action=argparse.BooleanOptionalAction,default=True,help="Save every page the comic puts on one address, not just the first. A comic that serves several pages at once is otherwise scraped a fraction at a time without saying so. On by default; --no-multi-page reads one page an address however many are there.")
     params.add_argument("--page-source",action='store_true',default=False,help="Load the page in the browser and print its html, for a page that builds itself with javascript. Saves nothing.")
     params.add_argument("--keep-index",action='store_true',default=False,help="Record each page saved - its address, its file and its size - in an index beside the settings, so the comic can be split into chapters later without being walked again. A comic that already has one keeps it up to date whether this is given or not.")
     params.add_argument("--index",type=str,default=None,metavar="FILE",help="Walk the comic without downloading anything and write one line per page - its address, its image and its title - to this file. Used to work out which saved file came from which page. An existing file is carried on from where it stopped.")
@@ -382,8 +340,8 @@ def describe_element(driver, element):
 
 
 def holder_path(driver, element):
-    #a path to this image through whatever holds it. an image with nothing on it to match - avasdemon.com
-    #serves bare <img> tags inside one div - can still be reached through its container, and that path
+    #a path to this image through whatever holds it. an image with nothing on it to match - a bare <img>
+    #inside one div, with no id, class or alt - can still be reached through its container, and that path
     #finds every page on the address at once rather than only the one that was looked at.
     try:
         parent = element.find_element(By.XPATH, '..')
@@ -564,8 +522,8 @@ def build_index(driver, args):
     done = index_read(path)
     held = {line["url"] for line in done}
     if done and args.URL and args.URL not in held:
-        #pointed at a page the index does not hold. a site with one broken address in the middle - snafu's
-        #grimtales has a page whose title put a % in its url - stops a walk dead there, and the only way
+        #pointed at a page the index does not hold. a site with one broken address in the middle - a page
+        #whose title put a % into its url, say - stops a walk dead there, and the only way
         #past is to say where to pick it up. carrying on from the index's own last page instead would
         #walk into the same wall every time.
         print("Carrying on at {0}, which the index does not hold; the pages between it and page {1} are "
@@ -808,8 +766,8 @@ def page_key(name):
 
 def reads_backwards(sits_at, came_from):
     #whether the comic has turned round, judged over more than one page. one step back is not evidence:
-    #a site that numbers each chapter's pages from one - bittersweetcandybowl serves /comics/1/1@2x.png
-    #and later /comics/131/1@2x.png - hands back a name it has used before at every chapter boundary,
+    #a site that numbers each chapter's pages from one - /comics/1/1.png, and later /comics/131/1.png -
+    #hands back a name it has used before at every chapter boundary,
     #which looks backwards for exactly one page and then climbs again. a next link that really runs
     #backwards keeps running backwards.
     steps_back = sits_at is not None and came_from is not None and sits_at < came_from
@@ -1243,8 +1201,8 @@ def page_images(driver, args):
 
     #an image that was on the page before as well is the site's furniture - a button, a banner, a logo -
     #rather than a page of the comic. numbering sorts most of them out on its own, but a page whose
-    #images are all unnumbered has nothing to tell them apart by, and avasdemon.com has several: its
-    #mermaid book and its hiatus pages would otherwise have counted first.png and archive.png as pages.
+    #images are all unnumbered has nothing to tell them apart by - a special or a hiatus page drawn
+    #outside the numbering would otherwise count first.png and archive.png as pages.
     #this needs no list of what buttons are called, which is the point: it works on a site nobody has
     #described, and on one that renames its buttons tomorrow.
     here = getattr(driver, "current_url", None)
@@ -1253,8 +1211,8 @@ def page_images(driver, args):
         last_page_url, last_page_srcs = here, set(srcs)
         for src in set(srcs):
             seen_on_pages[src] = seen_on_pages.get(src, 0) + 1
-        #a comic that re-uses one of its own pictures later on - avasdemon.com serves page 2747 as
-        #1273.png - shows it twice in a whole run, so twice is not enough to call something furniture.
+        #a comic that re-uses one of its own pictures later on - an old page's image served again as a
+        #much later page - shows it twice in a whole run, so twice is not enough to call something furniture.
         #a button is on every page there is, and three is plenty to tell them apart by.
         fresh = [src for src in srcs if src not in was_here and seen_on_pages.get(src, 0) < 3]
         #every one of them repeating is the same page over again, or a page whose picture really is
@@ -1472,8 +1430,8 @@ def ele_get_all(driver,element):
 
 def next_element(driver,element):
     #the element a next path points at: the first one that can be seen, rather than simply the first. a
-    #page can hold a hidden copy of its own navigation - avasdemon.com's viewer keeps a next button at no
-    #size at all, beside the one a reader presses - and the hidden one would otherwise be what is pressed,
+    #page can hold a hidden copy of its own navigation - a next button at no size at all, beside the one
+    #a reader presses - and the hidden one would otherwise be what is pressed,
     #on a path that looked for all the world like it had matched. a page where every match is hidden still
     #hands back the first, since a hidden element can be pressed with a script and often has to be.
     try:

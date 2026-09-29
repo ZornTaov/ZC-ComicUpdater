@@ -409,9 +409,9 @@ def library_view(args, uc):
 
 
 def shipped_paths(script):
-    #the lists as mirror_base has them, with the comment beside each one, which is usually the name of the
-    #comic it was added for. the values are read as python rather than scanned for, because an xpath is
-    #full of brackets and quotes of its own; the comments, which python throws away, are matched after.
+    #the lists as mirror_base has them, with the comment beside each one, if it has one, as a note. the
+    #values are read as python rather than scanned for, because an xpath is full of brackets and quotes of
+    #its own; the comments, which python throws away, are matched after.
     lists = {"image": [], "next": []}
     names = {"element_names": "image", "next_ele_names": "next"}
     try:

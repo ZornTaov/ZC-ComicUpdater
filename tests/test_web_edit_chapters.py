@@ -40,7 +40,7 @@ class Archived(Site):
             return
         link = '<a href="/comic/page{0:03d}/">Next</a>'.format(n + 1) if n < TOTAL else ""
         self.send('<html><head><title>Page {0}</title></head><body><div id="wrap">{1}'
-                  '<img id="comic-image" src="/img/page{0:03d}.png"></div></body></html>'.format(n, link))
+                  '<img id="cc-comic" src="/img/page{0:03d}.png"></div></body></html>'.format(n, link))
 
 
 def test_a_chapter_list_added_from_the_editor_splits_an_old_comic(serve, library, web):

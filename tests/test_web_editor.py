@@ -33,7 +33,7 @@ class Broken(Site):
             self.send("<html><body><p>broken page</p></body></html>")
             return
         link = '<a href="/c/{0}">Next</a>'.format(number + 1) if number < LAST else ""
-        self.send('<html><body><div id="wrap">{1}<img id="comic-image" src="/img/{0:04d}.png">'
+        self.send('<html><body><div id="wrap">{1}<img id="cc-comic" src="/img/{0:04d}.png">'
                   '</div></body></html>'.format(number, link))
 
 

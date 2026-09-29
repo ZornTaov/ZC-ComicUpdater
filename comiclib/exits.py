@@ -11,6 +11,14 @@ UNEXPECTED = 7
 BACKWARDS = 8
 SAME_NAMES = 9
 
+class MirrorError(Exception):
+    #a scrape failure that should end the run with a specific exit code
+    def __init__(self, message, code, reason):
+        super().__init__(message)
+        self.code = code
+        self.reason = reason
+
+
 #what update_comics says about each in its summary
 REASONS = {
     OK: "up to date",

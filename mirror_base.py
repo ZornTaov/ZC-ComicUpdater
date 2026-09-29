@@ -1,35 +1,32 @@
 #a small script to go through a webcomic and download all of the pages. #Written by AChillVamp. #V 3.9
 
-import sys
-
-from selenium import webdriver
-from selenium.webdriver import Keys, ActionChains
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.firefox.service import Service as FirefoxService
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import selenium.common.exceptions as se
-import os
-import re
-import requests
 import argparse
 import json
-import shlex
+import os
+import re
+import sys
 import uuid
 import zipfile
 from datetime import datetime
 from time import sleep
 
+import selenium.common.exceptions as se
+from selenium.webdriver.common.by import By
+
 #what this shares with the other scripts: where the settings are, what makes two filenames one page, the
 #metadata file and how an archive is packed
-from comiclib import cbz, exits, paths
+from comiclib import browser, cbz, download, elements, exits, pagecheck, paths
 from comiclib.metadata import METADATA_FILE, load, now_stamp, write_json
 from comiclib.pages import held_pages, page_key, page_number, saved_name
 from comiclib.standin import held_otherwise
 from comiclib.paths import element_paths_file
+#the scrape's own loop is this file; finding elements, pressing next and fetching an image are not, and
+#are named here as they always were, so the loop reads the same and anything reaching in still finds them
+from comiclib.browser import quit_quietly
+from comiclib.download import fetch
+from comiclib.elements import (comic_images, ele_get, ele_get_all, merge_paths, next_ele_get,  # noqa: F401
+                               next_element, test_ele_get, test_next_ele_get)
+from comiclib.exits import MirrorError
 
 #global vars
 custom_args = [
@@ -65,19 +62,6 @@ next_ele_names = ['//*[@rel="next"]',
                   '//*[@class="nav-next "]',
                   '//*[@id="last-path-for-happy-code"]',
                   "//img[@alt='post image']"]
-
-
-def merge_paths(shipped, saved):
-    #the file decides the order, and which are turned off; anything it never mentions is added at the end
-    known, ordered = set(), []
-    for entry in saved or []:
-        xpath = (entry or {}).get("xpath")
-        if not xpath or xpath in known:
-            continue
-        known.add(xpath)
-        if entry.get("enabled", True):
-            ordered.append(xpath)
-    return ordered + [xpath for xpath in shipped if xpath not in known]
 
 
 def load_element_paths():
@@ -168,14 +152,6 @@ existing_pages = {}
 #files dropped because a newer spelling of the same page replaced them. the archive is told, so it does
 #not end up holding the page under both names.
 superseded = []
-
-
-class MirrorError(Exception):
-    #a scrape failure that should end the run with a specific exit code
-    def __init__(self, message, code, reason):
-        super().__init__(message)
-        self.code = code
-        self.reason = reason
 
 
 #pages already saved this run, so a comic that wraps back to its first page does not restart
@@ -288,6 +264,8 @@ def setup():
     #image format being saved. png, jpg, etc. Program will always save gif's as gifs, so no need to specify.
     format = "png"
     verbose = args.verbose
+    #the parts that find elements and fetch images say what they tried only when asked
+    elements.verbose = download.verbose = verbose
 
     #what the comic already holds, read before anything is saved, so a backwards next link is caught
     #against the pages of earlier runs rather than only the ones this run has written
@@ -299,159 +277,6 @@ def setup():
     open_index(output_folder(args), args)
 
     return driver, increment, format, args
-
-
-def describe_element(driver, element):
-    #enough to tell two matches apart when neither is the one that was wanted
-    try:
-        tag = element.tag_name
-        bits = {"tag": tag}
-        for name in ("id", "class", "alt", "title", "rel", "src", "href"):
-            value = element.get_attribute(name)
-            if value:
-                bits[name] = value[:200]
-        if tag == "img":
-            size = element.size
-            bits["size"] = "{0:.0f}x{1:.0f}".format(size.get("width", 0), size.get("height", 0))
-        return bits
-    except se.WebDriverException:
-        return {}
-
-
-def holder_path(driver, element):
-    #a path to this image through whatever holds it. an image with nothing on it to match - a bare <img>
-    #inside one div, with no id, class or alt - can still be reached through its container, and that path
-    #finds every page on the address at once rather than only the one that was looked at.
-    try:
-        parent = element.find_element(By.XPATH, '..')
-        tag = element.tag_name
-    except se.WebDriverException:
-        return None
-    for name in ("id", "class"):
-        try:
-            value = parent.get_attribute(name)
-        except se.WebDriverException:
-            continue
-        if value and '"' not in value:
-            return '//*[@{0}="{1}"]/{2}'.format(name, value, tag)
-    return None
-
-
-def suggest_paths(driver):
-    #for a site nothing matched: the big images, and the links that look like a next button
-    images, links = [], []
-    try:
-        for found in driver.find_elements(By.TAG_NAME, 'img')[:80]:
-            size = found.size
-            area = size.get("width", 0) * size.get("height", 0)
-            if area < 40000: #smaller than 200x200 is a button or an avatar, not a comic page
-                continue
-            bits = describe_element(driver, found)
-            bits["area"] = area
-            bits["suggested"] = ('//*[@id="{0}"]'.format(bits["id"]) if bits.get("id") else
-                                 '//img[@alt="{0}"]'.format(bits["alt"]) if bits.get("alt") else
-                                 '//*[@class="{0}"]/img'.format(bits["class"]) if bits.get("class") else
-                                 holder_path(driver, found))
-            images.append(bits)
-        spare = []
-        for found in driver.find_elements(By.TAG_NAME, 'a')[:200]:
-            label = found.text or ""
-            described = label + " " + " ".join(
-                str(found.get_attribute(name) or "") for name in ("title", "rel", "class", "id"))
-            bits = describe_element(driver, found)
-            bits["suggested"] = ('//*[@id="{0}"]'.format(bits["id"]) if bits.get("id") else
-                                 '//*[@class="{0}"]'.format(bits["class"]) if bits.get("class") else None)
-            if not bits.get("suggested") or not bits.get("href"):
-                continue
-            if "next" in described.lower() or ">" in label or "→" in label or "»" in label:
-                links.append(bits)
-            elif 0 < len(label.strip()) <= 20:
-                #plenty of comics label the link something else entirely - onwards, forward, an arrow -
-                #so short links are kept as a second best rather than leaving the list empty
-                spare.append(bits)
-        links = links or spare
-    except se.WebDriverException as error:
-        print("could not look over the page: {0}".format(error))
-    images.sort(key=lambda bits: -bits.get("area", 0))
-    #a path through the container is the same path for every page on the address, so it would otherwise be
-    #suggested once per image and fill the report with one answer written out five times
-    seen, once = set(), []
-    for bits in images:
-        if bits.get("suggested") and bits["suggested"] in seen:
-            continue
-        seen.add(bits.get("suggested"))
-        once.append(bits)
-    return once[:5], links[:5]
-
-
-def built_by_javascript(url, src):
-    #whether the image is only in the page javascript builds. --check deliberately runs with javascript on,
-    #so a path it reports as working can be one a scrape - which runs with it off - never sees. comparing
-    #what the browser found against what the server actually sent is the whole of telling the two apart.
-    try:
-        body = fetch(url).text
-    except (MirrorError, UnicodeDecodeError, ValueError):
-        return None
-    name = src.rsplit('/', 1)[-1].split('?')[0]
-    return bool(name) and name not in body
-
-
-def check_page(driver):
-    #every path that matches, in the order a scrape would try them, so it is clear which one would win
-    found = {"url": driver.current_url, "title": driver.title, "image": [], "next": []}
-    for element in element_names:
-        srcs = ele_get_all(driver, element)
-        if srcs:
-            #how many pages the path finds here, so a comic serving several on one address is plain before
-            #anything is downloaded rather than after the folder comes out a fraction of the size
-            #the pages, worked out here rather than by whatever reads this: the rule for which of several
-            #images is a page belongs in one place, and the web page should not have a second copy of it
-            pages = comic_images(srcs, found["url"]) if len(srcs) > 1 else srcs
-            found["image"].append({"xpath": element, "src": srcs[0], "count": len(srcs),
-                                   "srcs": srcs[:20], "pages": pages[:20], "page_count": len(pages)})
-    for element in next_ele_names:
-        if test_next_ele_get(driver, element):
-            try:
-                bits = describe_element(driver, driver.find_element(By.XPATH, element))
-            except se.WebDriverException:
-                bits = {}
-            found["next"].append({"xpath": element, "found": bits})
-    if not found["image"] or not found["next"]:
-        images, links = suggest_paths(driver)
-        found["suggestions"] = {"image": images, "next": links}
-    if found["image"]:
-        found["needs_javascript"] = built_by_javascript(found["url"], found["image"][0]["src"])
-
-    print("Checked {0}".format(found["url"]))
-    for kind in ("image", "next"):
-        if found[kind]:
-            print("  {0}: {1} of the known paths match; a scrape would use {2}".format(
-                kind, len(found[kind]), found[kind][0]["xpath"]))
-            if kind == "image" and found[kind][0].get("count", 1) > 1:
-                #worked out once, above, so this says the same as what the web page is handed
-                top = found[kind][0]
-                print("    that path finds {0} images here, {1} of them pages, so this address holds "
-                      "several pages of the comic: {2}".format(
-                          top["count"], top["page_count"],
-                          ", ".join(src.rsplit('/', 1)[-1] for src in top["pages"][:6])))
-            if kind == "image" and found.get("needs_javascript"):
-                #the difference that makes a working path look like a broken one, since this check turns
-                #javascript on and a scrape does not
-                print("    that image is not in the page the server sends, only in the one javascript "
-                      "builds, so this comic needs javascript as well as the path: -ej, or "
-                      "\"javascript\": true in its settings.")
-        else:
-            print("  {0}: nothing matched".format(kind))
-            for guess in found.get("suggestions", {}).get(kind, []):
-                print("    maybe {0}  ({1})".format(guess.get("suggested"), describe_guess(guess)))
-    #a machine readable copy on one line, for the web page to read back
-    print("CHECK-JSON {0}".format(json.dumps(found)))
-    return found
-
-
-def describe_guess(guess):
-    return ", ".join("{0}={1}".format(key, guess[key]) for key in ("tag", "size", "alt", "class", "id", "href")
-                     if guess.get(key))
 
 
 def index_read(path):
@@ -635,84 +460,14 @@ def add_to_index(url, src, image, size, title):
         print("WARNING: could not add this page to the index: {0}".format(error))
 
 
-def quit_quietly(driver):
-    #a browser that stopped answering cannot be closed politely, and saying so beats hanging or
-    #raising a second error on top of whatever went wrong first
-    try:
-        driver.quit()
-    except Exception as error:
-        print("WARNING: The browser did not shut down cleanly: {0}".format(type(error).__name__))
-
-
 def build_driver(args):
-    #the browser choice and the javascript toggle are independent, so either browser can run headless
-    if args.firefox and args.chrome:
-        print("\nERROR: --firefox and --chrome cannot be used together.")
-        sys.exit(EXIT_USAGE)
+    #the browser this run drives, with this run's settings for loading images and how long a page may take
+    return browser.build_driver(args, browser_images, page_timeout)
 
-    if args.firefox:
-        options = FirefoxOptions()
-        if args.headless:
-            options.add_argument("--headless")
-        if not args.enable_javascript:
-            options.set_preference("javascript.enabled", False)
-        if not browser_images:
-            options.set_preference("permissions.default.image", 2)
-    else:
-        options = Options()
-        if args.headless:
-            options.add_argument("--headless=new")
-            #headless chromium falls over on the small /dev/shm found in containers and hardened services
-            options.add_argument("--disable-dev-shm-usage")
-        prefs = {}
-        if not args.enable_javascript:
-            prefs['profile.managed_default_content_settings.javascript'] = 2
-        if not browser_images:
-            prefs['profile.managed_default_content_settings.images'] = 2
-        if prefs:
-            options.add_experimental_option("prefs", prefs)
 
-    #a page is finished being useful as soon as its html is parsed, since only attributes are read from
-    #it. waiting for the load event means waiting for every stylesheet, font and iframe as well, any one
-    #of which can hang without the page looking broken in a browser. with javascript enabled the wait is
-    #kept, because then the comic may well be inserted by a script that has not run yet.
-    if not args.enable_javascript:
-        options.page_load_strategy = 'eager'
-
-    #extra browser flags for the machine this runs on, such as --no-sandbox inside a container, where
-    #chromium's own sandbox has no namespaces to work with
-    for flag in shlex.split(os.environ.get("MIRROR_BROWSER_ARGS", "")):
-        options.add_argument(flag)
-
-    #machine specific paths come from the environment rather than arguments, so they stay out of the saved
-    #commands in the metadata. needed wherever selenium cannot download a matching driver itself.
-    browser_binary = os.environ.get("MIRROR_BROWSER_BINARY")
-    driver_binary = os.environ.get("MIRROR_DRIVER_BINARY")
-    if browser_binary:
-        options.binary_location = browser_binary
-    service = None
-    if driver_binary:
-        service = FirefoxService(executable_path=driver_binary) if args.firefox else ChromeService(executable_path=driver_binary)
-
-    try:
-        if args.firefox:
-            driver = webdriver.Firefox(options=options, service=service) if service else webdriver.Firefox(options=options)
-        else:
-            driver = webdriver.Chrome(options=options, service=service) if service else webdriver.Chrome(options=options)
-    except se.WebDriverException as error:
-        print("\nERROR: Could not start the webdriver: {0}".format(error))
-        sys.exit(EXIT_DRIVER)
-
-    #without these a page that never finishes loading stalls the whole run. a comic that hangs holds up
-    #every comic queued behind it, so the limit matters more to a batch than to a single scrape.
-    if page_timeout > 0:
-        try:
-            driver.set_page_load_timeout(page_timeout)
-            driver.set_script_timeout(page_timeout)
-        except se.WebDriverException:
-            #an older driver may not accept them; the run is still worth attempting
-            pass
-    return driver
+def check_page(driver):
+    #--check, against the element paths this run would try, in the order it would try them
+    return pagecheck.check_page(driver, element_names, next_ele_names)
 
 
 def reads_backwards(sits_at, came_from):
@@ -946,22 +701,6 @@ def metadata_save(driver, args, completed=False, exit_code=None):
     return path
 
 
-def fetch(url, attempts=3):
-    #retries briefly so a blip does not end an unattended run, then gives up loudly rather than
-    #writing an error page to disk under an image filename
-    for attempt in range(1, attempts + 1):
-        try:
-            req = requests.get(url, stream=True, timeout=30, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"})
-            if req.status_code != 200:
-                raise requests.RequestException("HTTP {0}".format(req.status_code))
-            return req
-        except requests.RequestException as error:
-            if attempt == attempts:
-                raise MirrorError("Could not download {0}: {1}".format(url, error), EXIT_DOWNLOAD, "download failed")
-            if verbose: print("\nAttempt {0} for {1} failed ({2}); retrying.".format(attempt, url, error))
-            sleep(2 * attempt)
-
-
 def cbz_update(args):
     #packs the pages into the comic's .cbz: a new archive if there is none, and otherwise only the pages it
     #does not hold yet, added to the end
@@ -983,25 +722,6 @@ def cbz_update(args):
         cbz.write(archive, folder, pages + [name for name in on_disk if name == metadata_file])
         return archive, len(pages)
     return archive, cbz.append(archive, folder, pages, superseded)
-
-
-def comic_images(srcs, where=None):
-    #which of several images on one address are pages of the comic. a path that matches more than one is
-    #usually a comic serving several pages at once, but a path written loosely enough can also catch the
-    #buttons sitting beside them. a page is numbered, because numbering pages is how every site names
-    #them, and back.png and rss.png are not - so where some matches carry a number, the rest are not pages.
-    #with nothing to tell them apart, every match is kept: leaving a page out is the failure worth avoiding.
-    if len(srcs) < 2:
-        return srcs
-    numbered = [src for src in srcs if re.search(r'\d', src.rsplit('/', 1)[-1].split('?')[0])]
-    if numbered and len(numbered) < len(srcs):
-        left = [src.rsplit('/', 1)[-1] for src in srcs if src not in numbered]
-        #named, because a walk of a few thousand pages says this a few dozen times and every one of them
-        #is a page worth looking at yourself: the line is no use without knowing which page it came from
-        print("{0}: ignoring {1} image(s) that carry no page number, so are not pages: {2}".format(
-            where or "this page", len(left), ", ".join(left[:6])))
-        return numbered
-    return srcs
 
 
 def page_images(driver, args):
@@ -1204,118 +924,6 @@ def next(driver,args):
         #nothing in the list matched, or nothing that matched could be pressed, which on an ongoing comic
         #usually just means the last page
         return False
-
-
-def test_ele_get(driver,element): #this runs through all of the possible next elements and tests them, but does not click them.
-    global verbose
-    try: #tries the path to see if it is valid
-        driver.find_element(By.XPATH, element)
-        return True
-    except se.NoSuchElementException: #if path is not valid with this error, false is returned, making the for loop try again
-        if verbose: print("\nThe element {0} could not be found.".format(element))
-        return False
-
-def ele_get(driver,element):
-    global verbose
-    try: #tries the path to see if it is valid
-        element2 = driver.find_element(By.XPATH, element)
-        #gets the source url of the image
-        src = element2.get_attribute('src')
-        return src
-    except se.NoSuchElementException: #if path is not valid with this error, false is returned, making the for loop try again
-        if verbose: print("\nThe element {0} src could not be found.".format(element))
-        return None
-
-
-def ele_get_all(driver,element):
-    #every image this path matches, in the order the page lists them, rather than only the first. asking
-    #for one is what makes a comic with several pages on one address look like a comic with one.
-    global verbose
-    try:
-        found = driver.find_elements(By.XPATH, element)
-    except se.WebDriverException:
-        if verbose: print("\nThe element {0} could not be searched for.".format(element))
-        return []
-    srcs = []
-    for one in found:
-        try:
-            src = one.get_attribute('src')
-        except (se.StaleElementReferenceException, AttributeError):
-            continue
-        #the same image twice on one page is one page of the comic, however the markup repeats it
-        if src and src not in srcs:
-            srcs.append(src)
-    return srcs
-
-
-def next_element(driver,element):
-    #the element a next path points at: the first one that can be seen, rather than simply the first. a
-    #page can hold a hidden copy of its own navigation - a next button at no size at all, beside the one
-    #a reader presses - and the hidden one would otherwise be what is pressed,
-    #on a path that looked for all the world like it had matched. a page where every match is hidden still
-    #hands back the first, since a hidden element can be pressed with a script and often has to be.
-    try:
-        found = driver.find_elements(By.XPATH, element)
-    except se.WebDriverException:
-        return None
-    for one in found:
-        try:
-            if one.is_displayed():
-                return one
-        except se.WebDriverException:
-            continue
-    return found[0] if found else None
-
-
-def test_next_ele_get(driver,element): #this runs through all of the possible next elements and tests them, but does not click them.
-    global verbose
-    if next_element(driver, element) is not None:
-        return True
-    if verbose: print("\nThe next button {0} could not be found.".format(element))
-    return False
-
-
-def next_ele_get(driver,element):
-    #three ways to press a link, each tried on its own. they used to be nested, which meant the script
-    #click - the one that works on a page whose navigation is an onclick handler rather than a link - only
-    #ever ran for a click that was intercepted, and never for one that was never possible in the first
-    #place. a page like that ended every run with "there is no next button", ten seconds after there was.
-    global verbose
-    found = next_element(driver, element)
-    if found is None:
-        if verbose: print("\nThe next button {0} could not be found.".format(element))
-        return False
-    try:
-        shown = found.is_displayed()
-    except se.WebDriverException:
-        shown = False
-    for way in ("a plain click", "a click after scrolling to it", "a script click"):
-        #waiting for an element that cannot be seen to become clickable is waiting for something that
-        #cannot happen: selenium calls an element clickable only once it is displayed. it costs the whole
-        #of the timeout on every page of a comic whose only next button is hidden, and the script click
-        #that follows would have worked at once
-        if not shown and way.startswith("a click after"):
-            continue
-        try:
-            if way.startswith("a plain"):
-                found.click()
-            elif way.startswith("a click after"):
-                ready = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, element)))
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", ready)
-                sleep(0.2)
-                ready.click()
-            else:
-                #a hidden element, or one behind something else, still runs whatever its onclick says
-                driver.execute_script("arguments[0].click();", found)
-            if verbose and not way.startswith("a plain"):
-                print("\nThe next button {0} took {1}.".format(element, way))
-            return True
-        except (se.WebDriverException, AttributeError) as error:
-            if verbose:
-                print("\n{0} on the next button {1} failed: {2}".format(way, element, type(error).__name__))
-    #the next button vanishing is how many comics end, so this stops the run rather than failing it
-    if verbose: print("\nThe next button {0} could not be pressed at all.".format(element))
-    return False
 
 
 if __name__ == "__main__":

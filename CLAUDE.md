@@ -14,7 +14,7 @@ archives, and keep them up to date unattended.
 
 | File | Lines | What it is |
 | --- | ---: | --- |
-| `mirror_base.py` | ~1450 | Scrapes one comic: drives a browser, follows next links, downloads pages, writes the metadata, packs the single archive |
+| `mirror_base.py` | ~1050 | Scrapes one comic: the element-path lists, the scrape loop and the state it keeps in module globals, saving pages, the index kept as it goes, the metadata, and the single archive |
 | `chapters.py` | ~190 | The command for everything about chapters; the work is in `comiclib/chapters/`, below |
 | `web_ui.py` | ~1140 | The web page's server: a job runner and a JSON API over the library |
 | `web_ui.html` | ~1460 | The whole front end, one file, no build step |
@@ -31,7 +31,11 @@ archives, and keep them up to date unattended.
 | `metadata` | Reading and writing `mirror_metadata.json` (always written aside and moved into place), timestamps, settings to command and back, schema 1 to 2 |
 | `cbz` | Every archive any script writes: a new one, one added to, a chapter's, a repack. The Uncompressed/CBZs shelf rule |
 | `standin` | Draws a page for a page no reader can show. `cbz` asks it about every file, so every archive agrees |
-| `exits` | `mirror_base`'s exit codes and what each means |
+| `exits` | `mirror_base`'s exit codes and what each means, and `MirrorError`, which carries one |
+| `browser` | Starting the browser a scrape drives, and closing it however it ended |
+| `elements` | Finding the comic image and the next link by element path, and pressing the link |
+| `pagecheck` | `--check`: which known paths match a page, and what to add when none do |
+| `download` | Fetching an image, with retries |
 | `chapters/` | Walking a comic to record which page is which (`index`), lining that up against the files (`align`), reading an archive page (`archive_page`) or the addresses (`addresses`) for chapters, the chapter list and its corrections (`chapterlist`), packing per chapter (`packing`), and renumbering, inserting and refetching pages (`pageops`) |
 
 The scripts import what they use by its old name (`chapters.page_key`, `mirror_base.metadata_file`), so

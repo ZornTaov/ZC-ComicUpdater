@@ -16,18 +16,20 @@ import os
 import re
 import requests
 import argparse
-import hashlib
 import json
 import shlex
-import subprocess
 import uuid
 import zipfile
-
-#the drawn page that stands in for one no reader can show. shared with chapters.py, so a page reads the
-#same whether a comic keeps one archive or one per chapter
-import standin
-from datetime import datetime, timezone
+from datetime import datetime
 from time import sleep
+
+#what this shares with the other scripts: where the settings are, what makes two filenames one page, the
+#metadata file and how an archive is packed
+from comiclib import cbz, exits, paths
+from comiclib.metadata import METADATA_FILE, load, now_stamp, write_json
+from comiclib.pages import held_pages, page_key, page_number, saved_name
+from comiclib.standin import held_otherwise
+from comiclib.paths import element_paths_file
 
 #global vars
 custom_args = [
@@ -63,30 +65,6 @@ next_ele_names = ['//*[@rel="next"]',
                   '//*[@class="nav-next "]',
                   '//*[@id="last-path-for-happy-code"]',
                   "//img[@alt='post image']"]
-element_file = "element_paths.json"
-
-
-def config_folder():
-    #settings live beside the scripts rather than in the library: they describe the setup, not the comics.
-    #MIRROR_CONFIG names it outright, which is how update_comics passes its own --config down to here.
-    return os.environ.get("MIRROR_CONFIG") or os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "config")
-
-
-def element_paths_file():
-    #MIRROR_ELEMENTS names the file outright; otherwise it is the one in the config folder. the two older
-    #places - the folder a scrape runs from, and beside this script - are still read if nothing else is
-    #there, so a library that kept its file in either goes on working.
-    named = os.environ.get("MIRROR_ELEMENTS")
-    if named:
-        return named
-    here = os.path.dirname(os.path.abspath(__file__))
-    for path in (os.path.join(config_folder(), element_file),
-                 os.path.join(os.getcwd(), element_file),
-                 os.path.join(here, element_file)):
-        if os.path.exists(path):
-            return path
-    return os.path.join(config_folder(), element_file)
 
 
 def merge_paths(shipped, saved):
@@ -146,7 +124,7 @@ current_url = None
 verbose = False
 
 #name of the sidecar written into the output folder, so it gets zipped into the cbz alongside the pages
-metadata_file = "mirror_metadata.json"
+metadata_file = METADATA_FILE
 #how many run records to keep. a monthly updater would otherwise grow this file forever; the first run is
 #always kept, since it is the one that says how the comic was originally scraped
 max_runs = 20
@@ -155,17 +133,18 @@ run_start = None
 #identifies this run in the metadata; a timestamp alone collides when a comic is scraped twice in one second
 run_id = None
 stop_reason = "incomplete"
-#exit codes, so a batch driver can tell an ordinary update from a site that broke
-EXIT_OK = 0
-EXIT_INTERRUPTED = 1
-EXIT_USAGE = 2
-EXIT_NO_IMAGE = 3
-EXIT_DOWNLOAD = 4
-EXIT_DRIVER = 5
-EXIT_TIMEOUT = 6
-EXIT_UNEXPECTED = 7
-EXIT_BACKWARDS = 8
-EXIT_SAME_NAMES = 9
+#exit codes, so a batch driver can tell an ordinary update from a site that broke. the numbers live in
+#comiclib.exits, beside what update_comics says about each
+EXIT_OK = exits.OK
+EXIT_INTERRUPTED = exits.INTERRUPTED
+EXIT_USAGE = exits.USAGE
+EXIT_NO_IMAGE = exits.NO_IMAGE
+EXIT_DOWNLOAD = exits.DOWNLOAD
+EXIT_DRIVER = exits.DRIVER
+EXIT_TIMEOUT = exits.TIMEOUT
+EXIT_UNEXPECTED = exits.UNEXPECTED
+EXIT_BACKWARDS = exits.BACKWARDS
+EXIT_SAME_NAMES = exits.SAME_NAMES
 
 #how long to let one page load before giving up on it. selenium otherwise waits for the page to finish
 #loading with no limit of its own, and the only thing that eventually breaks the wait is its internal
@@ -313,7 +292,7 @@ def setup():
     #what the comic already holds, read before anything is saved, so a backwards next link is caught
     #against the pages of earlier runs rather than only the ones this run has written
     global existing_pages
-    existing_pages = folder_pages(output_folder(args))
+    existing_pages = held_pages(output_folder(args))
 
     #a comic that has been walked has a record of which page is which, and chapters are built on it. it is
     #kept up to date here as pages are saved, so it never has to be walked a second time.
@@ -475,14 +454,6 @@ def describe_guess(guess):
                      if guess.get(key))
 
 
-def index_name(src, file_format="png"):
-    #the name img_save would give this image, so a line in the index can be matched against a saved file
-    name = src[src.rfind("/") + 1:]
-    if "gif" in src:
-        file_format = "gif"
-    return name if name.lower().endswith(file_format) else "{0}.{1}".format(name, file_format)
-
-
 def index_read(path):
     #what an earlier attempt already got through, so a walk that stopped can be carried on
     done = []
@@ -562,7 +533,8 @@ def build_index(driver, args):
             most_here = max(most_here, len(srcs))
             for src in (srcs or [None]):
                 at += 1
-                line = {"n": at, "url": here, "src": src, "file": index_name(src) if src else None,
+                #the name a scrape gives this image, so the line can be matched against a saved file
+                line = {"n": at, "url": here, "src": src, "file": saved_name(src) if src else None,
                         "title": driver.title}
                 out.write(json.dumps(line) + chr(10))
             out.flush()
@@ -598,22 +570,11 @@ index_pages = set()
 index_last = 0
 
 
-def cache_name(folder):
-    #the same name chapters.py would pick for this comic's index, so the two always mean one file.
-    #named apart from index_name above, which names an IMAGE: one shadowed the other, and every walk
-    #wrote the cache's own filename into each page's "file" field, so nothing ever matched by name.
-    full = os.path.abspath(folder)
-    tag = hashlib.sha1(full.replace(os.sep, '/').lower().encode('utf-8')).hexdigest()[:8]
-    stem = re.sub(r'[^A-Za-z0-9._-]+', '_', os.path.basename(full)).strip('_') or "comic"
-    return "{0}.{1}.jsonl".format(stem, tag)
-
-
 def open_index(folder, args=None):
     global index_file, index_urls, index_pages, index_last, in_chapters
     named = None
     try:
-        with open(os.path.join(folder, metadata_file), 'r', encoding='utf-8') as f:
-            held = json.load(f)
+        held = load(os.path.join(folder, metadata_file))
         named = (held.get("history") or {}).get("index_cache")
         chapters = held.get("chapters") or {}
         in_chapters = bool(chapters.get("list") or chapters.get("source_url"))
@@ -621,7 +582,8 @@ def open_index(folder, args=None):
         pass
     if not named and not (args and args.keep_index):
         return
-    path = os.path.join(config_folder(), "index", named or cache_name(folder))
+    #the name chapters.py would pick for this comic's index, from the one rule both follow
+    path = os.path.join(paths.index_folder(), named or paths.index_name(folder))
     if not os.path.exists(path):
         if not (args and args.keep_index):
             return
@@ -753,17 +715,6 @@ def build_driver(args):
     return driver
 
 
-def page_key(name):
-    #what makes two filenames the same page, ignoring how each happened to be named: the '0742_' this
-    #script adds in front moves whenever a comic is renumbered, and an extension has been appended to
-    #names that already had one. so '0742_a-page.png.png' and 'a-page.png' are one page.
-    #a number followed by a dot is NOT stripped - for a comic whose pages the site names '0005.gif',
-    #that number is the only thing telling one page from another.
-    stem = re.sub(r'^\d{3,}_', '', name)
-    stem = re.sub(r'\.(png|jpe?g|gif|webp)\.(png|jpe?g|gif|webp)$', r'.\1', stem, flags=re.I)
-    return stem.lower()
-
-
 def reads_backwards(sits_at, came_from):
     #whether the comic has turned round, judged over more than one page. one step back is not evidence:
     #a site that numbers each chapter's pages from one - /comics/1/1.png, and later /comics/131/1.png -
@@ -790,28 +741,6 @@ def would_lose_a_page(target, prefix, saved_so_far, fresh):
             return held.read() != fresh
     except OSError:
         return False
-
-
-def page_number(name):
-    #the page number a filename carries, from the prefix this script adds or from a name that is just
-    #the number. none when the name says nothing about where the page sits.
-    found = re.match(r'^(\d+)[_.]', name)
-    return int(found.group(1)) if found else None
-
-
-def folder_pages(folder):
-    #what is on disk already, as page identity to page number, so a page is recognised however it was
-    #named last time and its position is known
-    held = {}
-    try:
-        names = os.listdir(folder)
-    except OSError:
-        return held
-    for name in names:
-        if name == metadata_file or not os.path.isfile(os.path.join(folder, name)):
-            continue
-        held.setdefault(page_key(name), page_number(name))
-    return held
 
 
 def drop_superseded(folder, increment, keeping):
@@ -841,10 +770,6 @@ def drop_superseded(folder, increment, keeping):
             continue
         superseded.append(name)
         print("Dropped {0}, superseded by {1}.".format(name, keeping))
-
-
-def now_stamp():
-    return datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
 
 
 def output_folder(args):
@@ -907,8 +832,7 @@ def metadata_save(driver, args, completed=False, exit_code=None):
     runs = []
     if os.path.exists(path):
         try:
-            with open(path, 'r', encoding='utf-8') as f:
-                previous = json.load(f)
+            previous = load(path)
             old_settings = previous.get("settings") or {}
             old_state = previous.get("state") or {}
             old_history = previous.get("history") or {}
@@ -1016,9 +940,9 @@ def metadata_save(driver, args, completed=False, exit_code=None):
     if previous.get("chapters"):
         metadata["chapters"] = previous["chapters"]
 
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(metadata, f, indent=2)
-        f.write('\n')
+    #written aside and moved into place: this is rewritten after every page, and a run killed halfway
+    #through writing it would otherwise leave a comic with no readable settings at all
+    write_json(path, metadata)
     return path
 
 
@@ -1038,42 +962,11 @@ def fetch(url, attempts=3):
             sleep(2 * attempt)
 
 
-def archive_prefix(zf, folder):
-    #archives built by Compress-Archive put every entry under the folder name, while a plain zip of the
-    #contents does not. new entries have to match whichever this archive already uses, or a reader shows
-    #the comic as two separate groups
-    prefix = os.path.basename(os.path.abspath(folder)) + '/'
-    names = zf.namelist()
-    return prefix if names and all(name.startswith(prefix) for name in names) else ''
-
-
-def cbz_default(folder):
-    #where the archive goes when --cbz-path is not given. a library that keeps its pages under an
-    #Uncompressed folder and its archives in a matching CBZs tree gets them filed there, so the plain
-    #command puts a new comic where the reader is already looking rather than among the loose pages.
-    folder = os.path.abspath(folder)
-    beside = folder + '.cbz'
-    if os.path.exists(beside):
-        #an archive already sitting next to its folder keeps its place. filing it somewhere new would
-        #start a second archive and leave the reader pointed at one that quietly stops growing.
-        return beside
-    parts = folder.replace('\\', '/').split('/')
-    #the last part is the comic itself and the first is the drive or root, so neither can be the shelf
-    for at in range(len(parts) - 2, 0, -1):
-        if parts[at].lower() != 'uncompressed':
-            continue
-        shelf = os.sep.join(parts[:at] + ['CBZs'])
-        if os.path.isdir(shelf):
-            return os.sep.join([shelf] + parts[at + 1:]) + '.cbz'
-    return beside
-
-
 def cbz_update(args):
-    #packs the pages into a .cbz beside the folder. a zip keeps its entries in the order they were written
-    #and rewrites only the directory at the end, so appending leaves every existing byte where it is and a
-    #sync has to carry no more than the new pages.
+    #packs the pages into the comic's .cbz: a new archive if there is none, and otherwise only the pages it
+    #does not hold yet, added to the end
     folder = output_folder(args)
-    cbz = os.path.abspath(args.cbz_path) if args.cbz_path else cbz_default(folder)
+    archive = os.path.abspath(args.cbz_path) if args.cbz_path else cbz.default_path(folder)
     on_disk = sorted(f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)))
     pages = [f for f in on_disk if f != metadata_file]
     if not pages:
@@ -1081,80 +974,15 @@ def cbz_update(args):
     #a page no reader can show - a recording, a note saying where the video is - goes in as a drawn page
     #saying so, named for the file with a png on the end so it falls where the page belongs. the file
     #itself stays in the folder, which is the copy that keeps everything.
-    drawn = {}
-    for name in pages:
-        entry, made = standin.archive_entry(folder, name)
-        if made is not None:
-            drawn[name] = (entry, made)
+    drawn = [name for name in pages if held_otherwise(folder, name)]
     if drawn:
         print("{0} page(s) no reader can show, which the archive gets a stand-in for: {1}{2}".format(
-            len(drawn), sorted(drawn)[:3], "..." if len(drawn) > 3 else ""))
-
-    if not os.path.exists(cbz):
-        #an explicit path may point somewhere that does not exist yet
-        parent = os.path.dirname(cbz)
-        #two comics in one new group finishing together can both find the shelf missing, and the one to
-        #make it second would otherwise fail with an error the caller takes for a broken archive
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        #images are already compressed, so storing them saves the cpu for no meaningful size difference
-        with zipfile.ZipFile(cbz, 'w', zipfile.ZIP_STORED) as zf:
-            for name in pages:
-                if name in drawn:
-                    zf.writestr(drawn[name][0], drawn[name][1])
-                else:
-                    zf.write(os.path.join(folder, name), name)
-            if metadata_file in on_disk:
-                zf.write(os.path.join(folder, metadata_file), metadata_file)
-        return cbz, len(pages)
-
-    #read first, so an archive with nothing to add is left untouched rather than having its directory
-    #rewritten, which would make a sync re-checksum the whole file for no reason
-    with zipfile.ZipFile(cbz) as zf:
-        prefix = archive_prefix(zf, folder)
-        existing = set(zf.namelist())
-    #a page held otherwise counts as present when its stand-in is there, not when the file is
-    added = [name for name in pages
-             if prefix + (drawn[name][0] if name in drawn else name) not in existing]
-    #a page whose filename was replaced this run has to leave the archive under its old name too, or the
-    #comic shows that page twice for good
-    stale_pages = [prefix + name for name in superseded if prefix + name in existing]
-    if not added and not stale_pages:
-        return cbz, 0
-
-    with zipfile.ZipFile(cbz, 'a', zipfile.ZIP_STORED) as zf:
-        meta_name = prefix + metadata_file
-        last_offset = max((i.header_offset for i in zf.infolist()), default=0)
-        internals = all(hasattr(zf, attr) for attr in ('filelist', 'NameToInfo', 'start_dir'))
-        if internals:
-            for name in stale_pages:
-                gone = zf.NameToInfo.get(name)
-                if gone is None:
-                    continue
-                #the bytes stay where they are and simply stop being referenced, which no reader looks
-                #at; only the directory has to forget the name
-                zf.filelist.remove(gone)
-                del zf.NameToInfo[name]
-                print("Removed the superseded {0} from the archive.".format(name))
-        stale = zf.NameToInfo.get(meta_name)
-        if stale is not None and internals:
-            #drop the old copy from the directory so the refreshed one does not leave a duplicate entry.
-            #this script always writes the metadata last, so its bytes can usually be reclaimed; in an
-            #archive built elsewhere it may sit anywhere, and those few bytes are simply left unreferenced,
-            #which no reader ever looks at.
-            was_last = stale.header_offset == last_offset
-            zf.filelist.remove(stale)
-            del zf.NameToInfo[meta_name]
-            if was_last:
-                zf.start_dir = stale.header_offset
-        for name in added:
-            if name in drawn:
-                zf.writestr(prefix + drawn[name][0], drawn[name][1])
-            else:
-                zf.write(os.path.join(folder, name), prefix + name)
-        if metadata_file in on_disk:
-            zf.write(os.path.join(folder, metadata_file), meta_name)
-    return cbz, len(added)
+            len(drawn), drawn[:3], "..." if len(drawn) > 3 else ""))
+    if not os.path.exists(archive):
+        #the metadata goes in last, as it does when one is added to, so its bytes can be reclaimed later
+        cbz.write(archive, folder, pages + [name for name in on_disk if name == metadata_file])
+        return archive, len(pages)
+    return archive, cbz.append(archive, folder, pages, superseded)
 
 
 def comic_images(srcs, where=None):
@@ -1274,16 +1102,8 @@ def img_save(driver, increment, file_format, args):
 
 
 def save_one(driver, src, increment, file_format, args, resuming):
-    #will save the file as a .gif instead of a .png
-    if "gif" in src:
-        file_format = 'gif'
-    pos = src.rfind("/")
-    
-    #sets name of image to be saved as
-    #if src is not postfixed with file_format ignoring case, it will be added to the end of the filename.
-    image = src[pos+1:]
-    if not image.lower().endswith(file_format):
-        image = '{0}.{1}'.format(image, file_format)
+    #named the way every page is, so the index, a page put in by hand and this all agree on it
+    image = saved_name(src, file_format)
 
     #if increment prefix is required
     if args.prefix:
@@ -1611,11 +1431,11 @@ if __name__ == "__main__":
                   "archive per chapter.")
         if args.cbz and not in_chapters and scrape_state["pages_saved"] > 0:
             try:
-                cbz, added = cbz_update(args)
+                archive, added = cbz_update(args)
                 if added:
-                    print("Added {0} page(s) to {1}.".format(added, cbz))
-                elif cbz:
-                    print("{0} already holds every page; left untouched.".format(cbz))
+                    print("Added {0} page(s) to {1}.".format(added, archive))
+                elif archive:
+                    print("{0} already holds every page; left untouched.".format(archive))
             except (OSError, zipfile.BadZipFile) as error:
                 print("\nWARNING: Could not update the cbz: {0}".format(error))
 

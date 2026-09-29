@@ -9,8 +9,8 @@ So the archive gets a page of its own in their place, saying what the page is an
 is. It is drawn here rather than by an image library: requirements.txt is deliberately selenium and
 requests, and a page saying where a video went is not worth rebuilding the container over.
 
-Both the single archive that mirror_base writes and the per-chapter ones that chapters.py writes use
-this, so a page reads the same either way.
+Every archive is written through comiclib.cbz, which asks here about each file, so a page reads the same
+in a comic's single archive, in its chapter archives, and in one written afresh by repack or adopt.
 """
 import os
 import re

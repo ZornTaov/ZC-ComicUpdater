@@ -4,7 +4,6 @@
 import ast
 import base64
 import collections
-import copy
 import hmac
 import itertools
 import json
@@ -17,6 +16,9 @@ import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
+
+from comiclib import metadata as sidecar
+from comiclib.metadata import write_json
 
 #the settings a person may change from the page, and what each one has to be. output is left out on
 #purpose: a comic's folder is what says where it lives, and update_comics ignores a stored output anyway
@@ -535,13 +537,9 @@ def is_running(runner, name):
 
 
 def read_metadata(path):
-    with open(path, "r", encoding="utf-8") as f:
-        metadata = json.load(f)
-    if metadata.get("schema", 1) < 2:
-        #an old sidecar is brought up to date first, so the edit lands in the one place a run reads it
-        import adopt_comic
-        metadata = adopt_comic.migrate_metadata(metadata) or metadata
-    return metadata
+    metadata = sidecar.load(path)
+    #an old sidecar is brought up to date first, so the edit lands in the one place a run reads it
+    return sidecar.migrate(metadata) or metadata
 
 
 def index_pages(args, uc, comic):
@@ -804,25 +802,11 @@ def save_settings(args, uc, runner, name, given, expected_updated):
     history["edits"] = (history.get("edits") or [])[-(max_edits - 1):] + [{"at": stamp, "changed": changed}]
 
     #written beside the real file and swapped in, so a crash part way never leaves half a metadata file
-    spare = path + ".editing"
-    with open(spare, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2)
-        f.write("\n")
-    os.replace(spare, path)
+    write_json(path, metadata)
     print("Edited {0}: {1}".format(comic.name, ", ".join(
         "{0} {1} -> {2}".format(key, json.dumps(old), json.dumps(new)) for key, (old, new) in changed.items())),
         flush=True)
     return 200, {"saved": True, "changed": changed, "updated": stamp}
-
-
-def write_json(path, body):
-    #written beside the real file and swapped in, so a crash part way never leaves half a file
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    spare = path + ".editing"
-    with open(spare, "w", encoding="utf-8") as f:
-        json.dump(body, f, indent=2)
-        f.write("\n")
-    os.replace(spare, path)
 
 
 def config_view(args, uc):

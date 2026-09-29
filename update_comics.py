@@ -16,7 +16,15 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
-metadata_file = "mirror_metadata.json"
+#the settings folder, the metadata file and the command built from it, and what each exit code means, are
+#shared with the other scripts. settings_to_argv and argv_to_settings are named here as well, for anything
+#that still reaches them through this module
+from comiclib import exits
+from comiclib.metadata import METADATA_FILE, argv_to_settings, saved_command, settings_to_argv  # noqa: F401
+from comiclib.pages import count as folder_pages
+from comiclib.paths import config_folder
+
+metadata_file = METADATA_FILE
 #a comic marked this way is meant to be left alone for good, so it is counted rather than listed.
 #anything skipped for any other reason is a problem, and gets named.
 ended_reason = "marked as ended"
@@ -53,11 +61,6 @@ config_defaults = {
     "add_defaults": {"prime": False, "prefix": False, "increment": 1, "javascript": False,
                      "waittime": 0, "cbz": True, "direction_check": True, "multi_page": True},
 }
-
-
-def config_folder():
-    return os.environ.get("MIRROR_CONFIG") or os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "config")
 
 
 def config_path():
@@ -104,25 +107,7 @@ trigger_files = ("update-now", "update-now.txt")
 trigger_poll = 30
 
 #mirror_base's exit codes, so the summary can say what actually went wrong
-exit_reasons = {
-    0: "up to date",
-    1: "interrupted",
-    2: "bad arguments",
-    3: "image element not found (site layout changed?)",
-    4: "download failed",
-    5: "webdriver would not start",
-    6: "page load timed out (slow or unresponsive site)",
-    7: "unexpected error",
-    8: "next link runs backwards (check the site's next element)",
-    9: "the site reuses image names between chapters; this comic needs prefix turned on",
-}
-
-
-def folder_pages(folder):
-    try:
-        return len([f for f in os.listdir(folder) if f != metadata_file])
-    except OSError:
-        return 0
+exit_reasons = exits.REASONS
 
 
 class Comic:
@@ -188,81 +173,6 @@ def find_comics(root, max_depth=5):
     return sorted(comics, key=lambda c: c.name)
 
 
-def settings_to_argv(settings):
-    #the single place a scrape command is built. the metadata file records what a comic needs as plain
-    #values, not as a command, so this is the only thing that has to know which value is which flag -
-    #and editing one value in the file is the whole of changing how a comic is scraped.
-    url = settings.get("url")
-    if not url:
-        return None
-    argv = []
-    if settings.get("increment") is not None:
-        argv += ["--increment", str(settings["increment"])]
-    if settings.get("output"):
-        argv += ["--output", settings["output"]]
-    if settings.get("prefix"):
-        argv.append("--prefix")
-    if settings.get("javascript"):
-        argv.append("--enable_javascript")
-    if settings.get("firefox"):
-        argv.append("--firefox")
-    if settings.get("waittime"):
-        argv += ["--waittime", str(settings["waittime"])]
-    #on by default, so only its absence is worth saying out loud
-    if settings.get("cbz") is False:
-        argv.append("--no-cbz")
-    #also on by default, so only turning it off is worth saying
-    if settings.get("direction_check") is False:
-        argv.append("--no-direction-check")
-    #likewise: saving every page an address holds is the default, and only a comic told to read one page
-    #an address regardless needs the flag carried forward
-    if settings.get("multi_page") is False:
-        argv.append("--no-multi-page")
-    if settings.get("cbz_path"):
-        argv += ["--cbz-path", settings["cbz_path"]]
-    argv.append(url)
-    return argv
-
-
-def argv_to_settings(argv):
-    #the inverse of settings_to_argv, for reading a schema 1 sidecar that saved the command itself
-    #rather than what it was made of. flags that describe the machine rather than the comic - chrome,
-    #headless, verbose - are deliberately dropped rather than pinned into a comic's settings.
-    settings = {"url": None, "output": None, "cbz_path": None, "increment": None, "prefix": False,
-                "javascript": False, "firefox": False, "waittime": 0, "cbz": True, "ended": False}
-    valued = {"--increment": "increment", "-i": "increment", "--output": "output", "-o": "output",
-              "--cbz-path": "cbz_path", "--waittime": "waittime", "-w": "waittime"}
-    flagged = {"--prefix": "prefix", "-p": "prefix", "--enable_javascript": "javascript",
-               "-ej": "javascript", "--firefox": "firefox", "-f": "firefox"}
-    at = 0
-    argv = list(argv or [])
-    while at < len(argv):
-        token = argv[at]
-        if token in valued and at + 1 < len(argv):
-            settings[valued[token]] = argv[at + 1]
-            at += 2
-            continue
-        if token in flagged:
-            settings[flagged[token]] = True
-        elif token == "--no-cbz":
-            settings["cbz"] = False
-        elif token == "--no-multi-page":
-            settings["multi_page"] = False
-        elif not token.startswith('-'):
-            #the only bare word in a mirror_base command is the url it starts from
-            settings["url"] = token
-        at += 1
-    try:
-        settings["increment"] = int(settings["increment"])
-    except (TypeError, ValueError):
-        settings["increment"] = None
-    try:
-        settings["waittime"] = int(settings["waittime"])
-    except (TypeError, ValueError):
-        settings["waittime"] = 0
-    return settings
-
-
 def resume_argv(comic):
     settings = comic.metadata.get("settings")
     if settings:
@@ -270,17 +180,7 @@ def resume_argv(comic):
     else:
         #schema 1 kept the command itself rather than what it was made of. read it so an un-migrated
         #comic still runs, and it gets rewritten in the current shape the next time it is scraped
-        argv = comic.metadata.get("resume_argv")
-        if argv:
-            argv = list(argv)
-        else:
-            command = comic.metadata.get("resume_command_line")
-            if not command:
-                return None
-            argv = shlex.split(command)
-            #drop the leading "python mirror_base.py"
-            while argv and (argv[0].startswith('python') or argv[0].endswith('.py')):
-                argv.pop(0)
+        argv = saved_command(comic.metadata)
     if not argv:
         return None
 

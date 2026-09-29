@@ -9,21 +9,35 @@ are deliberately **not** in this file, since it is tracked. They belong in local
 
 ## What this is
 
-Five scripts (plus one shared module) that mirror webcomics to a library of loose pages and `.cbz`
+Five scripts, and the package they share, that mirror webcomics to a library of loose pages and `.cbz`
 archives, and keep them up to date unattended.
 
 | File | Lines | What it is |
 | --- | ---: | --- |
-| `mirror_base.py` | ~1660 | Scrapes one comic: drives a browser, follows next links, downloads pages, writes the metadata, packs the single archive |
-| `chapters.py` | ~2280 | Everything about chapters: walking a comic to record which page is which, lining that up against the files, reading an archive page, packing one archive per chapter |
-| `web_ui.py` | ~1160 | The web page's server: a job runner and a JSON API over the library |
+| `mirror_base.py` | ~1450 | Scrapes one comic: drives a browser, follows next links, downloads pages, writes the metadata, packs the single archive |
+| `chapters.py` | ~2180 | Everything about chapters: walking a comic to record which page is which, lining that up against the files, reading an archive page, packing one archive per chapter |
+| `web_ui.py` | ~1140 | The web page's server: a job runner and a JSON API over the library |
 | `web_ui.html` | ~1460 | The whole front end, one file, no build step |
-| `update_comics.py` | ~860 | Finds every comic in a library and updates them on a schedule; hosts the web page |
-| `adopt_comic.py` | ~800 | Takes a folder of pages someone else scraped and makes it a comic this tool can update |
-| `standin.py` | ~240 | Draws a page for a page no reader can show. Shared by `mirror_base` and `chapters` |
+| `update_comics.py` | ~760 | Finds every comic in a library and updates them on a schedule; hosts the web page |
+| `adopt_comic.py` | ~700 | Takes a folder of pages someone else scraped and makes it a comic this tool can update |
+| `comiclib/` | ~760 | What more than one script needs to agree on, below |
+
+`comiclib` is where anything two scripts both need goes, so the answer cannot drift between them:
+
+| Module | What it is |
+| --- | --- |
+| `paths` | The config folder, the element-path file, and the one rule naming a comic's index file |
+| `pages` | What makes two filenames one page (`page_key`), a page's number, reading order, the name a scrape gives an image |
+| `metadata` | Reading and writing `mirror_metadata.json` (always written aside and moved into place), timestamps, settings to command and back, schema 1 to 2 |
+| `cbz` | Every archive any script writes: a new one, one added to, a chapter's, a repack. The Uncompressed/CBZs shelf rule |
+| `standin` | Draws a page for a page no reader can show. `cbz` asks it about every file, so every archive agrees |
+| `exits` | `mirror_base`'s exit codes and what each means |
+
+The scripts import what they use by its old name (`chapters.page_key`, `mirror_base.metadata_file`), so
+code reaching into a script still finds it; new code should import from `comiclib`.
 
 Dependencies are **selenium and requests only**, on purpose (`requirements.txt`). Adding one means
-rebuilding the container, which is a real cost to the person running this — `standin.py` draws PNGs
+rebuilding the container, which is a real cost to the person running this — `comiclib/standin.py` draws PNGs
 with `zlib` and `struct` rather than take a dependency on Pillow. Assume the same constraint for
 anything new.
 
@@ -32,15 +46,17 @@ anything new.
 - **The repo sits inside a working comic library**, which is why `.gitignore` is an **allowlist**: `*`
   first, then `!name` for each tracked file. **A new file is untracked until it is named there.**
   `standin.py` was imported by two modules while committed nowhere, because of exactly this. Any change
-  that adds a file must update `.gitignore` in the same commit.
+  that adds a file must update `.gitignore` in the same commit. A folder needs two lines, `!folder/`
+  then `!folder/*.py`, because `*` matches at every depth.
 - **The library** holds `Uncompressed/<Comic>` for loose pages and `CBZs/` for archives. A comic's
   `output` and `cbz_path` are stored relative to the library root, so the library can move.
 - **The scripts also run in a container**, from a folder mounted over the copies baked into the image
   (see the README's "Changing the scripts without rebuilding"). So **committing is not deploying**:
   the running copy is the mounted folder, and a new module has to reach it too or both scripts fail on
-  import. `mirror_base.py`, `chapters.py`, `adopt_comic.py`, `standin.py` and `web_ui.html` take effect
-  immediately; `update_comics.py` and `web_ui.py` need the container restarting, being the long-running
-  process.
+  import - `comiclib/` above all, which every script imports. `mirror_base.py`, `chapters.py`,
+  `adopt_comic.py` and `web_ui.html` take effect immediately; `update_comics.py`, `web_ui.py` and
+  anything in `comiclib/` need the container restarting, since the long-running process has them
+  imported already (a scrape it starts imports `comiclib` afresh, but the web page does not).
 - **Settings live in `config/` beside the scripts** — `ComicScraper.json`, `element_paths.json`, and
   `index/` (the per-comic record of which page is which). `MIRROR_CONFIG` overrides the folder,
   `MIRROR_ELEMENTS` the element-path file. That folder is the user's own data: **never edit or delete

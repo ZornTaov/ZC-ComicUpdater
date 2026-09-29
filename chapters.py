@@ -4,7 +4,6 @@
 
 import argparse
 import collections
-import hashlib
 import json
 import os
 import re
@@ -18,72 +17,36 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
-metadata_file = "mirror_metadata.json"
-page_types = re.compile(r'\.(png|jpe?g|gif|webp|bmp)$', re.I)
+#what this shares with the other scripts: the settings folder, what makes two filenames one page, the
+#metadata file, and how an archive is packed - so a comic kept in chapters and one kept in a single
+#archive give the same answer to what a reader sees
+from comiclib import cbz
+from comiclib.metadata import METADATA_FILE, now_stamp as time_stamp, read as read_metadata, write_json
+from comiclib.metadata import write as write_metadata
+from comiclib.pages import PAGE_TYPES, listing as folder_pages, page_key, page_number, plain_name, saved_name
+from comiclib.paths import config_folder, index_folder, index_name
 #a page can be held as something no reader can show - a recording, a flash file, a note saying where the
-#page lives now - and the archive gets a drawn stand-in in its place. shared with mirror_base, which
-#writes the single archive for a comic that is not kept in chapters, so a page reads the same either way
-from standin import (video_types, flash_types, link_types, a_web_address,  # noqa: F401
-                     held_otherwise, address_in, archive_entry, stand_in, wrapped)
-#the number this script gave a page when it saved it: 0742_something.jpg, or a plain 0742.jpg
-numbered = re.compile(r'^(\d+)(?:[._])')
+#page lives now - and the archive gets a drawn stand-in in its place
+from comiclib.standin import (video_types, flash_types, link_types, a_web_address,  # noqa: F401
+                              held_otherwise, address_in, archive_entry, stand_in, wrapped)
 
-
-def config_folder():
-    return os.environ.get("MIRROR_CONFIG") or os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "config")
-
-
-def page_key(name):
-    #two spellings of one page have to agree: the prefix this script adds is dropped, and an extension
-    #appended twice is collapsed. a number followed by a dot is left alone - for a comic whose pages are
-    #named 0005.gif that number is the page's whole identity.
-    stem = re.sub(r'^\d{3,}_', '', name)
-    stem = re.sub(r'\.(png|jpe?g|gif|webp)\.(png|jpe?g|gif|webp)$', r'.\1', stem, flags=re.I)
-    return stem.lower()
-
-
-def page_number(name):
-    found = numbered.match(name)
-    return int(found.group(1)) if found else None
-
-
-def sort_key(name):
-    #numbers sort as numbers, so 9 comes before 10 for a comic whose files were never padded
-    return [int(bit) if bit.isdigit() else bit.lower() for bit in re.split(r'(\d+)', name)]
-
-
-
-def folder_pages(folder, others=False):
-    #the comic's pages as files. a page held as a video, as flash, or as a note saying where it lives now
-    #is asked for only where a page has to be accounted for - the lining up, and the packing that puts a
-    #stand-in in its place
-    names = [f for f in os.listdir(folder)
-             if (page_types.search(f) or (others and held_otherwise(folder, f)))
-             and os.path.isfile(os.path.join(folder, f))]
-    #the order the comic reads in: by the number this script saved it under where there is one, and by
-    #name otherwise. the number is the order pages were fetched, which is the order they were published.
-    if names and all(page_number(name) is not None for name in names):
-        return sorted(names, key=lambda name: (page_number(name), sort_key(name)))
-    return sorted(names, key=sort_key)
+metadata_file = METADATA_FILE
+page_types = PAGE_TYPES
 
 
 def index_path(folder, root=None, args=None):
     #the comic's own folder decides the name, and nothing else: passing a library folder or not must never
-    #change which cache a comic uses. the short tag is what keeps two comics called Extras apart.
+    #change which cache a comic uses
     if args is not None and getattr(args, "cache", None):
         return args.cache
-    full = os.path.abspath(folder)
-    tag = hashlib.sha1(full.replace(os.sep, '/').lower().encode('utf-8')).hexdigest()[:8]
-    name = re.sub(r'[^A-Za-z0-9._-]+', '_', os.path.basename(full)).strip('_') or "comic"
-    here = os.path.join(config_folder(), "index", "{0}.{1}.jsonl".format(name, tag))
+    here = os.path.join(index_folder(), index_name(folder))
     if os.path.exists(here):
         return here
     #the same comic reached by another path - a share on one machine, a mount inside a container - hashes
     #differently, so the comic itself says which cache is its own and that is used when it is there
     named = ((read_metadata(folder).get("history") or {}).get("index_cache"))
     if named:
-        elsewhere = os.path.join(config_folder(), "index", named)
+        elsewhere = os.path.join(index_folder(), named)
         if os.path.exists(elsewhere):
             return elsewhere
     return here
@@ -140,14 +103,6 @@ def fill_sizes(path, pages, workers=6):
             f.write(json.dumps(page) + chr(10))
     os.replace(spare, path)
     return len(wanted) - len(missed)
-
-
-def read_metadata(folder):
-    try:
-        with open(os.path.join(folder, metadata_file), 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
 
 
 def recovered_files(folder, metadata=None):
@@ -410,21 +365,8 @@ def save_alignment(path, folder, pages, aligned, how, settled):
                    "src": page.get("src"), "file": name, "how": way}
                   for page, name, way in zip(pages, aligned, how)],
     }
-    spare = path + ".writing"
-    with open(spare, 'w', encoding='utf-8') as f:
-        json.dump(out, f, indent=1)
-        f.write(chr(10))
-    os.replace(spare, path)
+    write_json(path, out, indent=1)
     return path
-
-
-def write_metadata(folder, metadata):
-    path = os.path.join(folder, metadata_file)
-    spare = path + ".writing"
-    with open(spare, 'w', encoding='utf-8') as f:
-        json.dump(metadata, f, indent=2)
-        f.write(chr(10))
-    os.replace(spare, path)
 
 
 def gap_notes(pages, aligned):
@@ -466,11 +408,6 @@ def save_gaps(folder, pages, aligned):
     print("  wrote {0} gap(s) and {1} hand-made page(s) into {2}".format(
         len(gaps), len(oddities), os.path.join(folder, metadata_file)))
     return len(gaps)
-
-
-def time_stamp():
-    import datetime
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # ---------------- where the chapters are ----------------
@@ -1322,21 +1259,10 @@ def already_packed(path, names, folder):
     if not os.path.exists(path):
         return False
     try:
-        with zipfile.ZipFile(path) as zf:
-            held = {info.filename: info.file_size for info in zf.infolist() if not info.filename.endswith('/')}
+        held = cbz.held(path)
+        wanted = cbz.expected(folder, names)
     except (OSError, zipfile.BadZipFile):
         return False
-    wanted = {}
-    for name in names:
-        entry, made = archive_entry(folder, name)
-        if made is not None:
-            #a stand-in is drawn the same way every time, so its size is what says it is already there
-            wanted[entry] = len(made)
-            continue
-        try:
-            wanted[name] = os.path.getsize(os.path.join(folder, name))
-        except OSError:
-            return False
     held.pop("ComicInfo.xml", None)
     return held == wanted
 
@@ -1383,23 +1309,13 @@ def pack(folder, args):
         print("Nothing was written. Run it again without --dry-run.")
         return 0
 
-    os.makedirs(shelf, exist_ok=True)
     written = 0
     for chapter, names in todo:
         path = os.path.join(shelf, chapter_file(folder, chapter))
         print("  writing {0} ({1} page(s)) ...".format(os.path.basename(path), len(names)), flush=True)
-        spare = path + ".packing"
-        with zipfile.ZipFile(spare, 'w', zipfile.ZIP_STORED) as zf:
-            zf.writestr("ComicInfo.xml", comic_info(folder, chapter, len(parcels), names))
-            for name in names:
-                entry, made = archive_entry(folder, name)
-                if made is None:
-                    zf.write(os.path.join(folder, name), entry)
-                else:
-                    #a page no reader can show gets a page saying where the real one is, named so it
-                    #falls where the page belongs
-                    zf.writestr(entry, made)
-        os.replace(spare, path)
+        #a page no reader can show goes in as a page saying where the real one is, named so it falls where
+        #the page belongs - the same stand-in the single archive of a comic not in chapters gets
+        cbz.write(path, folder, names, first=[("ComicInfo.xml", comic_info(folder, chapter, len(parcels), names))])
         written += 1
         print("  wrote {0} ({1} page(s))".format(os.path.basename(path), len(names)), flush=True)
     print("Wrote {0} chapter archive(s).".format(written))
@@ -1427,17 +1343,14 @@ def verify_chapters(folder, shelf, parcels):
     for chapter, names in parcels:
         path = os.path.join(shelf, chapter_file(folder, chapter))
         try:
-            with zipfile.ZipFile(path) as zf:
-                held = {info.filename: info.file_size for info in zf.infolist()
-                        if info.filename != "ComicInfo.xml" and not info.filename.endswith('/')}
+            held = cbz.held(path)
         except (OSError, zipfile.BadZipFile) as error:
             trouble.append("c{0:03d}: {1}".format(chapter["number"], error))
             continue
         for name in names:
             #a page held as something no reader can show is in the archive as its stand-in, so that is
             #what has to be there and at the size the drawing comes to
-            entry, made = archive_entry(folder, name)
-            size = len(made) if made is not None else os.path.getsize(os.path.join(folder, name))
+            (entry, size), = cbz.expected(folder, [name]).items()
             if held.get(entry) != size:
                 trouble.append("c{0:03d}: {1} is {2} in the archive, {3} on disk".format(
                     chapter["number"], entry, held.get(entry), size))
@@ -1594,11 +1507,7 @@ def refetch(folder, args):
         for page in saved["pages"]:
             if page["n"] in fresh_names:
                 page["file"] = fresh_names[page["n"]]
-        spare = alignment + ".writing"
-        with open(spare, 'w', encoding='utf-8') as f:
-            json.dump(saved, f, indent=1)
-            f.write(chr(10))
-        os.replace(spare, alignment)
+        write_json(alignment, saved, indent=1)
         print("  {0} name(s) put right in the alignment too.".format(len(renamed)))
     print("Replaced {0} page(s); left {1} alone as no better than what was here.".format(done, kept))
     for n, why in failed[:8]:
@@ -1615,34 +1524,33 @@ def refetch(folder, args):
 def repack(folder, args):
     #a zip cannot replace an entry in place, so the archive is written afresh beside the old one and
     #swapped in only once it is complete and holds every page
-    cbz = args.cbz
-    if not cbz:
+    archive = args.cbz
+    if not archive:
         metadata = read_metadata(folder)
-        cbz = (metadata.get("settings") or {}).get("cbz_path")
-        if cbz and args.root and not os.path.isabs(cbz):
-            cbz = os.path.join(args.root, cbz)
-    if not cbz or not os.path.exists(cbz):
+        archive = (metadata.get("settings") or {}).get("cbz_path")
+        if archive and args.root and not os.path.isabs(archive):
+            archive = os.path.join(args.root, archive)
+    if not archive or not os.path.exists(archive):
         print("No archive found to repack; pass --cbz with its path.")
         return 1
-    names = sorted(f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)))
-    with zipfile.ZipFile(cbz) as zf:
-        prefix = os.path.basename(os.path.abspath(folder)) + '/'
-        held = zf.namelist()
-        prefix = prefix if held and all(name.startswith(prefix) for name in held) else ''
-    spare = cbz + ".packing"
-    print("Repacking {0} ({1} file(s)) ...".format(cbz, len(names)))
-    with zipfile.ZipFile(spare, 'w', zipfile.ZIP_STORED) as zf:
-        for name in names:
-            zf.write(os.path.join(folder, name), prefix + name)
-    with zipfile.ZipFile(spare) as zf:
-        packed = [name for name in zf.namelist() if not name.endswith('/')]
-    if len(packed) != len(names):
+    on_disk = sorted(f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)))
+    #the metadata last, as a scrape writes it, so a later scrape adding to this archive can reclaim it
+    names = [f for f in on_disk if f != metadata_file] + [f for f in on_disk if f == metadata_file]
+    with zipfile.ZipFile(archive) as zf:
+        prefix = cbz.archive_prefix(zf, folder)
+    spare = archive + ".repacking"
+    print("Repacking {0} ({1} file(s)) ...".format(archive, len(names)))
+    #through the same packing as every other archive, so a page no reader can show goes in as its
+    #stand-in here too, rather than as a video no reader can open
+    cbz.write(spare, folder, names, prefix)
+    wanted = {prefix + entry: size for entry, size in cbz.expected(folder, names).items()}
+    if cbz.held(spare) != wanted:
         os.remove(spare)
-        print("ERROR: the new archive holds {0} of {1} files, so the old one was left alone.".format(
-            len(packed), len(names)))
+        print("ERROR: the new archive does not hold every file as it is on disk, so the old one was left "
+              "alone.")
         return 1
-    shutil.move(spare, cbz)
-    print("  {0} now holds every page as it is on disk.".format(cbz))
+    shutil.move(spare, archive)
+    print("  {0} now holds every page as it is on disk.".format(archive))
     return 0
 
 
@@ -1756,11 +1664,6 @@ def do_align(folder, args):
     return 0 if settled else 1
 
 
-def plain_name(name):
-    #a name this script has already numbered, back to whatever the site called it
-    return re.sub(r'^\d{1,6}_', '', name)
-
-
 def renumber(folder, args):
     #a comic scraped without --prefix keeps the site's own names, and a site that calls one page jan.png
     #and the next 99002.jpg reads in no order at all. the alignment is the only thing that knows which
@@ -1830,11 +1733,7 @@ def renumber(folder, args):
     for page in saved["pages"]:
         if page.get("file") in renamed:
             page["file"] = renamed[page["file"]]
-    spare = alignment + ".writing"
-    with open(spare, 'w', encoding='utf-8') as f:
-        json.dump(saved, f, indent=1)
-        f.write(chr(10))
-    os.replace(spare, alignment)
+    write_json(alignment, saved, indent=1)
     metadata = read_metadata(folder)
     if metadata:
         settings = metadata.setdefault("settings", {})
@@ -1849,10 +1748,9 @@ def renumber(folder, args):
 
 def saved_as(src):
     #the name a scrape would give this image, worked out here rather than taken from the walk's record,
-    #so putting a page in does not depend on that record being right about it
-    name = os.path.basename(src.split('?')[0].rstrip('/'))
-    kind = "gif" if "gif" in src.lower() else "png"
-    return name if name.lower().endswith(kind) else "{0}.{1}".format(name, kind)
+    #so putting a page in does not depend on that record being right about it. the query string is left
+    #out, which a scrape does not do: a ? cannot be in a filename on windows at all
+    return saved_name(src.split('?')[0].rstrip('/'))
 
 
 def one_page(url, args):

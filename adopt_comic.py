@@ -6,16 +6,16 @@ import csv
 import json
 import os
 import re
-import shlex
 import sys
 import zipfile
-from datetime import datetime, timezone
 
-#the one definition of which setting maps to which mirror_base flag lives next door, so the command
-#shown in a dry run is built the same way the one update_comics actually runs is
-from update_comics import settings_to_argv, argv_to_settings
+#the one definition of which setting maps to which mirror_base flag, shared, so the command shown in a dry
+#run is built the same way the one update_comics actually runs is. the archive is packed and filed the
+#way a scrape would pack and file it
+from comiclib import cbz
+from comiclib.metadata import METADATA_FILE, migrate as migrate_metadata, now_stamp, settings_to_argv
 
-metadata_file = "mirror_metadata.json"
+metadata_file = METADATA_FILE
 
 #the report's columns. the first block is what the scan worked out and is there to read; the second is
 #what you fill in. a row is adopted once it has an address or is marked ended, and ignored until then.
@@ -30,10 +30,6 @@ page_types = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif', '.jxl')
 #is usually just the number. anything else carries no number at all.
 prefixed = re.compile(r'^(\d+)_')
 numbered = re.compile(r'^(\d+)\.')
-
-
-def now_stamp():
-    return datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
 
 
 def is_page(name):
@@ -300,50 +296,20 @@ def loose_pages(folder):
                   if is_page(name) and os.path.isfile(os.path.join(folder, name)))
 
 
-def archive_shelf(folder):
-    #where this library keeps its archives, worked out the same way mirror_base does it: a comic under
-    #an Uncompressed tree belongs in the CBZs tree beside it. returns (pages tree, shelf) or (None, None)
-    parts = os.path.abspath(folder).replace('\\', '/').split('/')
-    for at in range(len(parts) - 2, 0, -1):
-        if parts[at].lower() != 'uncompressed':
-            continue
-        shelf = os.sep.join(parts[:at] + ['CBZs'])
-        if os.path.isdir(shelf):
-            return os.sep.join(parts[:at + 1]), shelf
-    return None, None
-
-
 def inside(path, folder):
     return os.path.normcase(os.path.abspath(path)).startswith(os.path.normcase(os.path.abspath(folder)) + os.sep)
 
 
-def build_archive(folder, cbz):
+def build_archive(folder, archive):
     #packs the comic into an archive that is not there yet. a cbz_path naming a file that does not
     #exist is nearly always a library being filled in rather than a mistake, so it is built instead of
     #refused; a name that is only slightly different from a real one is caught before we ever get here.
     pages = loose_pages(folder)
     if not pages:
         return 0
-    parent = os.path.dirname(cbz)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    #images are already compressed, so storing them saves the cpu for no meaningful size difference.
-    #written aside and moved into place, so a run stopped halfway leaves no half-archive behind
-    spare = cbz + ".writing"
-    try:
-        with zipfile.ZipFile(spare, 'w', zipfile.ZIP_STORED) as zf:
-            for name in pages:
-                zf.write(os.path.join(folder, name), name)
-            if os.path.isfile(os.path.join(folder, metadata_file)):
-                zf.write(os.path.join(folder, metadata_file), metadata_file)
-        os.replace(spare, cbz)
-    except (OSError, zipfile.BadZipFile):
-        if os.path.exists(spare):
-            try:
-                os.remove(spare)
-            except OSError:
-                pass
-        raise
+    #packed the way a scrape packs one, metadata last, so a later scrape adds to it rather than starting over
+    held = [metadata_file] if os.path.isfile(os.path.join(folder, metadata_file)) else []
+    cbz.write(archive, folder, pages + held)
     return len(pages)
 
 
@@ -490,7 +456,7 @@ def adopt_one(args, quiet=False):
     if to_build:
         #an archive built among the pages instead of on the shelf beside them is what a --root pointed
         #one level too deep produces, and it takes the saved output path down with it, so it is refused
-        tree, shelf = archive_shelf(folder)
+        tree, shelf = cbz.shelf(folder)
         if shelf and inside(to_build, tree):
             return False, ("cbz_path {0} would be built at {1}, in among the pages rather than on "
                            "this library's shelf {2} - is --root one folder too deep?".format(
@@ -597,67 +563,6 @@ def setup():
     params.add_argument("--force", action='store_true', default=False,
                         help="Overwrite metadata that is already there.")
     return params.parse_args(), params
-
-
-def migrate_metadata(old):
-    #schema 1 wrote the resume command three times over - as a list, as a string, and again inside every
-    #run entry - with no plain value anywhere for things like prefix. this pulls the command apart into
-    #the settings block that replaced it, so the facts have one home and editing one is enough.
-    if old.get("schema", 1) >= 2:
-        return None
-
-    argv = old.get("resume_argv")
-    if not argv and old.get("resume_command_line"):
-        argv = shlex.split(old["resume_command_line"])
-        while argv and (argv[0].startswith('python') or argv[0].endswith('.py')):
-            argv.pop(0)
-    settings = argv_to_settings(argv)
-
-    #a comic marked ended has no resume command at all, so everything has to come from the flat keys
-    if not settings["url"]:
-        settings["url"] = old.get("source_url") or old.get("last_page_url")
-    if not settings["output"]:
-        settings["output"] = old.get("output_folder")
-    if not settings["cbz_path"]:
-        settings["cbz_path"] = old.get("archive_path")
-    if settings["increment"] is None:
-        for key in ("resume_page_number", "last_page_number", "page_count"):
-            if old.get(key) is not None:
-                settings["increment"] = old[key]
-                break
-    settings["ended"] = bool(old.get("ended", False))
-
-    #run history keeps the argv that is the actual record of what ran, and loses the rendered command
-    #and the option dump that said the same thing twice more
-    runs = [{k: v for k, v in run.items() if k not in ("command_line", "options")}
-            for run in old.get("runs", [])]
-
-    fresh = {
-        "schema": 2,
-        "generator": old.get("generator", "adopt_comic.py"),
-        "generator_version": old.get("generator_version"),
-        "created": old.get("created", now_stamp()),
-        "updated": now_stamp(),
-        "settings": settings,
-        "state": {
-            "site": old.get("site"),
-            "page_count": old.get("page_count"),
-            "completed": bool(old.get("completed", False)),
-            "image_xpath": old.get("image_xpath"),
-            "next_xpath": old.get("next_xpath"),
-            "last_image_url": old.get("last_image_url"),
-            "last_image_file": old.get("last_image_file"),
-        },
-        "history": {
-            "first_page_url": old.get("first_page_url"),
-            "first_page_number": old.get("first_page_number"),
-            "adopted": bool(old.get("adopted", False)),
-            "runs": runs,
-        },
-    }
-    if old.get("adopted_from"):
-        fresh["history"]["adopted_from"] = old["adopted_from"]
-    return fresh
 
 
 def migrate_library(root, dry_run=False):

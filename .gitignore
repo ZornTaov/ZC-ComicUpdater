@@ -23,7 +23,10 @@
 !update_comics.py
 !adopt_comic.py
 !chapters.py
-!standin.py
+
+# what the scripts share. two lines, because * matches at every depth: the folder first, then its files
+!comiclib/
+!comiclib/*.py
 !web_ui.py
 !web_ui.html
 

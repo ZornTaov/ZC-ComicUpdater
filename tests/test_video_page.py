@@ -66,3 +66,20 @@ def test_the_archives_hold_a_stand_in_rather_than_the_video(filmy, library, tmp_
     assert not [n for n in inside if n.endswith(".mp4")], inside
     #the video is still in the folder, which is the copy that keeps everything
     assert (filmy / "0003.mp4").is_file(), "the video was moved or deleted"
+
+
+def test_a_repacked_single_archive_holds_the_stand_in_too(filmy, library):
+    #the single archive written afresh has to read the same as one a scrape added to, page for page: repack
+    #once wrote every file as it was, so a comic repacked after a refetch had its video back in the archive
+    archive = library / "CBZs" / "Filmy.cbz"
+    archive.parent.mkdir(exist_ok=True)
+    with zipfile.ZipFile(str(archive), "w") as zf:
+        zf.writestr("0001.png", b"an older copy")
+    done = run("chapters.py", "repack", filmy, "--root", library)
+    assert done.returncode == 0, done.stdout[-400:]
+    with zipfile.ZipFile(str(archive)) as zf:
+        names = zf.namelist()
+    assert names == ["0001.png", "0002.png", "0003.png", "0004.png", "mirror_metadata.json"], names
+    #and the stand-in is the drawing, not the video under another name
+    with zipfile.ZipFile(str(archive)) as zf:
+        assert zf.read("0003.png").startswith(b"\x89PNG"), "0003.png is not a picture"

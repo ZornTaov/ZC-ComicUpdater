@@ -8,20 +8,22 @@ The problem it solves is not the first download — it is the fifth year of upda
 been following for a decade is a 250 MB archive, and adding this week's three pages should not mean
 rewriting or re-syncing 250 MB.
 
-## The three scripts
+## The scripts
 
 | Script | What it does |
 | --- | --- |
 | `mirror_base.py` | Scrapes one comic, saves the pages, appends them to its `.cbz`, writes its metadata. |
 | `update_comics.py` | Walks a library, resumes every comic from its metadata, on demand or on a schedule. |
+| `chapters.py` | Works out which saved file is which page, where the chapters are, and packs one `.cbz` per chapter. |
+| `adopt_comic.py` | Writes metadata for comics you already have, so they join the rotation without re-downloading. |
 | `web_ui.py`, `web_ui.html` | The optional web page `update_comics.py --web` serves. |
+| `comiclib/` | What the scripts share. Not run directly; it has to sit beside them. |
 | `config/ComicScraper.json` | Settings: where pages and archives go, and what a run defaults to. |
 | `config/element_paths.json` | The XPaths every scrape tries, when the built-in ones are not enough. |
-| `adopt_comic.py` | Writes metadata for comics you already have, so they join the rotation without re-downloading. |
 
 ## Requirements
 
-- Python 3.8 or newer
+- Python 3.9 or newer
 - Chrome or Firefox installed (Selenium 4.6+ fetches the matching driver by itself)
 
 ```sh
@@ -344,7 +346,9 @@ internet. The page's actions only accept JSON, so a link or form on another site
 
 ## Running in Docker
 
-The image pins Chromium and a matching ChromeDriver together, so a host update cannot break the pair.
+The image pins Chromium and a matching ChromeDriver together, so a host update cannot break the pair,
+and carries the scripts themselves, so it runs with nothing but your library and a settings folder
+mounted.
 
 ```sh
 docker build -t comics-updater:1.0 .
@@ -358,7 +362,9 @@ leaves you with a second image entry holding nothing useful.
 
 Edit `docker-compose.yml` before the first run:
 
-- `volumes` — point it at your library, mounted as `/library`
+- `volumes` — point the first at your library, mounted as `/library`, and the second at a folder for
+  the settings, mounted as `/app/config`. That folder keeps `ComicScraper.json`, the element paths the
+  web page edits, and `index/`; without it they live inside the container and go when it is recreated
 - `TZ` — **required**, or the container runs on UTC and the schedule fires at the wrong hour
 - `user` — set it to the owner of the library folder (`ls -n` shows the numbers), so scraped pages
   land readable to whatever shares them rather than owned by root
@@ -371,30 +377,35 @@ with a permission error about a home directory, run it as `HOME=/tmp DOCKER_CONF
 ### Changing the scripts without rebuilding
 
 Rebuilding an image to change one line is miserable, especially when the build has to happen over
-ssh. Uncomment the second volume in `docker-compose.yml` and point it at the folder holding the
-scripts and `web_ui.html`:
+ssh. The compose file's last volume, commented out, runs the scripts from a folder on the share
+instead of the copies built into the image:
 
 ```yaml
-      - /share/Container/ComicScraper:/app:ro
+      - /share/Container/ComicScraper:/app
 ```
 
-That mounts over the copies baked in at build time, so the `.py` files in that folder are what runs.
-Edit them over a file share, and:
+A mount replaces what the image has at that path rather than adding to it, so that folder has to hold
+everything the image does: the five `.py` scripts, `web_ui.html`, the `comiclib/` folder, and a
+`config/` folder, which takes over from the settings volume above - drop that line when using this one.
+Writable, because the web page saves settings and element paths into `config/`. Then edit the files over
+a file share, and:
 
-- **`mirror_base.py` needs nothing at all.** Every comic is launched as a fresh
+- **`mirror_base.py` and `chapters.py` need nothing at all.** Every comic is launched as a fresh
   `python /app/mirror_base.py …` subprocess, so the next comic to run picks up the new file. Even a
   scheduled run already in progress will use it for the comics it has not reached yet.
-- **`update_comics.py` and `web_ui.py` need a container restart**, since they are the long-running
-  process. The Restart button in Container Station is enough; no ssh. `web_ui.html` needs nothing.
+- **`update_comics.py`, `web_ui.py` and anything in `comiclib/` need a container restart**, since the
+  long-running process has them loaded already. The Restart button in Container Station is enough; no
+  ssh. `web_ui.html` needs nothing.
 - **Settings and element paths need nothing.** They are read from `config/` before each run.
 - **Adopting a new comic needs nothing.** The library is re-scanned at the start of every scheduled
   run, so a `mirror_metadata.json` written today joins tonight's run by itself.
 
 After that the image only exists to carry Python, Chromium and ChromeDriver, and needs rebuilding
-only when one of those should change.
+only when one of those should change, or `requirements.txt` gains something.
 
 One warning: an empty or missing host path here mounts an empty `/app` and nothing will start. Make
-sure the scripts really are in that folder before uncommenting.
+sure the scripts really are in that folder before switching to it. To go back to the built-in copies,
+comment it out again and mount the settings volume in its place.
 
 Rebuilding with a tag that is already in use leaves the previous image behind as `<none>`, which is
 usually what an unexpected extra entry in the Container Station image list turns out to be.
@@ -906,6 +917,18 @@ python update_comics.py "D:/Comics" --only MyComic --dry-run
   load images and does not wait for the load event. That makes a page that a browser renders
   instantly, but which keeps waiting on some third party font or script, stop being able to stall a
   run. It also roughly halves the traffic, since every page was previously fetched twice.
+
+## Running the tests
+
+```sh
+pip install -r requirements-dev.txt
+python -m pytest                     # everything, side by side, in under a minute
+python -m pytest -m "not browser"    # only what needs no browser, in seconds
+```
+
+The tests stand up made-up comics on a local port and run the real scripts against them, each in a
+library and settings folder of its own, so they touch nothing of yours and nothing on the internet.
+Those that need Chrome skip themselves where there is none. The container never needs any of this.
 
 ## Credits and license
 

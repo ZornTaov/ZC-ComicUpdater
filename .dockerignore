@@ -1,6 +1,13 @@
-# the build only needs the scripts and the pin file; everything else here is the comic library itself
+# the build sees only what the image ships: everything else here is the comic library, a working folder,
+# or files that are not part of the program. every file is named, rather than matched, so a stray script
+# beside them never ends up in a published image
 *
 !requirements.txt
 !mirror_base.py
+!chapters.py
 !update_comics.py
 !adopt_comic.py
+!web_ui.py
+!web_ui.html
+!comiclib
+comiclib/**/__pycache__

@@ -1,5 +1,6 @@
 # Container Station -> Applications -> Create, or `docker compose up -d` over ssh.
-# The image is built separately and on purpose:
+# The image is built separately and on purpose, and carries the scripts as well as python and chromium,
+# so it runs with nothing but a library and a settings folder mounted:
 #
 #     docker build -t comics-updater:1.0 .
 #
@@ -34,15 +35,18 @@ services:
       # /library, because comics are addressed by paths relative to it in their metadata.
       - /share/Media/Comics:/library
 
-      # OPTIONAL, and the reason to want it is that editing a script should not cost an image build.
-      # Mounted over the copies baked in at build time, so whatever .py files sit in this folder are
-      # what runs. Writable, because the settings and the element paths live in its config folder and
-      # the web page saves them there.
+      # CHANGE ME: a folder for the settings - ComicScraper.json, the element paths the web page edits,
+      # and index/, the record of which page is which. Without it they live inside the container and are
+      # lost whenever it is recreated. An empty folder is fine; it fills itself.
+      - /share/Container/ComicScraper/config:/app/config
+
+      # OPTIONAL, instead of the line above: run the scripts from a folder on the share rather than the
+      # copies built into the image, so an edit needs a container restart rather than an image build.
+      # The folder has to hold everything the image does - the five .py scripts, web_ui.html and the
+      # comiclib/ folder - and its own config/, which then does the job of the line above, so drop that
+      # one. An empty or missing path here mounts an empty /app and nothing will start.
       #
-      # Point it at the folder holding the scripts, along with web_ui.py and web_ui.html. Uncomment only once that folder really has
-      # them in it: an empty or missing path here mounts an empty /app and nothing will start.
-      #
-      - /share/Container/ComicScraper:/app
+      # - /share/Container/ComicScraper:/app
 
     # chromium wants more than docker's default 64m of shared memory
     shm_size: 512m

@@ -5,6 +5,7 @@ import os
 import re
 
 from comiclib.metadata import METADATA_FILE as metadata_file
+from comiclib.pages import page_key
 
 
 def reads_backwards(sits_at, came_from, scrape_state):
@@ -52,6 +53,32 @@ def drop_superseded(folder, increment, keeping, superseded):
         #'0743_a-page.png.png' and the hand renumbered '0743.png' are both page 743
         numbered = re.match(r'^(\d{3,})[_.]', name)
         if not numbered or int(numbered.group(1)) != int(increment):
+            continue
+        full = os.path.join(folder, name)
+        if not os.path.isfile(full):
+            continue
+        try:
+            os.remove(full)
+        except OSError as error:
+            print("WARNING: could not drop the older name {0}: {1}".format(name, error))
+            continue
+        superseded.append(name)
+        print("Dropped {0}, superseded by {1}.".format(name, keeping))
+
+
+def drop_other_spellings(folder, keeping, superseded):
+    #the same for a comic whose pages carry no number: there, what says which page a file is, is the page
+    #it names, however it was spelled. the page a resume starts on, saved before names were taken as the
+    #site gives them, is a-page.jpg.png, and saved again now is a-page.jpg - one page, which a reader would
+    #otherwise show twice. only ever asked about the page a resume starts on, which is the one page a run
+    #knows it is saving again.
+    try:
+        present = os.listdir(folder)
+    except OSError:
+        return
+    wanted = page_key(keeping)
+    for name in present:
+        if name in (keeping, metadata_file) or page_key(name) != wanted:
             continue
         full = os.path.join(folder, name)
         if not os.path.isfile(full):

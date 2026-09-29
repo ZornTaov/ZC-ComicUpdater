@@ -2,7 +2,7 @@
 #spelling once the new one is saved.
 import pytest
 
-from comiclib.guards import drop_superseded
+from comiclib.guards import drop_other_spellings, drop_superseded
 
 
 @pytest.mark.parametrize("a, b", [
@@ -37,4 +37,22 @@ def test_the_new_spelling_is_kept_and_the_old_one_dropped(mirror, tmp_path, exis
     gone = bool(existing) and existing[0] not in left
     assert gone == expect_gone and keeping in left, left
     #and what went is handed back, so the archive can drop it too
+    assert dropped == (existing[:1] if expect_gone else []), dropped
+
+
+@pytest.mark.parametrize("existing, expect_gone", [
+    (["a-page.jpg.png"], True),        # saved before names were taken as the site gives them
+    (["A-Page.jpg.png"], True),        # the same page in other letters
+    (["another-page.jpg"], False),     # a different page is safe
+    ([], False),                       # nothing to drop
+])
+def test_without_numbers_the_older_spelling_of_the_same_page_is_dropped(tmp_path, existing, expect_gone):
+    keeping = "a-page.jpg"
+    for name in existing:
+        (tmp_path / name).write_bytes(b'old')
+    (tmp_path / keeping).write_bytes(b'new')
+    dropped = []
+    drop_other_spellings(str(tmp_path), keeping, dropped)
+    left = sorted(p.name for p in tmp_path.iterdir())
+    assert (bool(existing) and existing[0] not in left) == expect_gone and keeping in left, left
     assert dropped == (existing[:1] if expect_gone else []), dropped

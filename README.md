@@ -56,8 +56,21 @@ Useful flags:
     --no-headless       show the browser window, for working out why a site misbehaves
 -v, --verbose           log every step
     --prime             save the first page, check the next link, then stop
-    --keep-index        record which page is which as it saves, for chaptering later
+    --no-keep-index     do not record which page is which while scraping from page one
 ```
+
+Each page is saved under the name the site gives it: the filename the server sends with the image if it
+sends one, and otherwise the last part of the image's address, without its query string. Nothing is added
+to a name that already says what the file is, so a `.jpg` is saved as a `.jpg`. Only a name with no
+picture extension at all - an image served from `/comic-image/1650564/?token=...` - gets one, from the
+type the server says it sent, or failing that from the file's own first bytes. Comics scraped before this
+worked had `.png` added to every name; each one's pages keep those names, and the page a run starts by
+saving again swaps to its new spelling rather than being held twice.
+
+A scrape that starts a comic from its first page, into a folder holding nothing yet, keeps the record of
+which page is which as it goes - the same record `chapters.py index` would otherwise have to walk the
+whole comic again to build, but with the names and sizes actually saved. `--no-keep-index` leaves it out;
+`--keep-index` asks for one outright.
 
 `--prefix` matters more than it looks. Many comics change their filename scheme partway through
 their run — a date stamp becomes `NAME_0421.jpg` — and once that happens the files no longer sort

@@ -1,4 +1,5 @@
 #what a page's filename says about it: which page it is, however it was spelled, and where it sits.
+import email.message
 import os
 import re
 
@@ -6,7 +7,7 @@ from comiclib.metadata import METADATA_FILE
 from comiclib.standin import held_otherwise
 
 #what a reader can show as a page
-PAGE_TYPES = re.compile(r'\.(png|jpe?g|gif|webp|bmp)$', re.I)
+PAGE_TYPES = re.compile(r'\.(png|jpe?g|gif|webp|bmp|avif)$', re.I)
 #the number a page was saved under: 0742_something.jpg, or a plain 0742.jpg
 NUMBERED = re.compile(r'^(\d+)(?:[._])')
 
@@ -44,18 +45,83 @@ def numbered_name(number, name):
     return "{0:04d}_{1}".format(number, plain_name(name))
 
 
-def saved_name(src, file_format="png"):
-    #the name a scrape gives an image: the last part of its address, with an extension added where the
-    #address has none. a gif stays a gif. every file a scrape writes is named by this, so anything that
-    #needs to know what a page will be called - the index, a page put in by hand - asks here.
-    #the image is fetched with requests rather than saved by a browser, so nothing strips a query string
-    #or a fragment on the way: that is done here, since page.png?v=2 is page.png, and a ? cannot be in a
-    #filename on windows at all
-    if "gif" in src:
-        file_format = "gif"
-    path = src.split('#')[0].split('?')[0].rstrip('/')
-    name = path[path.rfind("/") + 1:]
-    return name if name.lower().endswith(file_format) else "{0}.{1}".format(name, file_format)
+def saved_name(src, headers=None, body=None):
+    #the name a page is saved under: what the site says the file is called. every file a scrape writes is
+    #named by this, so anything that needs to know what a page is called - the index, a page put in by
+    #hand - asks here.
+    #
+    #the server's own word first: a Content-Disposition filename is the site saying outright what the file
+    #is. failing that, the last part of the image's address, without its query or fragment - the image is
+    #fetched with requests, not saved by a browser, so nothing strips those on the way, and a site serving
+    #every image as /comic-image/1650564/?token=... would otherwise have its token saved as the name.
+    #
+    #nothing is ever added to a name that already says what it is: a jpg is saved as a jpg. only a name
+    #with no picture extension at all gets one, from Content-Type or failing that the file's own first
+    #bytes, since a reader looking inside an archive goes by the extension to know an entry is a picture.
+    #headers and body are what the fetch returned; without them - a walk, which downloads nothing - the
+    #address is all there is to go on.
+    name = disposition_name(headers) or address_name(src)
+    if not PICTURE.search(name):
+        kind = type_from_headers(headers) or type_from_bytes(body)
+        if kind:
+            name = "{0}.{1}".format(name, kind)
+    return name
+
+
+#what counts as already saying what the file is: a picture, or a page kept some other way
+PICTURE = re.compile(r'\.(png|jpe?g|gif|webp|bmp|avif|mp4|m4v|webm|mov|mkv|swf)$', re.I)
+#the extension each picture type is saved with, when the name the site gave says nothing
+KINDS = {"image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/pjpeg": "jpg",
+         "image/gif": "gif", "image/webp": "webp", "image/bmp": "bmp", "image/avif": "avif"}
+
+
+def address_name(src):
+    #the last part of an image's address, without its query or fragment
+    path = (src or "").split('#')[0].split('?')[0].rstrip('/')
+    return safe_name(path[path.rfind("/") + 1:]) or "page"
+
+
+def disposition_name(headers):
+    #the filename a server gives in Content-Disposition, in either of the ways it can be written - plain,
+    #or the encoded filename*= form - which the standard library's mail parser already reads
+    value = (headers or {}).get("Content-Disposition")
+    if not value:
+        return None
+    parsed = email.message.Message()
+    parsed["Content-Disposition"] = value
+    try:
+        given = parsed.get_filename()
+    except (ValueError, LookupError):
+        return None
+    #a server is not to be trusted with a path: only the last part of whatever it says is a name
+    return safe_name(re.split(r'[\\/]', given)[-1]) if given else None
+
+
+def safe_name(name):
+    #a name every filesystem the library might sit on will take: nothing windows refuses, and not ending in
+    #the dot or space windows silently drops
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name or "").rstrip(" .")
+
+
+def type_from_headers(headers):
+    kind = ((headers or {}).get("Content-Type") or "").split(";")[0].strip().lower()
+    return KINDS.get(kind)
+
+
+def type_from_bytes(body):
+    #the signature every picture format starts with, for a server that does not say what it sent
+    head = bytes(body or b"")[:12]
+    if head.startswith(b"\x89PNG"):
+        return "png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if head.startswith(b"GIF8"):
+        return "gif"
+    if head.startswith(b"RIFF") and head[8:12] == b"WEBP":
+        return "webp"
+    if head.startswith(b"BM"):
+        return "bmp"
+    return None
 
 
 def held_pages(folder):

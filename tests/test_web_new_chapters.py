@@ -89,5 +89,7 @@ def test_a_comic_added_without_a_chapter_list_is_left_as_one_archive(site, libra
     assert (library / "Uncompressed" / "Plain").is_dir()
     assert (library / "CBZs" / "Plain" / "Plain.cbz").is_file(), sorted(p.name for p in (library / "CBZs").iterdir())
     plain = read_meta(library / "Uncompressed" / "Plain")
-    assert "chapters" not in plain and not plain["history"].get("index_cache"), \
-        (plain.get("chapters"), plain["history"].get("index_cache"))
+    assert "chapters" not in plain, plain.get("chapters")
+    #added from its first page, it keeps the record of which page is which all the same, so it can be put
+    #in chapters later without being walked
+    assert plain["history"].get("index_cache"), list(plain["history"])

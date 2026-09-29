@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 
 from comiclib.metadata import read as read_metadata, write as write_metadata, write_json
+from comiclib.pages import held_pages
 from comiclib.paths import PROJECT, index_folder, index_name
 
 #the scraper, which a walk runs with --index to follow the comic and save nothing
@@ -225,12 +226,24 @@ class KeptIndex:
         named = (held.get("history") or {}).get("index_cache")
         chapters = held.get("chapters") or {}
         self.in_chapters = bool(chapters.get("list") or chapters.get("source_url"))
-        if not named and not (args and args.keep_index):
+        #a scrape starting a comic from its first page, into a folder holding nothing yet, is doing the whole
+        #of what a walk would have to do later - so it keeps the record as it goes unless told not to.
+        #--keep-index asks for one outright; --no-keep-index never starts one
+        asked = getattr(args, "keep_index", None) if args else False
+        fresh = bool(args) and (args.increment or 1) <= 1 and not held_pages(folder)
+        keep = fresh if asked is None else asked
+        if not named and not keep:
             return
         #the name chapters.py would pick for this comic's index, from the one rule both follow
         path = os.path.join(index_folder(), named or index_name(folder))
+        if not named and asked is None and os.path.exists(path) and os.path.getsize(path):
+            #a record left from an earlier life of this folder: it numbers pages the folder no longer
+            #holds, and adding this run's to the end of it would put every one of them in the wrong place
+            print("Not keeping a record of which page is which: {0} is left from before and does not match "
+                  "this folder. chapters.py index --restart walks the comic afresh.".format(path))
+            return
         if not os.path.exists(path):
-            if not (args and args.keep_index):
+            if not keep:
                 return
             #a comic being scraped from its first page can have its index built as it goes, which is the
             #whole of what a walk would have had to do afterwards. one being scraped from anywhere else

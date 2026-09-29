@@ -88,9 +88,8 @@ def refetch(folder, args):
             #the file here is not this page's image at all - a scrape that matched the site's banner or an
             #author icon instead of the comic. the right copy belongs under the right name, so the wrong
             #one goes rather than being overwritten and keeping a name that was never true.
-            want = os.path.basename(page["src"].split('?')[0])
-            if not want.lower().endswith(".png"):
-                want += ".png"
+            #the name the site gives the image, the way a scrape names it
+            want = saved_name(page["src"], answer.headers, fresh)
             number = re.match(r'^(\d{1,6})_', page["file"])
             if number:
                 want = "{0}_{1}".format(number.group(1), want)
@@ -260,9 +259,6 @@ def insert_page(folder, args):
         print("ERROR: no comic image was found on {0}. Check it in the browser, or add an element path "
               "for this site.".format(args.url))
         return 2
-    #the name a scrape would give this image, worked out here rather than taken from the walk's record, so
-    #putting a page in does not depend on that record being right about it
-    name = "{0:04d}_{1}".format(at, saved_name(found["src"]))
     #fetched before anything is moved, so a page that cannot be had leaves the comic exactly as it was
     session = requests.Session()
     session.headers.update({"User-Agent": "Mozilla/5.0"})
@@ -273,6 +269,9 @@ def insert_page(folder, args):
         print("ERROR: could not fetch {0}: {1}".format(found["src"], error))
         return 2
     print("  {0} bytes from {1}".format(len(answer.content), found["src"]))
+    #the name a scrape would give this image, worked out here rather than taken from the walk's record, so
+    #putting a page in does not depend on that record being right about it
+    name = "{0:04d}_{1}".format(at, saved_name(found["src"], answer.headers, answer.content))
     if args.dry_run:
         print("  it would be saved as {0}, and {1} page(s) after it would move along one. Nothing was "
               "changed.".format(name, len(pages) - after))

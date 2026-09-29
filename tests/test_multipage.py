@@ -82,7 +82,7 @@ def save(mb, driver, args, increment):
     #as many as it held
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        mb.img_save(driver, increment, "png", args)
+        mb.img_save(driver, increment, args)
     last = mb.scrape_state["last_increment"]
     return out.getvalue(), increment + 1 if last is None else last + 1
 
@@ -101,7 +101,7 @@ def test_several_pages_on_one_address_are_all_saved_and_the_buttons_left_out(mb,
                                several(6, "https://www.example.com/comic/pages")
                                + ["https://example.com/comic/rss.png", "https://example.com/comic/share.png"])
     said, nxt = save(mb, driver, scrape_args(folder), 1)
-    assert pages(mb, folder) == ["000{0}_12_3_{0}.jpeg.png".format(n) for n in range(1, 7)]
+    assert pages(mb, folder) == ["000{0}_12_3_{0}.jpeg".format(n) for n in range(1, 7)]
     assert "rss.png" in said and "carry no page number" in said, said
     assert "https://example.com/comic/12_3: ignoring" in said, "the page it happened on is named"
     assert "holds 6 pages of the comic, so this comic puts several" in said, said
@@ -132,7 +132,7 @@ def test_a_comic_that_starts_putting_several_pages_on_an_address_partway(mb, fol
 def test_no_multi_page_saves_only_the_first(mb, folder):
     driver = FakeDriver(mb).at("https://example.com/comic/12_3", several(3, "https://www.example.com/comic/pages"))
     save(mb, driver, scrape_args(folder, multi_page=False), 1)
-    assert pages(mb, folder) == ["0001_12_3_1.jpeg.png"]
+    assert pages(mb, folder) == ["0001_12_3_1.jpeg"]
 
 
 def test_every_image_is_a_page_when_none_of_them_carries_a_number(mb, folder):
@@ -150,7 +150,7 @@ def test_the_index_gets_a_line_per_page_not_per_address(mb, folder):
         lines = [json.loads(one) for one in f if one.strip()]
     assert len(lines) == 3, lines
     assert [(one["n"], one["file"]) for one in lines] == \
-        [(1, "0001_12_3_1.jpeg.png"), (2, "0002_12_3_2.jpeg.png"), (3, "0003_12_3_3.jpeg.png")], \
+        [(1, "0001_12_3_1.jpeg"), (2, "0002_12_3_2.jpeg"), (3, "0003_12_3_3.jpeg")], \
         "each index line names its own image and number"
     assert {one["url"] for one in lines} == {"https://example.com/12_3"}, "the lines all name the one address"
 
@@ -175,7 +175,7 @@ def test_a_resume_drops_the_older_name_of_every_page_on_the_address(mb, folder):
             f.write(b"an older name for this page")
     driver = FakeDriver(mb).at("https://example.com/12_3", several(3, "https://example.com"))
     said, nxt = save(mb, driver, scrape_args(folder), 5)
-    assert pages(mb, folder) == ["0005_12_3_1.jpeg.png", "0006_12_3_2.jpeg.png", "0007_12_3_3.jpeg.png"], \
+    assert pages(mb, folder) == ["0005_12_3_1.jpeg", "0006_12_3_2.jpeg", "0007_12_3_3.jpeg"], \
         "the older name of every page on the address is dropped, not just the first"
     assert said.count("superseded by") == 2, "dropping them is said out loud"
 

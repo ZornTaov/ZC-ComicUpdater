@@ -1,13 +1,10 @@
 #a small script to go through a webcomic and download all of the pages. #Written by AChillVamp. #V 3.9
 
 import argparse
-import json
 import os
-import re
 import sys
 import uuid
 import zipfile
-from datetime import datetime
 from time import sleep
 
 import selenium.common.exceptions as se
@@ -193,7 +190,7 @@ def setup():
     params.add_argument("--cbz-path",type=str,default=None,help="Where this comic's .cbz lives. Left off, an archive already beside the output folder is used, otherwise a library laid out as Uncompressed/<comic> files it as CBZs/<comic>.cbz, and failing both it goes beside the folder.")
     params.add_argument("--multi-page",action=argparse.BooleanOptionalAction,default=True,help="Save every page the comic puts on one address, not just the first. A comic that serves several pages at once is otherwise scraped a fraction at a time without saying so. On by default; --no-multi-page reads one page an address however many are there.")
     params.add_argument("--page-source",action='store_true',default=False,help="Load the page in the browser and print its html, for a page that builds itself with javascript. Saves nothing.")
-    params.add_argument("--keep-index",action='store_true',default=False,help="Record each page saved - its address, its file and its size - in an index beside the settings, so the comic can be split into chapters later without being walked again. A comic that already has one keeps it up to date whether this is given or not.")
+    params.add_argument("--keep-index",action=argparse.BooleanOptionalAction,default=None,help="Record each page saved - its address, its file and its size - in an index beside the settings, so the comic can be split into chapters later without being walked again. On by default when a run starts a comic from its first page into an empty folder, which is doing everything a walk would; --no-keep-index never starts one. A comic that already has one keeps it up to date either way.")
     params.add_argument("--index",type=str,default=None,metavar="FILE",help="Walk the comic without downloading anything and write one line per page - its address, its image and its title - to this file. Used to work out which saved file came from which page. An existing file is carried on from where it stopped.")
     params.add_argument("--index-first",action='store_true',default=False,help="With --index, follow the comic's first-page link before walking, for a comic whose beginning was never recorded.")
     params.add_argument("--index-limit",type=int,default=0,metavar="PAGES",help="With --index, stop after this many pages. 0 means the whole comic.")
@@ -236,8 +233,6 @@ def setup():
     #the page this run was pointed at counts as one it means to save, so a run that falls over before it
     #saves anything still writes down where it was trying to start rather than nothing at all
     scrape_state["walked_to"] = driver.current_url
-    #image format being saved. png, jpg, etc. Program will always save gif's as gifs, so no need to specify.
-    format = "png"
     verbose = args.verbose
     #the parts that find elements and fetch images say what they tried only when asked
     elements.verbose = download.verbose = verbose
@@ -248,10 +243,12 @@ def setup():
     existing_pages = held_pages(output_folder(args))
 
     #a comic that has been walked has a record of which page is which, and chapters are built on it. it is
-    #kept up to date here as pages are saved, so it never has to be walked a second time.
-    kept_index.open(output_folder(args), args)
+    #kept up to date here as pages are saved, so it never has to be walked a second time. only by a run
+    #that saves pages: a walk writes its own record, and --check and --page-source save nothing at all
+    if not (args.index or args.check or args.page_source):
+        kept_index.open(output_folder(args), args)
 
-    return driver, increment, format, args
+    return driver, increment, args
 
 
 def build_driver(args):
@@ -338,7 +335,7 @@ def page_images(driver, args):
     return comic_images(srcs, here)
 
 
-def img_save(driver, increment, file_format, args):
+def img_save(driver, increment, args):
     #one address, and every page of the comic on it. a site that serves several at once numbers them on
     #from where the last address left off, so the loop asks the state where it got to rather than counting.
     global current_url
@@ -385,13 +382,16 @@ def img_save(driver, increment, file_format, args):
     #of them. every one of them is that re-save, not a page the comic has gained
     resuming = scrape_state["pages_saved"] == 0
     for at, src in enumerate(srcs):
-        save_one(driver, src, increment + at, file_format, args, resuming)
+        save_one(driver, src, increment + at, args, resuming)
     return True
 
 
-def save_one(driver, src, increment, file_format, args, resuming):
+def save_one(driver, src, increment, args, resuming):
+    #fetched before it is named, since the name is what the site says it is and the site says it in the
+    #answer. nothing is written until every check below has passed
+    req = fetch(src)
     #named the way every page is, so the index, a page put in by hand and this all agree on it
-    image = saved_name(src, file_format)
+    image = saved_name(src, getattr(req, "headers", None), req.content)
 
     #if increment prefix is required
     if args.prefix:
@@ -417,15 +417,17 @@ def save_one(driver, src, increment, file_format, args, resuming):
             "element for this site before running it again.".format(image, sits_at, came_from),
             EXIT_BACKWARDS, "next link runs backwards")
 
-    #the page a resume starts on gets saved a second time, under whatever name the site uses now
-    if args.prefix and resuming:
-        guards.drop_superseded(folder, increment, image, superseded)
+    #the page a resume starts on gets saved a second time, under whatever name the site uses now, and the
+    #older spelling of it goes: by its number where pages carry one, and by what page it is where they do
+    #not - a name saved with an extension tacked on, say, before names were taken as the site gives them
+    if resuming:
+        if args.prefix:
+            guards.drop_superseded(folder, increment, image, superseded)
+        else:
+            guards.drop_other_spellings(folder, image, superseded)
 
     #prefix image with output folder name or url origin for folder structure
     target = '{0}/{1}'.format(folder, image)
-
-    #to request the url
-    req = fetch(src)
 
     #the whole of the address a resume starts on is exempt, not just its first page: every page on it is
     #being written over itself, which is what a re-save is
@@ -505,7 +507,7 @@ def next(driver,args):
 def main():
     #the scrape itself, or one of the modes that look instead: --page-source, --index and --check
     global stop_reason
-    driver, increment, format, args = setup()
+    driver, increment, args = setup()
     if args.page_source:
         #whatever the browser ended up with, for something else to read
         try:
@@ -542,7 +544,7 @@ def main():
     exit_code = EXIT_OK
     try:
         #proceeds if it can both save an image and hit the next button.
-        while img_save(driver,increment,format,args):
+        while img_save(driver, increment, args):
             if not next(driver,args):
                 #the image was found, so the site is fine; the comic has simply run out of next buttons
                 print("Caught up: there is no next button to press, so this is the latest page.")

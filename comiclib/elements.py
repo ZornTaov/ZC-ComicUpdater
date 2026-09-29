@@ -1,5 +1,7 @@
 #finding the comic on a page, and the link to the next one, by the element paths a library knows: which
 #of them match, what image they point at, and pressing a next link however the page lets it be pressed.
+import json
+import os
 import re
 from time import sleep
 
@@ -10,6 +12,21 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 #set by the scrape from its --verbose, for saying each path that did not match
 verbose = False
+
+
+def with_saved_paths(image, onward, path):
+    #the shipped lists with a library's element_paths.json laid over them: the file decides the order and
+    #which are turned off, and anything it never mentions still arrives, after it
+    if not os.path.exists(path):
+        return image, onward
+    try:
+        with open(path, 'r', encoding='utf-8-sig') as f:
+            saved = json.load(f)
+        return merge_paths(image, saved.get("image")), merge_paths(onward, saved.get("next"))
+    except (ValueError, OSError, AttributeError, TypeError) as error:
+        #a broken file must not stop every comic in the library, so the built-in lists carry on alone
+        print("WARNING: ignoring {0}: {1}".format(path, error))
+        return image, onward
 
 
 def merge_paths(shipped, saved):

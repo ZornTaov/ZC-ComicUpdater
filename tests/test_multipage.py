@@ -7,6 +7,7 @@ import os
 
 import pytest
 
+from comiclib.chapters.index import KeptIndex
 from conftest import scrape_args
 
 COMIC = '//*[@alt="Comic"]'
@@ -57,10 +58,7 @@ def mb(mirror):
     mirror.seen_on_pages = {}
     mirror.existing_pages = {}
     mirror.visited_urls = set()
-    mirror.index_file = None
-    mirror.index_urls = set()
-    mirror.index_pages = set()
-    mirror.index_last = 0
+    mirror.kept_index = KeptIndex()
     mirror.run_id = "test"
     mirror.run_start = mirror.now_stamp()
     for key, value in (("first_page_url", None), ("first_increment", None), ("last_page_url", None),
@@ -144,11 +142,11 @@ def test_every_image_is_a_page_when_none_of_them_carries_a_number(mb, folder):
 
 
 def test_the_index_gets_a_line_per_page_not_per_address(mb, folder):
-    mb.index_file = os.path.join(folder, "index.jsonl")
-    open(mb.index_file, 'w').close()
+    mb.kept_index.file = os.path.join(folder, "index.jsonl")
+    open(mb.kept_index.file, 'w').close()
     driver = FakeDriver(mb).at("https://example.com/12_3", several(3, "https://example.com"))
     save(mb, driver, scrape_args(folder), 1)
-    with io.open(mb.index_file, encoding='utf-8') as f:
+    with io.open(mb.kept_index.file, encoding='utf-8') as f:
         lines = [json.loads(one) for one in f if one.strip()]
     assert len(lines) == 3, lines
     assert [(one["n"], one["file"]) for one in lines] == \

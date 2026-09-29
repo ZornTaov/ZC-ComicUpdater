@@ -2,6 +2,8 @@
 #image names; and the guard that stops a reused name writing over a page already saved.
 import pytest
 
+from comiclib.guards import reads_backwards
+
 #three chapters of four pages, where the site numbers each chapter's pages from one: it serves 1@2x.png,
 #2@2x.png ... over and over
 PER_CHAPTER = ["{0}@2x.png".format(n) for _ in range(3) for n in range(1, 5)]
@@ -14,18 +16,17 @@ BACK = ["p{0}.png".format(n) for n in range(12, 0, -1)]
 def walk(mb, names, held, prefix=True, check_direction=True):
     #the decision img_save makes, page by page, without the browser or the disk: `names` are the image
     #names the site serves in order, `held` is what the folder already knows (key -> page number)
-    mb.scrape_state["last_known_number"] = None
-    mb.scrape_state["backwards_run"] = 0
+    state = {"backwards_run": 0}
+    came_from = None
     pages = dict(held)
     for at, name in enumerate(names, 1):
         saved = "{0:04d}_{1}".format(at, name) if prefix else name
         sits_at = pages.get(mb.page_key(saved))
-        came_from = mb.scrape_state["last_known_number"]
-        if mb.reads_backwards(sits_at, came_from) and check_direction:
+        if reads_backwards(sits_at, came_from, state) and check_direction:
             return at
         if sits_at is None:
             sits_at = mb.page_number(saved)
-        mb.scrape_state["last_known_number"] = sits_at
+        came_from = sits_at
         pages.setdefault(mb.page_key(saved), sits_at)
     return None
 

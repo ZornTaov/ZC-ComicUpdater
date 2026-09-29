@@ -2,6 +2,8 @@
 #spelling once the new one is saved.
 import pytest
 
+from comiclib.guards import drop_superseded
+
 
 @pytest.mark.parametrize("a, b", [
     ("0742_a-page-title.png.png", "a-page-title.png"),          # extension appended twice
@@ -29,8 +31,10 @@ def test_the_new_spelling_is_kept_and_the_old_one_dropped(mirror, tmp_path, exis
     for name in existing:
         (tmp_path / name).write_bytes(b'old')
     (tmp_path / keeping).write_bytes(b'new')
-    mirror.superseded[:] = []
-    mirror.drop_superseded(str(tmp_path), 743, keeping)
+    dropped = []
+    drop_superseded(str(tmp_path), 743, keeping, dropped)
     left = sorted(p.name for p in tmp_path.iterdir())
     gone = bool(existing) and existing[0] not in left
     assert gone == expect_gone and keeping in left, left
+    #and what went is handed back, so the archive can drop it too
+    assert dropped == (existing[:1] if expect_gone else []), dropped

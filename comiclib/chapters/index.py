@@ -199,3 +199,75 @@ def one_page(url, args):
         if os.path.exists(spare):
             os.remove(spare)
     return held[0] if held else None
+
+
+class KeptIndex:
+    #the index a scrape keeps up to date as it saves pages, so a comic that has been walked never has to be
+    #walked again. empty, and adding nothing, until open() finds one this comic keeps or is told to start
+    #one; also says whether the comic is kept in chapters, which decides the shape of its archives.
+    def __init__(self):
+        #set when the comic is kept in chapters: chapters.py writes one archive per chapter from the
+        #folder, so the scrape must not build a single archive of the lot
+        self.in_chapters = False
+        #where the index is, and where it is up to
+        self.file = None
+        self.last = 0
+        self.urls = set()
+        #which pages it already holds, as address and image together: an address serving several pages
+        #has a line for each, so the address on its own no longer says whether a page is in there
+        self.pages = set()
+
+    def open(self, folder, args=None):
+        held = read_metadata(folder)
+        if not isinstance(held, dict):
+            #a metadata file that reads but is not an object says nothing about an index
+            held = {}
+        named = (held.get("history") or {}).get("index_cache")
+        chapters = held.get("chapters") or {}
+        self.in_chapters = bool(chapters.get("list") or chapters.get("source_url"))
+        if not named and not (args and args.keep_index):
+            return
+        #the name chapters.py would pick for this comic's index, from the one rule both follow
+        path = os.path.join(index_folder(), named or index_name(folder))
+        if not os.path.exists(path):
+            if not (args and args.keep_index):
+                return
+            #a comic being scraped from its first page can have its index built as it goes, which is the
+            #whole of what a walk would have had to do afterwards. one being scraped from anywhere else
+            #cannot: a record begun in the middle calls whatever page it starts on page one, and a walk that
+            #later carries on from it stops there, having already "reached" the comic's newest page.
+            if (args.increment or 1) > 1:
+                print("Not starting a record of which page is which at page {0}: it has to begin at the "
+                      "comic's first page, so chapters.py walks for it instead.".format(args.increment))
+                return
+            #every comic keeps its index in the one folder, so two starting at once can both find it missing
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            open(path, 'a', encoding='utf-8').close()
+            print("Keeping an index of which page is which in {0}".format(path))
+        try:
+            for held in read_index(path):
+                self.urls.add(held.get("url"))
+                self.pages.add((held.get("url"), held.get("src")))
+                self.last = max(self.last, held.get("n") or 0)
+        except (OSError, ValueError):
+            return
+        self.file = path
+        if self.last:
+            print("This comic keeps an index of which page is which ({0} pages); new pages are added to "
+                  "it.".format(self.last))
+
+    def add(self, url, src, image, size, title):
+        #one line per page, the same shape chapters.py writes, so nothing has to be walked again. a page is
+        #an image, not an address: a comic serving several at once gets a line each, or the index would
+        #name one of them as the whole address and chapters built on it would put the rest in the wrong place
+        if not self.file or (url, src) in self.pages:
+            return
+        self.last += 1
+        self.urls.add(url)
+        self.pages.add((url, src))
+        try:
+            with open(self.file, 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"n": self.last, "url": url, "src": src, "file": image,
+                                    "title": title, "bytes": size}) + chr(10))
+        except OSError as error:
+            print("WARNING: could not add this page to the index: {0}".format(error))

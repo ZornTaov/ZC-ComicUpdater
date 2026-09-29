@@ -96,7 +96,14 @@ def is_running(runner, name):
 def read_metadata(path):
     metadata = sidecar.load(path)
     #an old sidecar is brought up to date first, so the edit lands in the one place a run reads it
-    return sidecar.migrate(metadata) or metadata
+    fresh = sidecar.migrate(metadata)
+    if not fresh:
+        return metadata
+    #but only read, it has not been rewritten, so it keeps the file's own stamp. the migration stamps the
+    #time it ran, and an editor that opened it one second and saved it the next was told it had changed
+    #under them when nothing had
+    fresh["updated"] = metadata.get("updated")
+    return fresh
 
 
 def index_pages(args, uc, comic):

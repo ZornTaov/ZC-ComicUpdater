@@ -168,3 +168,29 @@ def test_the_elements_dialog_runs_a_check_without_console_errors(web, site, brow
         checked(browser)
     errors = console_errors(browser)
     assert not errors, errors
+
+
+@pytest.mark.browser
+@pytest.mark.slow
+def test_the_elements_dialog_keeps_its_buttons_on_a_small_screen(web, site, browser):
+    #the help opened and a check's answer shown make the dialog taller than a 720p screen. its body has to
+    #scroll with the buttons still on screen below it: the form once grew to its content instead, and the
+    #dialog cut it off at the screen's edge, Save and Close with it
+    page = web()
+    browser.set_window_size(1280, 720)
+    open_page(browser, page.base + "/")
+    browser.execute_script("document.getElementById('open-elements').click();"
+                           "document.getElementById('ep-howto').open = true;"
+                           "document.getElementById('check-url').value = arguments[0];"
+                           "document.getElementById('check-go').click()", site + "/p/2")
+    checked(browser)
+    body = browser.execute_script("const b = document.querySelector('#elements .dlg-body');"
+                                  "return [b.scrollHeight, b.clientHeight]")
+    assert body[0] > body[1], "the dialog should have more than fits, or this tests nothing: {0}".format(body)
+    for button in ("ep-save", "ep-cancel"):
+        #on screen, and the thing a click there would land on
+        shown = browser.execute_script(
+            "const b = document.getElementById(arguments[0]), r = b.getBoundingClientRect();"
+            "return r.bottom <= innerHeight && document.elementFromPoint(r.left + r.width / 2,"
+            " r.top + r.height / 2) === b", button)
+        assert shown, "{0} is off the bottom of the screen".format(button)

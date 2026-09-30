@@ -128,6 +128,32 @@ def test_a_running_scrape_can_be_watched_and_stopped_and_a_queued_job_dropped(pa
 
 @pytest.mark.browser
 @pytest.mark.slow
+def test_a_run_opened_under_recent_stays_open(page, site, browser):
+    #the page redraws what it is shown every poll, and a run's list of comics opened under Recent closed
+    #again on the next one. it has to stay open through a poll that changes nothing and through one where
+    #another job has finished above it
+    page.call("/api/add", {"rows": [{"folder": "Kept", "url": site + "/fwd/1"}], "prime": True})
+    assert page.wait_idle(), "the priming never finished"
+    open_page(browser, page.base.replace("http://", "http://me:{0}@".format(PASSWORD)) + "/")
+    wait_until(lambda: browser.execute_script("return document.querySelector('#history details')"),
+               why="the finished run never showed under Recent")
+    browser.execute_script("document.querySelector('#history details').open = true")
+    #a poll as the page makes one, with an extra argument that puts a newer job in front of the history
+    redraw = ("const done = arguments[arguments.length - 1], newer = arguments[0];"
+              "fetch(api('/api/state?since=' + seq)).then((r) => r.json()).then((state) => {"
+              "  if (newer) state.history.unshift({id: 'newer', label: 'newer', started: state.now - 5,"
+              "    finished: state.now, counts: {}, comics: [{name: 'Other', state: 'ok', gained: 1, elapsed: 5}]});"
+              "  renderState(state);"
+              "  done([...document.querySelectorAll('#history details')].map((d) => [d.dataset.job, d.open]));"
+              "})")
+    same = browser.execute_async_script(redraw, False)
+    assert [opened for _, opened in same] == [True], same
+    moved = browser.execute_async_script(redraw, True)
+    assert [opened for _, opened in moved] == [False, True], "the newer run arrives shut: {0}".format(moved)
+
+
+@pytest.mark.browser
+@pytest.mark.slow
 def test_the_page_shows_running_jobs_without_console_errors(page, site, browser):
     #something to show: two slow comics being added while a group waits behind them
     page.call("/api/add", {"rows": [{"folder": "Slow2", "url": site + "/slow/1"},

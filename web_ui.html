@@ -89,7 +89,10 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
 dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink);
   padding: 0; width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
 dialog[open] { display: flex; overflow: hidden; }
-#edit-form { display: flex; flex-direction: column; min-height: 0; width: 100%; }
+/*every dialog, not just the editor: the form has to be a column that may shrink, or it grows to its
+  content, the dialog's overflow cuts it off at the screen's edge, and the buttons go with it. a check
+  result or the opened help can push a dialog past a 720p screen*/
+dialog > form { display: flex; flex-direction: column; min-height: 0; width: 100%; }
 .dlg-body { flex: 1; min-height: 0; }
 dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .dlg-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 14px 18px;
@@ -485,7 +488,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
 const $ = (id) => document.getElementById(id);
 // requests go to the bare origin: an address with a password typed into it makes the browser refuse relative ones
 const api = (path) => location.origin + path;
-let seq = 0, comics = [], sortKey = "name", sortDir = 1, lastHistoryId = null;
+let seq = 0, comics = [], sortKey = "name", sortDir = 1, lastHistoryId = null, lastHistoryHtml = null;
 const checked = new Set();
 
 function esc(text) {
@@ -612,7 +615,7 @@ function renderState(state) {
     state.waiting.map((j) => `<div class="queue-item"><span>${esc(j.label)}</span>
       <button class="small" data-drop="${j.id}">Remove</button></div>`).join("") : "";
 
-  $("history").innerHTML = state.history.length ? state.history.map((j) => {
+  const historyHtml = state.history.length ? state.history.map((j) => {
     const counts = j.counts || {};
     const parts = [];
     if (j.gained) parts.push(`+${j.gained} pages`);
@@ -623,9 +626,17 @@ function renderState(state) {
     return `<div class="history-item">
       <div><span class="${counts.failed || j.error ? "s-failed" : ""}">${esc(j.label)}</span></div>
       <div class="line">${when(j.finished)} · took ${clock(j.finished - j.started)}${parts.length ? " · " + esc(parts.join(", ")) : " · nothing new"}</div>
-      ${notable ? `<details><summary>${notable} comic${notable === 1 ? "" : "s"}</summary>${j.comics.map(comicLine).join("")}</details>` : ""}
+      ${notable ? `<details data-job="${esc(String(j.id))}"><summary>${notable} comic${notable === 1 ? "" : "s"}</summary>${j.comics.map(comicLine).join("")}</details>` : ""}
     </div>`;
   }).join("") : `<div class="empty">Nothing has run since the updater started.</div>`;
+  //written over on every poll, an opened run would close again two seconds later. it only changes when a
+  //job finishes, and then the runs that were open stay open
+  if (historyHtml !== lastHistoryHtml) {
+    const opened = new Set([...$("history").querySelectorAll("details[open]")].map((d) => d.dataset.job));
+    $("history").innerHTML = historyHtml;
+    $("history").querySelectorAll("details[data-job]").forEach((d) => { d.open = opened.has(d.dataset.job); });
+    lastHistoryHtml = historyHtml;
+  }
 
   if (checkJob) {
     const done = state.history.find((j) => j.id === checkJob.id);

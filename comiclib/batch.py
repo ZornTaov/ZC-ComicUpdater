@@ -131,7 +131,7 @@ def run_comic(comic, args):
     #pages and finishes - a comic that fails at its newest page every day would never have them packed
     known = comic.metadata.get("chapters") or {}
     if (comic.gained and not comic.stopped and getattr(args, "pack_chapters", True)
-            and (known.get("list") or known.get("source_url"))):
+            and (known.get("list") or known.get("source_url") or known.get("every"))):
         try:
             pack_chapters(comic, args)
         except (OSError, subprocess.SubprocessError) as error:
@@ -161,6 +161,10 @@ def pack_chapters(comic, args):
     #reading the archive page again is how a new chapter is found; for a comic that has a page to read but
     #no chapters worked out yet - one that was primed with a chapter list - it is how the first ones arrive
     if known.get("source_url") and (getattr(args, "refresh_chapters", True) or not known.get("list")):
+        steps.append("chapters")
+    #a comic cut every so many pages needs its next part once the last one fills. that reads nothing from
+    #the site, so it is done whether or not archive pages are being read again
+    elif known.get("every"):
         steps.append("chapters")
     #a comic set to keep no archives still has its chapters worked out and its index kept - all of that
     #is knowledge about the comic. only the writing of archives waits for that switch to be turned on.

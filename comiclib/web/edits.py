@@ -177,6 +177,29 @@ def save_settings(args, uc, runner, name, given, expected_updated):
 
     #the chapter list is not a scraping setting, so it lives beside them rather than among them
     listing = given.get("chapters_url")
+    every = given.get("chapters_every")
+    if every is not None:
+        every = str(every).strip()
+        if every and not re.match(r"^\d+$", every):
+            return 400, {"error": "pages per part has to be a whole number, or blank for none"}
+        every = int(every or 0) or None
+        if every and listing and str(listing).strip():
+            #two sources would each save over the other's chapters on every run
+            return 400, {"error": "a comic's chapters come from its archive page or from cutting it every so "
+                                  "many pages, not both; clear one of them"}
+        block = metadata.get("chapters") or {}
+        if block.get("every") != every:
+            changed["chapters_every"] = [block.get("every"), every]
+            if every:
+                block["source"], block["every"] = "every", every
+                block.setdefault("list", [])
+                metadata["chapters"] = block
+            elif block.get("list"):
+                #the parts already worked out stay as they are until something else is worked out
+                block.pop("every", None)
+                metadata["chapters"] = block
+            else:
+                metadata.pop("chapters", None)
     if listing is not None:
         listing = str(listing).strip()
         if listing and not re.match(r"^https?://\S+$", listing):
@@ -188,7 +211,7 @@ def save_settings(args, uc, runner, name, given, expected_updated):
                 block["source"], block["source_url"] = "archive", listing
                 block.setdefault("list", [])
                 metadata["chapters"] = block
-            elif block.get("list"):
+            elif block.get("list") or block.get("every"):
                 block["source_url"] = None
                 metadata["chapters"] = block
             else:

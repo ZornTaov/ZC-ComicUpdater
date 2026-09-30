@@ -467,6 +467,12 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
         <div class="note" id="e-chapters-note"></div>
       </div>
       <div class="field">
+        <label for="e-every">Or cut every</label>
+        <span><input type="number" id="e-every" min="1" style="width:110px" placeholder="off"> pages</span>
+        <div class="note">For a comic with no chapters of its own that has grown too big for a reader to open
+          as one archive: 100 makes pages 1–100 one archive, 101–200 the next. Leave the chapter list blank to use it.</div>
+      </div>
+      <div class="field">
         <label>Status</label>
         <label class="check"><input type="checkbox" id="e-ended"> ended, leave it alone</label>
       </div>
@@ -742,10 +748,13 @@ async function openEditor(name) {
   $("e-waittime").value = s.waittime || 0;
   const chapters = detail.chapters || {};
   $("e-chapters").value = chapters.source_url || "";
+  $("e-every").value = chapters.every || "";
   //an archive page is one source of chapters and the comic's own addresses are another: a comic that
   //counts /comic/issue-4-page-7 often reads better from those than from an archive with no headings
+  const from = chapters.source === "every" && chapters.every ? `cutting it every ${chapters.every} pages`
+    : chapters.source === "archive" && chapters.source_url ? "that page" : "the comic's own addresses";
   $("e-chapters-note").textContent = (chapters.count
-    ? `${chapters.count} chapter(s) worked out from ${chapters.source === "archive" && chapters.source_url ? "that page" : "the comic's own addresses"}${chapters.packed ? ", archives written " + when(chapters.packed) : ""}. `
+    ? `${chapters.count} chapter(s) worked out from ${from}${chapters.packed ? ", archives written " + when(chapters.packed) : ""}. `
     : detail.indexed_pages > 1 ? `Which page is which is known for ${detail.indexed_pages} page(s); the walk carries on from there. `
     : "Working these out walks the comic once, downloading nothing. It can take a few minutes. ")
     + "Leave it blank to read the chapters out of the comic's own page addresses instead.";
@@ -775,7 +784,7 @@ async function saveEditor(updateAfter) {
   msg.className = "msg"; msg.textContent = "Saving…";
   const settings = {
     url: $("e-url").value, increment: $("e-increment").value, cbz_path: $("e-cbz_path").value,
-    waittime: $("e-waittime").value, chapters_url: $("e-chapters").value,
+    waittime: $("e-waittime").value, chapters_url: $("e-chapters").value, chapters_every: $("e-every").value,
   };
   flags.forEach((key) => { settings[key] = $("e-" + key).checked; });
   try {
@@ -1269,9 +1278,11 @@ $("edit-chapterize").addEventListener("click", async () => {
   msg.textContent = "Saving the chapter list first…";
   try {
     await saveEditor(false);
-    const result = await post("/api/chapterize", { name: editing.name, url: $("e-chapters").value.trim() });
+    const result = await post("/api/chapterize", { name: editing.name, url: $("e-chapters").value.trim(),
+                                                    every: $("e-every").value.trim() });
     msg.className = "msg good";
-    msg.textContent = (result.from === "addresses" ? "Queued, reading the comic's own addresses. " : "Queued. ")
+    msg.textContent = (result.from === "addresses" ? "Queued, reading the comic's own addresses. "
+      : result.from === "every" ? `Queued, cutting it every ${$("e-every").value.trim()} pages. ` : "Queued. ")
       + (result.walking ? "It walks the comic first, which takes a few minutes; watch it under Running now."
                         : "Watch it under Running now.");
   } catch (error) {

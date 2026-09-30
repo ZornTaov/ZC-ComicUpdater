@@ -41,6 +41,16 @@ def settle_chapters(found, pages, shift=0):
     return settled
 
 
+def chapters_every(pages, size):
+    #a comic with no chapters of its own - a page a day for years - cut into parts of a set size, for a
+    #reader that chokes on one archive of thousands of pages. each part is named for the pages it is meant
+    #to hold rather than those it holds so far, so the part still being published keeps its name, and so
+    #its archive, as it fills
+    last = pages[-1]["n"] if pages else 0
+    return [{"label": "Pages {0}-{1}".format(start, start + size - 1), "start_page": start}
+            for start in range(1, last + 1, size)]
+
+
 def apply_fixes(found, pages, fixes):
     #corrections made by hand, kept apart from whatever rule worked the chapters out so that reading the
     #archive again, or the addresses again, never throws them away. each one says either that a chapter
@@ -100,7 +110,7 @@ def chapter_record(chapter):
     return kept
 
 
-def save_chapters(folder, chapters, source, source_url=None):
+def save_chapters(folder, chapters, source, source_url=None, every=None):
     metadata = read_metadata(folder)
     if not metadata:
         print("  no metadata here, so the chapters were not saved")
@@ -112,6 +122,9 @@ def save_chapters(folder, chapters, source, source_url=None):
         "checked": time_stamp(),
         "list": [chapter_record(c) for c in chapters],
     }
+    if every:
+        #remembered so a later run cuts the pages the comic gains the same way, with no arguments
+        metadata["chapters"]["every"] = every
     #a correction is about this comic, not about one run of one rule, and where the archives are and when
     #they were written describes what is on disk, not this reading. neither is the reading's to throw away
     for kept in ("fixes", "packed", "folder"):
@@ -215,13 +228,23 @@ def plan(folder, args):
         return 2
     metadata = read_metadata(folder)
     known = metadata.get("chapters") or {}
+    every = getattr(args, "every", None)
+    if every is not None and every < 1:
+        print("ERROR: --every is how many pages go in each part, so it has to be 1 or more.")
+        return 2
     if (not args.archive and not args.list and not args.urls
             and known.get("source") == "archive" and known.get("source_url")):
         #the comic remembers where its chapters are listed, so keeping them current needs no arguments
         args.archive = known["source_url"]
         print("Reading the archive this comic remembers: {0}".format(args.archive))
+    if (every is None and not args.archive and not args.list and not args.urls
+            and known.get("source") == "every" and known.get("every")):
+        every = known["every"]
+        print("Cutting this comic into parts of {0} page(s), as it remembers.".format(every))
     listed = None
-    if args.archive and not args.urls:
+    if every:
+        found, source, source_url = chapters_every(pages, every), "every", None
+    elif args.archive and not args.urls:
         found, listed = chapters_from_archive(args.archive, pages, args.browser, args.script)
         source, source_url = "archive", args.archive
     elif args.list:
@@ -255,9 +278,10 @@ def plan(folder, args):
         else:
             print("  WARNING: this moves chapters that already have archives written for them: {0}{1}".format(
                 ["page {0}".format(at) for at, label in what[:4]], "..." if len(what) > 4 else ""))
-    if len(chapters) < 2 and not args.force:
+    if len(chapters) < 2 and not args.force and source != "every":
         #a comic in one chapter is a comic that is not chaptered. saving this replaces the single archive
         #with a single archive under another name, which is the sort of thing that looks like it worked.
+        #cut by size it is only a comic that has not yet filled its first part, and the next one follows
         print("  this reads as one chapter over the whole comic, which is what a page with no chapter "
               "headings looks like - not a comic in one chapter. Nothing saved. Use --archive with a "
               "page that does list chapters, --urls if the addresses number them, or --list.")
@@ -269,7 +293,7 @@ def plan(folder, args):
         print("  nothing saved, because pages would move between archives that already exist. Look at it, "
               "then run it again with --force if that is what you want.")
         return 1
-    code = save_chapters(folder, chapters, source, source_url)
+    code = save_chapters(folder, chapters, source, source_url, every)
     if not code and how != "same" and known.get("packed"):
         #nothing repacks itself: an archive holding the old boundary keeps holding it until pack is run
         print("  the chapter archives still hold the old boundaries. Run: chapters.py pack {0}".format(folder))

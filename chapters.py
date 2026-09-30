@@ -18,7 +18,7 @@ from comiclib.chapters.align import (align, anchor_kinds, by_written_order, desc
 from comiclib.chapters.archive_page import (ArchiveReader, chapters_from_archive,  # noqa: F401
                                             chapters_from_events, drawn_heading, heading_says,
                                             pages_linked, read_archive)
-from comiclib.chapters.chapterlist import (apply_fixes, chapter_record, compare_chapters,  # noqa: F401
+from comiclib.chapters.chapterlist import (apply_fixes, chapter_record, chapters_every, compare_chapters,  # noqa: F401
                                            edit_fixes, list_fixes, plan, save_chapters, say_fixes,
                                            settle_chapters, show_chapters, try_archive)
 from comiclib.chapters.index import (alignment_path, fill_sizes, head_size, index_path,  # noqa: F401
@@ -81,6 +81,11 @@ def setup():
     params.add_argument("--list", default=None,
                         help="With chapters, a file of chapter start addresses, one per line, each "
                              "optionally followed by | and a title.")
+    params.add_argument("--every", type=int, default=None,
+                        help="With chapters, cut the comic into parts of this many pages - 100 makes pages "
+                             "1-100 one archive, 101-200 the next - for a comic with no chapters of its own "
+                             "that has grown too big for a reader to open in one. Remembered, so later runs "
+                             "keep cutting the pages it gains.")
     params.add_argument("--urls", action='store_true', default=False,
                         help="With chapters, work them out from the comic's own addresses, even when it "
                              "remembers an archive page.")

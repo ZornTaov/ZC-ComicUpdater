@@ -175,14 +175,16 @@ def make_handler(runner, args, uc, tee):
                     #that counts /comic/issue-4-page-7 and has no archive page worth reading
                     listing = (str(body.get("url") or "").strip()
                                or (comic.metadata.get("chapters") or {}).get("source_url"))
+                    every = str(body.get("every") or "").strip()
+                    every = int(every) if every.isdigit() and int(every) > 0 else None
                     #a record of a single page is a walk that never happened: started on the comic's
                     #newest page, found no next link there, and wrote that one page down. taking the
                     #existence of the file to mean the comic was walked made that stop the chaptering
                     #of a 3,500 page comic with nothing to align against
                     walk = index_pages(args, uc, comic) < 2
-                    job = runner.submit_chapterize(comic, listing, walk)
+                    job = runner.submit_chapterize(comic, listing, walk, every)
                     self.reply({"queued": job.id, "label": job.label, "walking": walk,
-                                "from": "archive" if listing else "addresses"})
+                                "from": "every" if every else "archive" if listing else "addresses"})
             elif path == "/api/trylist":
                 name = str(body.get("name") or "")
                 comic = find_comic(args, uc, name) if name else None

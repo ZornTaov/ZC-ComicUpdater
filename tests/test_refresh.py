@@ -1,6 +1,8 @@
 #a comic whose chapters were read off the site's archive page remembers that page, so its chapters can be
 #read again with no arguments - and an update reads it again to take a chapter that began since. a chapter
-#already written is never moved without --force.
+#already written is never moved without --force. told not to read it, an update packs the new pages into the
+#last chapter; one with no chapters yet reads it anyway. a comic cut every so many pages starts its next
+#part on its own.
 import json
 import os
 import zipfile
@@ -63,8 +65,9 @@ class Held:
             return sorted(n for n in zf.namelist() if n.endswith(".png"))
 
 
-def hold(serve, library, config, chapters, pages, listed):
-    #the comic with `pages` held and indexed, its chapters read off the archive page and packed
+def hold(serve, library, config, chapters, pages, listed, steps=None):
+    #the comic with `pages` held and indexed, its chapters read off the archive page and packed - or
+    #whatever `steps` sets it up with instead
     handler, state = make_site(pages, listed)
     site = serve(handler)
     comic = library / "Uncompressed" / "MyComic"
@@ -83,11 +86,12 @@ def hold(serve, library, config, chapters, pages, listed):
                      "cbz_path": "CBZs/MyComic.cbz", "cbz": True, "increment": pages,
                      "direction_check": False},
         "history": {"runs": [], "index_cache": os.path.basename(index)}})
-    for step in (["align"], ["chapters", "--archive", site + "/archive", "--save"], ["pack"]):
+    for step in steps or (["align"], ["chapters", "--archive", site + "/archive", "--save"], ["pack"]):
         done = run("chapters.py", step[0], comic, "--root", library, *step[1:], timeout=300)
         assert done.returncode == 0, "{0} failed in setting up:\n{1}".format(step[0], done.stdout[-400:])
     held = Held(site, state, library, config, comic)
-    assert len(held.starts()) == len(listed)
+    if steps is None:
+        assert len(held.starts()) == len(listed)
     return held
 
 
@@ -134,3 +138,62 @@ def test_an_archive_page_that_moves_a_written_chapter_is_refused_without_force(s
     #and the archives follow once packed again
     held.pack()
     assert "0005.png" in held.chapter(1), "the page that moved should be in chapter one now"
+
+
+def update(held, *extra):
+    return run("update_comics.py", held.library, "--progress", "0", "--config", held.config, *extra,
+               timeout=900)
+
+
+def test_an_update_leaves_the_archive_page_alone_when_told_not_to_read_it(serve, library, config, chapters):
+    held = hold(serve, library, config, chapters, 12, THREE)
+    held.state["pages"] = 16
+    held.state["chapters"] = FOUR
+    done = update(held, "--no-refresh-chapters")
+    assert (held.comic / "0016.png").exists(), "the new pages should still be fetched:\n" + done.stdout[-500:]
+    #chapter four is on the archive page, but nothing read it: the new pages join the chapter still being
+    #published, and are packed there rather than left in no archive at all
+    assert len(held.starts()) == 3, held.starts()
+    assert "more than before" not in done.stdout, done.stdout[-500:]
+    assert not any("c004" in name for name in os.listdir(str(held.out)))
+    assert held.chapter(3) == ["{0:04d}.png".format(n) for n in range(9, 17)], held.chapter(3)
+
+
+def test_a_comic_given_an_archive_page_before_any_chapters_gets_them_from_its_first_update(serve, library,
+                                                                                         config, chapters):
+    #as the web page leaves a comic it was given a chapter list for and only primed: the archive page is
+    #written down, and no chapter has been worked out yet
+    held = hold(serve, library, config, chapters, 12, THREE, steps=[["align"]])
+    meta = read_meta(held.comic)
+    meta["chapters"] = {"source": "archive", "source_url": held.site + "/archive", "list": []}
+    write_meta(held.comic, meta)
+    held.state["pages"] = 16
+    held.state["chapters"] = FOUR
+    done = update(held, "--no-refresh-chapters")
+    #even with re-reading turned off, since there is nothing yet to keep
+    assert held.starts() == [(1, "One", 1), (2, "Two", 5), (3, "Three", 9), (4, "Four", 13)], \
+        held.starts() or done.stdout[-500:]
+    assert sorted(os.listdir(str(held.out))) == ["MyComic - c00{0} - {1}.cbz".format(at, label)
+                                                 for at, (label, _) in enumerate(FOUR, 1)]
+    assert held.chapter(4) == ["0013.png", "0014.png", "0015.png", "0016.png"]
+    assert not (library / "CBZs" / "MyComic.cbz").exists(), "a comic in chapters keeps no single archive"
+
+
+def test_an_update_starts_the_next_part_of_a_comic_cut_every_so_many_pages(serve, library, config, chapters):
+    #a comic with no chapters of its own, cut every four pages: the third part is half full
+    held = hold(serve, library, config, chapters, 10, [], steps=[["align"], ["chapters", "--every", "4", "--save"],
+                                                                 ["pack"]])
+    assert held.starts() == [(1, "Pages 1-4", 1), (2, "Pages 5-8", 5), (3, "Pages 9-12", 9)]
+    held.state["pages"] = 14
+    #with re-reading archive pages off, which this reads nothing from the site for
+    done = update(held, "--no-refresh-chapters")
+    assert held.starts() == [(1, "Pages 1-4", 1), (2, "Pages 5-8", 5), (3, "Pages 9-12", 9),
+                             (4, "Pages 13-16", 13)], held.starts() or done.stdout[-500:]
+    assert "more than before" in done.stdout, done.stdout[-500:]
+    #the third part filled under the name it already had, and the fourth began
+    assert sorted(os.listdir(str(held.out))) == ["MyComic - c001 - Pages 1-4.cbz", "MyComic - c002 - Pages 5-8.cbz",
+                                                 "MyComic - c003 - Pages 9-12.cbz",
+                                                 "MyComic - c004 - Pages 13-16.cbz"]
+    assert held.chapter(3) == ["0009.png", "0010.png", "0011.png", "0012.png"], held.chapter(3)
+    assert held.chapter(4) == ["0013.png", "0014.png"], held.chapter(4)
+    assert not (library / "CBZs" / "MyComic.cbz").exists(), "a comic in parts keeps no single archive"

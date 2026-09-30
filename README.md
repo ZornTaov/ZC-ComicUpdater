@@ -583,6 +583,7 @@ one, which is what most readers want and what a phone can actually open.
 python chapters.py chapters "D:/Comics/Uncompressed/MyComic" --archive "https://example.com/archive/"
 python chapters.py chapters "D:/Comics/Uncompressed/MyComic"          # from the addresses themselves
 python chapters.py chapters "D:/Comics/Uncompressed/MyComic" --list starts.txt
+python chapters.py chapters "D:/Comics/Uncompressed/MyComic" --every 100   # a part every 100 pages
 python chapters.py pack "D:/Comics/Uncompressed/MyComic" --root "D:/Comics" --dry-run
 ```
 
@@ -606,8 +607,8 @@ kept: the totals say whether the page lists every page or only where chapters st
 states no length where all the others do is flagged, since it is usually some other section of the site
 that happens to link into the comic.
 
-Working out where chapters start has four sources, all ending in the same list, and none of the first
-three writes anything without `--save`:
+Working out where chapters start has five sources, all ending in the same list, and none of them but
+the one by hand writes anything without `--save`:
 
 1. **An archive page.** Its links are checked against the addresses the walk recorded, so a link is
    *known* to be a page of this comic rather than guessed at, and chapter titles come from whatever
@@ -638,6 +639,16 @@ three writes anything without `--save`:
 4. **By hand**, one boundary at a time, for a comic whose site says nowhere where its chapters start.
    The first correction on a comic with no chapters yet makes the first chapter, and the comic is then
    marked as chaptered by hand so that working them out again keeps them rather than finding nothing.
+5. **Every so many pages**, for a comic with no chapters at all that has grown too big for a reader to
+   open as one archive - a page a day for ten years is a gigabyte or more. `--every 100` makes pages
+   1-100 one archive, 101-200 the next, and so on. Each part is named for the pages it is *meant* to
+   hold, `Pages 3601-3700`, even while it holds only the first few, so the part still being published
+   keeps its name and its archive as it fills rather than leaving a trail of stale ones behind it. The
+   size is remembered, so a nightly update starts the next part on its own; changing it moves pages
+   between archives already written, so it needs `--force`, and the archives of the old size are left
+   for you to delete. A comic smaller than one part is saved as one part rather than refused. In the
+   web page it is **Or cut every** in a comic's editor, with the chapter list left blank. Corrections by
+   hand apply on top, as they do to any other source.
 An archive built as one table per chapter, with the chapter's name in the table's `<th>`, is read the
 same way as one using `<h2>` headings - an archive of 38 such tables reads as 38 chapters, even when
 none of them carries a number or the word "chapter" anywhere.
@@ -731,7 +742,9 @@ get to it.
 again - after lining the new pages up, since a new chapter usually begins on one of them and could not be
 placed before they existed. A change that only adds chapters at the end is taken; one that would move a
 chapter whose archive already exists is reported and left alone, because pages would have to move between
-archives. `chapters.py chapters <folder> --save --force` takes it once you have looked.
+archives. `chapters.py chapters <folder> --save --force` takes it once you have looked. A comic cut
+every so many pages is cut again the same way after every update that gains it pages, whatever
+`refresh_chapters` says, since that reads nothing from the site.
 
 Running `chapters.py chapters <folder>` with no source at all re-reads whatever that comic remembers, so
 keeping boundaries current needs no arguments.

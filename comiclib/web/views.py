@@ -138,7 +138,8 @@ def comic_detail(args, uc, runner, name):
         "settings": metadata.get("settings") or {},
         "chapters": {"source_url": chapters.get("source_url"), "count": len(chapters.get("list") or []),
                      "packed": chapters.get("packed"), "folder": chapters.get("folder"),
-                     "source": chapters.get("source"), "list": chapters.get("list") or [],
+                     "source": chapters.get("source"), "every": chapters.get("every"),
+                     "list": chapters.get("list") or [],
                      "fixes": chapters.get("fixes") or []},
         "indexed": bool((metadata.get("history") or {}).get("index_cache")),
         #how much of the comic that record actually covers. a comic with a record of one page has been

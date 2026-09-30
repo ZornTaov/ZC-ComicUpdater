@@ -165,7 +165,7 @@ class Runner:
 
         return self.submit(Job("check", "Check {0}".format(url), work))
 
-    def submit_chapterize(self, comic, listing, walk):
+    def submit_chapterize(self, comic, listing, walk, every=None):
         uc = self.uc
 
         def work(job):
@@ -177,8 +177,11 @@ class Runner:
                 steps.append(["index"])
             else:
                 steps.append(["align"])
-            steps.append(["chapters", "--archive", listing, "--save"] if listing
-                         else ["chapters", "--urls", "--save"])
+            if every:
+                steps.append(["chapters", "--every", str(every), "--save"])
+            else:
+                steps.append(["chapters", "--archive", listing, "--save"] if listing
+                             else ["chapters", "--urls", "--save"])
             if (comic.metadata.get("settings") or {}).get("cbz") is not False:
                 steps.append(["pack", "--replace"])
             for step in steps:

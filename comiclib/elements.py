@@ -4,6 +4,7 @@ import json
 import os
 import re
 from time import sleep
+from urllib.parse import urlparse
 
 import selenium.common.exceptions as se
 from selenium.webdriver.common.by import By
@@ -101,6 +102,31 @@ def ele_get_all(driver,element):
     return srcs
 
 
+def site_of(url):
+    #the site an address belongs to, with the www that some links carry and others do not left off
+    host = (urlparse(url or "").hostname or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def leaves_the_site(driver, one):
+    #whether pressing this would take the browser to another site altogether. a path written loosely
+    #enough - any element whose title mentions "next" - also matches a link in the footer to a friend's
+    #site whose name happens to contain the word, and on the latest page, where the real next button is
+    #gone, that link is the only match left. no comic's next page is on somebody else's site.
+    try:
+        link = one.find_elements(By.XPATH, "./ancestor-or-self::a[@href][1]")
+        href = link[0].get_attribute("href") if link else None
+        here = driver.current_url
+    except (se.WebDriverException, AttributeError):
+        return False
+    there, ours = site_of(href), site_of(here)
+    #a button that runs a script, or a link to "#", goes nowhere this can tell, so it is given the benefit
+    #of the doubt. a comic on comics.example.com whose pages link to example.com is still one site
+    if not there or not ours or not href.lower().startswith(("http:", "https:")):
+        return False
+    return not (there == ours or there.endswith("." + ours) or ours.endswith("." + there))
+
+
 def next_element(driver,element):
     #the element a next path points at: the first one that can be seen, rather than simply the first. a
     #page can hold a hidden copy of its own navigation - a next button at no size at all, beside the one
@@ -111,6 +137,12 @@ def next_element(driver,element):
         found = driver.find_elements(By.XPATH, element)
     except se.WebDriverException:
         return None
+    #a match that would leave the site is not a next link at all, so it is as though the path never
+    #matched it: the search moves on, and a page where nothing else matches is the latest page
+    staying = [one for one in found if not leaves_the_site(driver, one)]
+    if len(staying) < len(found) and verbose:
+        print("\nThe next button {0} leads to another site, so it is not this comic's.".format(element))
+    found = staying
     for one in found:
         try:
             if one.is_displayed():

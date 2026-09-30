@@ -4,7 +4,7 @@
 import os
 import sys
 
-from comiclib.exits import OK as EXIT_OK
+from comiclib.exits import INTERRUPTED as EXIT_INTERRUPTED, OK as EXIT_OK
 from comiclib.metadata import METADATA_FILE as metadata_file, load, now_stamp, write_json
 
 #how many run records to keep. a monthly updater would otherwise grow this file forever; the first run is
@@ -26,6 +26,56 @@ def resume_point(scrape_state):
         #a page walked to but never saved: carry on there, counting it as the page after the last saved one
         return walked, increment + 1 if increment is not None else increment
     return url, increment
+
+
+def failure_noted(args, folder, *, scrape_state, run_id, run_start, stop_reason, exit_code):
+    #a run that saved nothing because it failed on the page it started from. it used to write nothing at
+    #all, so a comic whose resume address had gone bad - the front page a last next link led to, before
+    #anything knew better - failed the same way every day for weeks while its metadata still showed the
+    #last run that worked. the run is written down so the library shows the fault; the settings and state
+    #are left exactly as they were, since a run that got nowhere has learned nothing about where to resume.
+    #
+    #only for a comic that already has a file: a new comic that fails at once has nothing to add to. and
+    #not for being stopped, which is someone's decision rather than the comic's fault
+    path = os.path.join(folder, metadata_file)
+    if exit_code in (None, EXIT_OK, EXIT_INTERRUPTED) or not os.path.exists(path):
+        return None
+    try:
+        metadata = load(path)
+        history = metadata.setdefault("history", {})
+        runs = list(history.get("runs") or [])
+    except (ValueError, OSError, TypeError, AttributeError):
+        return None
+    stamp = now_stamp()
+    run = {
+        "run_id": run_id,
+        "started": run_start,
+        "updated": stamp,
+        "argv": sys.argv[1:],
+        "start_url": args.URL,
+        "start_page_number": args.increment,
+        "last_url": scrape_state["walked_to"] or args.URL,
+        "last_page_number": None,
+        "pages_saved": 0,
+        "completed": False,
+        "stop_reason": stop_reason,
+        "exit_code": exit_code,
+    }
+    #the same failure from the same place, day after day, is one fault that has gone on a while rather
+    #than a new one each day - and twenty copies of it would push every run that worked out of the record
+    last = runs[-1] if runs else {}
+    if (last.get("pages_saved") == 0 and last.get("exit_code") == exit_code
+            and last.get("start_url") == args.URL):
+        run["since"] = last.get("since") or last.get("started")
+        run["times"] = (last.get("times") or 1) + 1
+        runs = runs[:-1]
+    runs.append(run)
+    if len(runs) > max_runs:
+        runs = runs[:1] + runs[-(max_runs - 1):]
+    history["runs"] = runs
+    metadata["updated"] = stamp
+    write_json(path, metadata)
+    return path
 
 
 def settings_from_args(args, folder, url, increment, ended=False):
@@ -54,7 +104,8 @@ def metadata_save(args, folder, *, scrape_state, run_id, run_start, stop_reason,
                   index_file, completed=False, exit_code=None):
     #writes the sidecar describing this scrape into the output folder, so it ends up inside the cbz
     if scrape_state["pages_saved"] == 0:
-        return None
+        return failure_noted(args, folder, scrape_state=scrape_state, run_id=run_id, run_start=run_start,
+                             stop_reason=stop_reason, exit_code=exit_code)
     path = os.path.join(folder, metadata_file)
 
     #carry over what an earlier run recorded, so a resumed comic still knows where it originally started.

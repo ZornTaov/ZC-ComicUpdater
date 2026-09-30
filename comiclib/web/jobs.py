@@ -11,6 +11,7 @@ import time
 import traceback
 
 from comiclib.batch import own_group
+from comiclib.chapters.index import numbered_pages
 from comiclib.metadata import METADATA_FILE, write_json
 
 
@@ -179,8 +180,22 @@ class Runner:
             args = uc.with_config(self.args)
             script = os.path.join(os.path.dirname(os.path.abspath(args.script)), "chapters.py")
             steps = []
-            if walk:
-                #nothing records which page is which yet, so the comic is walked once, downloading nothing
+            if every and walk == "start":
+                #cutting by size needs only which file is which page, and numbered filenames say that
+                #already: a comic of thousands of pages is spared an hour of walking, and its site the load
+                job.doing = "reading the page numbers in its filenames ..."
+                print("{0}: reading the page numbers in its filenames ...".format(comic.name), flush=True)
+                _, why = numbered_pages(comic.folder)
+                if why:
+                    print("  they cannot say which page is which ({0}), so the comic is walked "
+                          "first".format(why), flush=True)
+                    steps.append(["index"])
+                else:
+                    print("  every file carries its page number, so it is cut from those without walking",
+                          flush=True)
+            elif walk:
+                #nothing records which page is which yet, so the comic is walked once, downloading nothing.
+                #a record that stops short is carried on from its last page rather than walked again
                 steps.append(["index"])
             else:
                 steps.append(["align"])

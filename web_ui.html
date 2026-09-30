@@ -1284,8 +1284,10 @@ $("edit-chapterize").addEventListener("click", async () => {
     msg.className = "msg good";
     msg.textContent = (result.from === "addresses" ? "Queued, reading the comic's own addresses. "
       : result.from === "every" ? `Queued, cutting it every ${$("e-every").value.trim()} pages. ` : "Queued. ")
-      + (result.walking ? "It walks the comic first, which takes a few minutes; watch it under Running now."
-                        : "Watch it under Running now.");
+      + (result.numbers_first ? "Where every file carries its page number it is cut from those; otherwise it walks the comic first. Watch it under Running now."
+        : result.carrying_on ? "The record of which page is which stops short of the newest page, so the walk carries on from where it stopped; watch it under Running now."
+        : result.walking ? "It walks the comic first, which takes a few minutes; watch it under Running now."
+        : "Watch it under Running now.");
   } catch (error) {
     msg.className = "msg bad";
     msg.textContent = error.message;

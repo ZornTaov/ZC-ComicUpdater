@@ -47,8 +47,12 @@ def chapters_every(pages, size):
     #to hold rather than those it holds so far, so the part still being published keeps its name, and so
     #its archive, as it fills
     last = pages[-1]["n"] if pages else 0
+    held = sorted(page["n"] for page in pages if page.get("file"))
+    #a comic kept only from some page onwards - adopted part way, or numbered from where it was begun -
+    #has nothing in the parts before its first page, and an archive of nothing is not a part of anything
+    first = held[0] if held else 1
     return [{"label": "Pages {0}-{1}".format(start, start + size - 1), "start_page": start}
-            for start in range(1, last + 1, size)]
+            for start in range(1, last + 1, size) if start + size > first]
 
 
 def apply_fixes(found, pages, fixes):
@@ -223,9 +227,6 @@ def try_archive(folder, args):
 
 
 def plan(folder, args):
-    pages = joined_pages(folder, args)
-    if pages is None:
-        return 2
     metadata = read_metadata(folder)
     known = metadata.get("chapters") or {}
     every = getattr(args, "every", None)
@@ -241,6 +242,10 @@ def plan(folder, args):
             and known.get("source") == "every" and known.get("every")):
         every = known["every"]
         print("Cutting this comic into parts of {0} page(s), as it remembers.".format(every))
+    #cutting by size only needs which file is which page, which numbered filenames can say without a walk
+    pages = joined_pages(folder, args, numbered=bool(every))
+    if pages is None:
+        return 2
     listed = None
     if every:
         found, source, source_url = chapters_every(pages, every), "every", None

@@ -11,7 +11,8 @@ from datetime import datetime
 import requests
 
 from comiclib.metadata import read as read_metadata, write as write_metadata, write_json
-from comiclib.pages import held_pages
+from comiclib.chapters.links import same_page
+from comiclib.pages import held_pages, listing as folder_pages, page_key, page_number
 from comiclib.paths import PROJECT, index_folder, index_name
 
 #the scraper, which a walk runs with --index to follow the comic and save nothing
@@ -132,10 +133,57 @@ def save_alignment(path, folder, pages, aligned, how, settled):
     return path
 
 
-def joined_pages(folder, args):
+def reaches_newest(lines, state):
+    #whether a record of which page is which holds the newest page the comic has saved, which is what makes
+    #it safe to add the next one to its end. not the page a run starts on: a run that died fetching page 3
+    #resumes there with a record rightly ending at page 2. None when there is nothing to say either way - no
+    #record yet, or a comic that has saved nothing
+    state = state if isinstance(state, dict) else {}
+    src, name = state.get("last_image_url"), state.get("last_image_file")
+    if not lines or not (src or name):
+        return None
+    for line in reversed(lines):
+        if (src and line.get("src") and same_page(line["src"]) == same_page(src)) or \
+                (name and line.get("file") and page_key(line["file"]) == page_key(name)):
+            return True
+    return False
+
+
+def numbered_pages(folder):
+    #a comic never walked, whose every file carries its page number - saved with --prefix, or named by the
+    #site 0001.png - already says which file is which page. that is all cutting it into parts of a set size
+    #needs, and walking thousands of pages to learn it again is an hour of a site's patience. a missing
+    #number is a missing page, as a gap in a walk is; two files on one number, or one with none, and the
+    #names say nothing certain, so the comic has to be walked after all
+    names = folder_pages(folder, others=True)
+    if not names:
+        return None, "it holds no pages"
+    unnumbered = [name for name in names if page_number(name) is None]
+    if unnumbered:
+        return None, "{0} of its files carry no page number, such as {1}".format(len(unnumbered), unnumbered[0])
+    by_number = {}
+    for name in names:
+        by_number.setdefault(page_number(name), []).append(name)
+    twice = [held for held in by_number.values() if len(held) > 1]
+    if twice:
+        return None, "{0} page number(s) are on more than one file, such as {1}".format(len(twice), twice[0])
+    if min(by_number) < 1:
+        return None, "its files are numbered from {0}, not from 1".format(min(by_number))
+    return [{"n": n, "url": None, "file": (by_number.get(n) or [None])[0]}
+            for n in range(1, max(by_number) + 1)], None
+
+
+def joined_pages(folder, args, numbered=False):
     #the alignment says which file is which page; the walk says how big the site's copy is
     cache = index_path(folder, args.root, args)
     alignment = alignment_path(cache)
+    if not os.path.exists(alignment) and numbered:
+        print("  not walked, so reading which file is which page from their numbers ...", flush=True)
+        pages, why = numbered_pages(folder)
+        if pages is None:
+            print("ERROR: {0} has not been walked, and its filenames cannot stand in for that: {1}. Run: "
+                  "chapters.py index {0}".format(folder, why))
+        return pages
     if not os.path.exists(alignment):
         print("ERROR: {0} has not been lined up yet. Run: chapters.py index {0}".format(folder))
         return None
@@ -267,6 +315,7 @@ class KeptIndex:
             #a metadata file that reads but is not an object says nothing about an index
             held = {}
         named = (held.get("history") or {}).get("index_cache")
+        saved = held.get("state")
         chapters = held.get("chapters") or {}
         self.in_chapters = bool(chapters.get("list") or chapters.get("source_url") or chapters.get("every"))
         #a scrape starting a comic from its first page, into a folder holding nothing yet, is doing the whole
@@ -315,6 +364,15 @@ class KeptIndex:
             self.urls.add(held.get("url"))
             self.pages.add((held.get("url"), held.get("src")))
             self.last = max(self.last, held.get("n") or 0)
+        if reaches_newest(lines, saved) is False:
+            #a walk that stopped short - a site that began refusing it part way - leaves a record ending
+            #hundreds of pages before the newest one saved. a line's place in the record is its page number,
+            #so this run's pages added after it would each be counted as the page after the walk's last,
+            #and every chapter built on them would be wrong without anything saying so
+            print("WARNING: not adding to the record of which page is which: it stops at page {0}, short of "
+                  "the newest page this comic has saved. chapters.py index {1} carries the walk on from "
+                  "where it stopped.".format(self.last, folder))
+            return
         self.file = path
         if self.last:
             print("This comic keeps an index of which page is which ({0} pages); new pages are added to "

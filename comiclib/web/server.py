@@ -16,7 +16,7 @@ from comiclib.web.adding import parse_entries
 from comiclib.web.edits import fix_chapter, insert_page, save_config, save_settings, try_chapter_list
 from comiclib.web.elementpaths import element_settings, save_elements
 from comiclib.web.jobs import LogTee, Runner
-from comiclib.web.views import comic_detail, config_view, find_comic, index_pages, is_running, job_view
+from comiclib.web.views import comic_detail, config_view, find_comic, is_running, job_view, walk_needed
 from comiclib.web.views import library_view, walked_pages
 
 #the page, read afresh on every request so editing it needs no restart. it stays beside the scripts, where
@@ -177,13 +177,16 @@ def make_handler(runner, args, uc, tee):
                                or (comic.metadata.get("chapters") or {}).get("source_url"))
                     every = str(body.get("every") or "").strip()
                     every = int(every) if every.isdigit() and int(every) > 0 else None
-                    #a record of a single page is a walk that never happened: started on the comic's
-                    #newest page, found no next link there, and wrote that one page down. taking the
-                    #existence of the file to mean the comic was walked made that stop the chaptering
-                    #of a 3,500 page comic with nothing to align against
-                    walk = index_pages(args, uc, comic) < 2
+                    #taking the existence of the record to mean the comic was walked once stopped the
+                    #chaptering of a 3,500 page comic with nothing to align against, so it is asked
+                    #whether it reaches the comic's newest page. a comic cut by size may not need walking
+                    #at all, which the job finds out from its filenames, since listing a folder of
+                    #thousands on a network share is no thing to make a request wait for
+                    walk = walk_needed(args, uc, comic)
+                    numbers_first = bool(every) and walk == "start"
                     job = runner.submit_chapterize(comic, listing, walk, every)
-                    self.reply({"queued": job.id, "label": job.label, "walking": walk,
+                    self.reply({"queued": job.id, "label": job.label, "walking": bool(walk) and not numbers_first,
+                                "carrying_on": walk == "carry on", "numbers_first": numbers_first,
                                 "from": "every" if every else "archive" if listing else "addresses"})
             elif path == "/api/trylist":
                 name = str(body.get("name") or "")

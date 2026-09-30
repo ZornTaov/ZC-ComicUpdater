@@ -8,6 +8,7 @@ import sys
 import time
 
 from comiclib import metadata as sidecar
+from comiclib.chapters.index import reaches_newest, read_index
 
 
 def comic_view(comic, uc, live):
@@ -118,6 +119,27 @@ def index_pages(args, uc, comic):
             return sum(1 for line in f if line.strip())
     except OSError:
         return 0
+
+
+def walk_needed(args, uc, comic):
+    #whether working out chapters has to walk the comic first: "start" when nothing records which page is
+    #which, "carry on" when the record stops short of the comic's newest page, None when it reaches it.
+    #a record's being there says nothing about how far it got - a walk the site cut off part way leaves
+    #thousands of lines short of the comic - so it is asked whether it holds the newest page saved
+    named = ((comic.metadata.get("history") or {}).get("index_cache"))
+    if not named:
+        return "start"
+    try:
+        lines = read_index(os.path.join(uc.config_folder(), "index", named))
+    except (OSError, ValueError):
+        return "start"
+    #a record of a single page is a walk that never happened: started on the comic's newest page, found no
+    #next link there, and wrote that one page down
+    if len(lines) < 2:
+        return "start"
+    if reaches_newest(lines, comic.metadata.get("state")) is False:
+        return "carry on"
+    return None
 
 
 def comic_detail(args, uc, runner, name):

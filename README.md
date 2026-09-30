@@ -646,7 +646,12 @@ the one by hand writes anything without `--save`:
    keeps its name and its archive as it fills rather than leaving a trail of stale ones behind it. The
    size is remembered, so a nightly update starts the next part on its own; changing it moves pages
    between archives already written, so it needs `--force`, and the archives of the old size are left
-   for you to delete. A comic smaller than one part is saved as one part rather than refused. In the
+   for you to delete. A comic smaller than one part is saved as one part rather than refused.
+   **It needs no walk when the files are numbered** - saved with `--prefix`, or named by the site
+   `0001.png` (a second extension an older scrape added, `0001.png.png`, is fine). A comic never walked
+   is cut by the numbers its files carry, so one of thousands of pages is split in seconds rather than
+   after an hour of loading every page. A missing number is a missing page; a file with no number, or
+   two files on one number, and it says so and asks for the walk instead. In the
    web page it is **Or cut every** in a comic's editor, with the chapter list left blank. Corrections by
    hand apply on top, as they do to any other source.
 An archive built as one table per chapter, with the chapter's name in the table's `<th>`, is read the
@@ -745,6 +750,12 @@ chapter whose archive already exists is reported and left alone, because pages w
 archives. `chapters.py chapters <folder> --save --force` takes it once you have looked. A comic cut
 every so many pages is cut again the same way after every update that gains it pages, whatever
 `refresh_chapters` says, since that reads nothing from the site.
+
+**A walk that stopped short is carried on, not built on.** A site that starts refusing a long walk part
+way leaves a record ending short of the comic's newest page. A scrape adds nothing to such a record -
+its pages would be counted from where the walk stopped, and every chapter built on them would be wrong -
+and says so. **Work out chapters** in the web page sees the same thing and carries the walk on from the
+last page it reached, rather than taking the record's being there to mean the comic was walked.
 
 Running `chapters.py chapters <folder>` with no source at all re-reads whatever that comic remembers, so
 keeping boundaries current needs no arguments.

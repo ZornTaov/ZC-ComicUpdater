@@ -114,6 +114,67 @@ def test_each_part_is_packed_into_an_archive_of_its_own(library, chapters):
     assert held == [4, 4, 2], held
 
 
+def unwalked(library, names, name="Numbered"):
+    #a comic scraped long before anything recorded which page is which: only its files
+    folder = library / "Uncompressed" / name
+    folder.mkdir()
+    for at, file in enumerate(names):
+        (folder / file).write_bytes(bytes([at % 251]) * (200 + at))
+    write_meta(folder, {"schema": 2, "settings": {"url": "https://example.com/comic/9/",
+                                                  "output": "Uncompressed/" + name,
+                                                  "cbz_path": "CBZs/{0}.cbz".format(name)}, "history": {}})
+    return folder
+
+
+def test_a_comic_never_walked_is_cut_by_the_numbers_its_files_carry(library, chapters):
+    #named by the site as it numbers its pages, with a second extension an older scrape added, and a page
+    #the site lost: 7 is missing, and the part it would be in is simply one page short
+    names = ["{0}.png.png".format(n) for n in range(1, 11) if n != 7]
+    folder = unwalked(library, names)
+    code, out = ch(folder, library, "chapters", "--every", "4", "--save")
+    assert code == 0 and "from their numbers" in out, out
+    assert parts(folder) == [(1, 4, "Pages 1-4"), (5, 8, "Pages 5-8"), (9, 10, "Pages 9-12")], parts(folder)
+    code, out = ch(folder, library, "pack")
+    assert code == 0, out
+    shelf = library / "CBZs" / "Numbered"
+    held = {}
+    for name in sorted(os.listdir(str(shelf))):
+        with zipfile.ZipFile(str(shelf / name)) as zf:
+            held[name] = len([n for n in zf.namelist() if n.endswith(".png")])
+    assert list(held.values()) == [4, 3, 2], held
+
+
+def test_a_comic_kept_from_part_way_has_no_empty_parts_before_its_first_page(library, chapters):
+    #numbered by a scrape that began at page 9, as --prefix numbers them
+    folder = unwalked(library, ["{0:04d}_strip.png".format(n) for n in range(9, 15)])
+    code, out = ch(folder, library, "chapters", "--every", "4", "--save")
+    assert code == 0, out
+    assert parts(folder) == [(9, 12, "Pages 9-12"), (13, 14, "Pages 13-16")], parts(folder)
+
+
+def test_filenames_that_do_not_say_which_page_is_which_are_not_guessed_at(library, chapters):
+    folder = unwalked(library, ["1.png", "2.png", "cover.png"])
+    code, out = ch(folder, library, "chapters", "--every", "4", "--save")
+    assert code == 2 and "carry no page number" in out and "chapters.py index" in out, out
+    folder = unwalked(library, ["1.png", "2.png", "2.gif"], "Twice")
+    code, out = ch(folder, library, "chapters", "--every", "4", "--save")
+    assert code == 2 and "more than one file" in out, out
+    assert not read_meta(folder).get("chapters")
+
+
+def test_the_editor_cuts_a_numbered_comic_without_walking_it(library, chapters, web):
+    #no site is running at all: a walk would have nothing to walk
+    folder = unwalked(library, ["{0:04d}.png".format(n) for n in range(1, 11)])
+    page = web()
+    code, answer = page.call("/api/chapterize", {"name": "Uncompressed/Numbered", "every": "4"})
+    assert code == 200 and answer.get("numbers_first") is True and answer.get("walking") is False, answer
+    assert page.wait_idle(300), "the parts were never worked out"
+    assert "without walking" in page.said(), page.said()[-600:]
+    assert [start for start, _, _ in parts(folder)] == [1, 5, 9], page.said()[-600:]
+    assert sorted(os.listdir(str(library / "CBZs" / "Numbered"))) == [
+        "Numbered - c001 - Pages 1-4.cbz", "Numbered - c002 - Pages 5-8.cbz", "Numbered - c003 - Pages 9-12.cbz"]
+
+
 def test_the_editor_sets_the_size_and_works_the_parts_out(library, chapters, web):
     folder = daily(chapters, library, 10)
     page = web()

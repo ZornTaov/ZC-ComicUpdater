@@ -13,6 +13,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from comiclib import exits
+from comiclib.chapters.index import index_path
 from comiclib.config import load_config
 from comiclib.library import find_comics, page_count, resume_argv
 from comiclib.metadata import METADATA_FILE as metadata_file
@@ -158,8 +159,10 @@ def pack_chapters(comic, args):
         return
     #lined up first, so the pages just saved are in the index; then the archive page is read again, since
     #a new chapter usually begins on one of those pages and could not have been placed before they existed
-    steps = ["align"]
     known = comic.metadata.get("chapters") or {}
+    #a comic cut by size that was never walked has nothing to line up: its filenames say which page is which
+    walked = os.path.exists(index_path(comic.folder, args.root))
+    steps = ["align"] if walked or not known.get("every") else []
     #reading the archive page again is how a new chapter is found; for a comic that has a page to read but
     #no chapters worked out yet - one that was primed with a chapter list - it is how the first ones arrive
     if known.get("source_url") and (getattr(args, "refresh_chapters", True) or not known.get("list")):

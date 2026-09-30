@@ -134,7 +134,7 @@ def test_a_long_walk_says_how_far_it_has_got_and_can_be_stopped(serve, library, 
                        "settings": {"url": site + "/p/1", "output": "Uncompressed/Long", "cbz": True},
                        "history": {"first_page_url": site + "/p/1", "first_page_number": 1, "runs": []}})
     page = web()
-    code, answer = page.call("/api/chapterize", {"name": "Uncompressed/Long", "every": "100"})
+    code, answer = page.call("/api/chapterize", {"name": "Uncompressed/Long"})
     assert code == 200 and answer.get("walking") is True, answer
 
     #held back until the step ended, a walk of thousands of pages showed nothing at all for most of an hour

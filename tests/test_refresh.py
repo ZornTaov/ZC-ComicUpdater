@@ -86,11 +86,14 @@ def hold(serve, library, config, chapters, pages, listed, steps=None):
                      "cbz_path": "CBZs/MyComic.cbz", "cbz": True, "increment": pages,
                      "direction_check": False},
         "history": {"runs": [], "index_cache": os.path.basename(index)}})
-    for step in steps or (["align"], ["chapters", "--archive", site + "/archive", "--save"], ["pack"]):
+    from_archive = steps is None
+    if from_archive:
+        steps = (["align"], ["chapters", "--archive", site + "/archive", "--save"], ["pack"])
+    for step in steps:
         done = run("chapters.py", step[0], comic, "--root", library, *step[1:], timeout=300)
         assert done.returncode == 0, "{0} failed in setting up:\n{1}".format(step[0], done.stdout[-400:])
     held = Held(site, state, library, config, comic)
-    if steps is None:
+    if from_archive:
         assert len(held.starts()) == len(listed)
     return held
 
@@ -197,3 +200,24 @@ def test_an_update_starts_the_next_part_of_a_comic_cut_every_so_many_pages(serve
     assert held.chapter(3) == ["0009.png", "0010.png", "0011.png", "0012.png"], held.chapter(3)
     assert held.chapter(4) == ["0013.png", "0014.png"], held.chapter(4)
     assert not (library / "CBZs" / "MyComic.cbz").exists(), "a comic in parts keeps no single archive"
+
+
+def test_a_comic_cut_from_its_filenames_is_kept_in_parts_without_ever_being_walked(serve, library, config,
+                                                                                  chapters):
+    #the same comic, but with no record of which page is which: its files are numbered, which is enough
+    held = hold(serve, library, config, chapters, 10, [], steps=[])
+    os.remove(chapters.index_path(str(held.comic)))
+    meta = read_meta(held.comic)
+    meta["history"].pop("index_cache")
+    write_meta(held.comic, meta)
+    for step in (["chapters", "--every", "4", "--save"], ["pack"]):
+        done = run("chapters.py", step[0], held.comic, "--root", library, *step[1:], timeout=300)
+        assert done.returncode == 0, done.stdout[-400:]
+    held.state["pages"] = 14
+    done = update(held)
+    assert held.starts()[-1] == (4, "Pages 13-16", 13), held.starts() or done.stdout[-500:]
+    assert held.chapter(3) == ["0009.png", "0010.png", "0011.png", "0012.png"], held.chapter(3)
+    assert held.chapter(4) == ["0013.png", "0014.png"], held.chapter(4)
+    assert "said no" not in done.stdout, "nothing should have tried to line it up:\n" + done.stdout[-500:]
+    #and it is still not walked: a scrape starts no record for a comic it is not scraping from page one
+    assert not os.path.exists(chapters.index_path(str(held.comic)))

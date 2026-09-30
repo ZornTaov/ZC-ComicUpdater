@@ -45,10 +45,10 @@ def go_to_first(driver):
     return False
 
 
-def build_index(driver, args, page_images, next):
+def build_index(driver, args, page_images, next, still_on):
     #walks the comic the way a scrape does, but saves nothing: this is only about which page is which.
     #each line is written as it is reached, so a walk that is stopped or times out keeps what it had.
-    #page_images(driver, args) and next(driver, args) are the scrape's own.
+    #page_images(driver, args), next(driver, args) and still_on(driver, before) are the scrape's own.
     path = args.index
     folder = os.path.dirname(os.path.abspath(path))
     if folder:
@@ -114,7 +114,7 @@ def build_index(driver, args, page_images, next):
             if not next(driver, args):
                 print("No next link, so this is the latest page.")
                 break
-            if driver.current_url == here:
+            if still_on(driver, here):
                 print("The next link stays on the same page, so this is the latest page.")
                 break
     print("Index holds {0} pages, written to {1}".format(at, path))

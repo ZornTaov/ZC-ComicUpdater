@@ -6,7 +6,7 @@ import os
 import sys
 import uuid
 import zipfile
-from time import sleep
+from time import monotonic, sleep
 
 import selenium.common.exceptions as se
 from selenium.webdriver.common.by import By
@@ -307,6 +307,28 @@ def page_images(driver, args):
     return comic_images(srcs, here)
 
 
+def still_on(driver, before, settle=3.0):
+    #whether pressing next left the browser on the page it was on, which is how a comic says it has no
+    #newer one. the same address, or one that differs only after the '#' and shows the very images the page
+    #did - read afresh with the path that found them, so asking changes nothing page_images keeps count of
+    after = driver.current_url
+    if after == before:
+        return True
+    if not elements.moved_within(before, after) or last_page_url != before or not last_page_srcs:
+        return False
+    #a comic routed by its fragment changes the address first and draws the page after - on the event
+    #that follows, or once a script has fetched it - so an unchanged picture read at once is only the old
+    #page still showing. it is believed once it has stayed the same a while; a new one ends the wait. a
+    #page slower than that ends this run there, and the next carries on from it, so nothing is lost
+    until = monotonic() + settle
+    while True:
+        if set(ele_get_all(driver, image_xpath) if image_xpath else []) != last_page_srcs:
+            return False
+        if monotonic() >= until:
+            return True
+        sleep(0.25)
+
+
 def img_save(driver, increment, args):
     #one address, and every page of the comic on it. a site that serves several at once numbers them on
     #from where the last address left off, so the loop asks the state where it got to rather than counting.
@@ -492,7 +514,7 @@ def main():
         #a walk that records what it saw and downloads nothing
         code = EXIT_OK
         try:
-            walk.build_index(driver, args, page_images, next)
+            walk.build_index(driver, args, page_images, next, still_on)
         except MirrorError as error:
             print("\nERROR: {0}".format(error))
             code = error.code
@@ -524,7 +546,7 @@ def main():
                 stop_reason = "no next button"
                 completed = True
                 break
-            if current_url == driver.current_url: 
+            if still_on(driver, current_url):
                 print("Caught up: pressing next goes to the same page, so this is the latest page.")
                 stop_reason = "next goes to the same page"
                 completed = True

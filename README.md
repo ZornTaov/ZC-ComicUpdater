@@ -977,6 +977,12 @@ python update_comics.py "D:/Comics" --only MyComic --dry-run
   saved**, so the next run carries on from the comic rather than starting again at the front page.
   The same holds for a comic that wraps round to its own beginning. A run that finds no image on
   its *first* page is still a fault (code 3): that is a comic the script has no path for.
+- A newest page whose next link is **its own address with a `#` on the end** - `?comic=500#`, or
+  `?comic=500#comic` - is the same page, so the run has caught up; a walk does not record it either.
+  Compared as text it looked like one page more, saved again and counted, so every run numbered the
+  comic one further out and a walk recorded a page no file belongs to. It counts as the same page only
+  while it **shows the same image** for a few seconds: a comic built by javascript that routes every
+  page by the fragment, `#/page/41` to `#/page/42`, draws a new one and is read on.
 - **A scrape never decides that a comic has finished.** It can only tell that it has caught up with
   the latest page, which is all it ever says. `ended` is yours to set — in the report's `ended`
   column, in the comic's settings on the web page, or by hand in `mirror_metadata.json` — and a

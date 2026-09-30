@@ -4,7 +4,7 @@ import json
 import os
 import re
 from time import sleep
-from urllib.parse import urlparse
+from urllib.parse import urldefrag, urlparse
 
 import selenium.common.exceptions as se
 from selenium.webdriver.common.by import By
@@ -196,6 +196,16 @@ def test_next_ele_get(driver,element): #this runs through all of the possible ne
         return True
     if verbose: print("\nThe next button {0} could not be found.".format(element))
     return False
+
+
+def moved_within(before, after):
+    #two addresses differing only after the '#' are one document: the browser scrolled to an anchor, or a
+    #script changed its route, and nothing new was loaded. a comic whose newest page links "next" to its
+    #own address with a bare '#' on the end looks, compared as text, like a page after the newest - saved
+    #a second time, counted as a page of its own, and every run after numbering one further out.
+    #not the same page on its own, though: a comic built by javascript can route every page by the
+    #fragment, /#/page/41 to /#/page/42, so what was shown decides that
+    return bool(before and after) and before != after and urldefrag(before)[0] == urldefrag(after)[0]
 
 
 def next_ele_get(driver,element):

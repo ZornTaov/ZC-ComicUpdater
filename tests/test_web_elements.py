@@ -1,16 +1,12 @@
 #the element paths as the web page shows and saves them: the lists mirror_base ships with, a check of a
 #page none of them can read and the paths it suggests, what a save refuses, and a saved file being what
 #mirror_base then scrapes with - or, when it is damaged, ignores.
-import ast
-import io
 import json
-import os
 import time
-import tokenize
 
 import pytest
 
-from conftest import PNG_240, PROJECT, Site, checked, console_errors, open_page, pages_in, run
+from conftest import PNG_240, Site, checked, console_errors, open_page, pages_in, run
 
 PAGES = 5
 ADDED_IMAGE = '//img[@class="strip-art"]'
@@ -36,26 +32,11 @@ class Unknown(Site):
 
 
 def shipped_from_source():
-    #the two lists as mirror_base.py has them, each xpath with the comment trailing it on its own line, read
-    #straight from the source so the test follows the lists as they change rather than a copy of them. the
-    #comments come from the tokenizer, not a pattern: a comment is whatever follows a string on its line
-    path = os.path.join(PROJECT, "mirror_base.py")
-    with open(path, encoding="utf-8") as f:
-        source = f.read()
-    lists = {}
-    for node in ast.parse(source).body:
-        if isinstance(node, ast.Assign) and isinstance(node.value, ast.List):
-            for target in node.targets:
-                kind = {"element_names": "image", "next_ele_names": "next"}.get(getattr(target, "id", None))
-                if kind:
-                    lists[kind] = [item.value for item in node.value.elts]
-    comments, last = {}, None
-    for token in tokenize.generate_tokens(io.StringIO(source).readline):
-        if token.type == tokenize.STRING:
-            last = (token.end[0], ast.literal_eval(token.string))
-        elif token.type == tokenize.COMMENT and last and last[0] == token.start[0]:
-            comments[last[1]] = token.string.lstrip("#").strip()
-    notes = {kind: [comments.get(xpath, "") for xpath in xpaths] for kind, xpaths in lists.items()}
+    #the two lists as comiclib ships them, each xpath with its note, read from the module itself so the
+    #test follows the lists as they change rather than a copy of them
+    from comiclib.elements import shipped
+    lists = {kind: [entry["xpath"] for entry in entries] for kind, entries in shipped.items()}
+    notes = {kind: [entry.get("note", "") for entry in entries] for kind, entries in shipped.items()}
     return lists, notes
 
 

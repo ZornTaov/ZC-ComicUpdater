@@ -113,6 +113,8 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .runs td, .runs th { padding: 3px 6px; position: static; cursor: default; }
 .link { background: none; border: none; color: var(--accent); padding: 0; font-size: 12px; cursor: pointer; }
 #elements { width: min(900px, calc(100vw - 32px)); }
+#ep-howto ol, #ep-howto ul { margin: 6px 0; padding-left: 20px; }
+#ep-howto li { margin: 2px 0; }
 /*grip, on/off, the path, a note, what the last check found, and the buttons. the check column is empty
   until a page has been checked, and an empty column takes no width, so the row is unchanged until then*/
 .ep { display: grid; grid-template-columns: auto auto minmax(0, 1fr) 150px auto auto; gap: 6px; align-items: center;
@@ -300,6 +302,28 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
       <div class="help">Every comic is scraped by trying these in order: the first that matches a page is the
         one used. Paths that came with the script can be turned off but not deleted, so an update to the
         script cannot quietly put back one you did not want. Order matters when two match the same page.</div>
+      <details class="help" id="ep-howto">
+        <summary>How to add a path for a new comic</summary>
+        <ol>
+          <li>Paste one of the comic's pages below (a page in the middle, not the newest) and press
+            <b>Check this page</b>. If both lists already match, there is nothing to add.</li>
+          <li>When nothing matches, the check suggests paths from the page's own images and links. Press
+            <b>add it</b> beside one to put it at the top of its list.</li>
+          <li>To write one yourself, right-click the comic in your own browser, choose <i>Inspect</i>, and
+            look for an <code>id</code> or <code>class</code> that says what it is. Typing
+            <code>$x('//img[@id="strip"]')</code> in the browser's console shows what a path matches.</li>
+          <li>Press <b>Save</b>, then check the page again to see it used.</li>
+        </ol>
+        <ul>
+          <li>An image path has to end on the <code>&lt;img&gt;</code> itself: <code>//*[@id="comic"]//img</code>,
+            not <code>//*[@id="comic"]</code>.</li>
+          <li>Use <code>id</code>s and <code>class</code>es rather than positions like
+            <code>/html/body/div[3]/img</code>, which break when the site is redesigned.</li>
+          <li>Keep next paths to links (<code>//a[...]</code>). A match in the page's head clicks nothing.</li>
+          <li>Put a path written for one comic above the general ones, and note which comic it is for.</li>
+        </ul>
+        The paths that came with the script are examples of the most common layouts; their notes say which.
+      </details>
       <div class="check-box">
         <div class="row">
           <input type="text" id="check-url" placeholder="https://example.com/comic/some-page" style="flex:1; min-width:220px">

@@ -1,11 +1,10 @@
 #the element paths as the page shows and edits them: the shipped lists with their notes, laid under the
 #library's own element_paths.json, and that file written back.
-import ast
 import json
 import os
-import re
 import time
 
+from comiclib.elements import shipped
 from comiclib.metadata import write_json
 
 #the file mirror_base reads its element paths from, kept in the config folder so the container can write it
@@ -13,37 +12,10 @@ element_file = "element_paths.json"
 kinds = ("image", "next")
 
 
-def shipped_paths(script):
-    #the lists as mirror_base has them, with the comment beside each one, if it has one, as a note. the
-    #values are read as python rather than scanned for, because an xpath is full of brackets and quotes of
-    #its own; the comments, which python throws away, are matched after.
-    lists = {"image": [], "next": []}
-    names = {"element_names": "image", "next_ele_names": "next"}
-    try:
-        with open(script, "r", encoding="utf-8") as f:
-            source = f.read()
-        tree = ast.parse(source)
-    except (OSError, SyntaxError):
-        return lists
-    for node in tree.body:
-        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.List):
-            continue
-        for target in node.targets:
-            kind = names.get(getattr(target, "id", None))
-            if not kind:
-                continue
-            for item in node.value.elts:
-                if isinstance(item, ast.Constant) and isinstance(item.value, str):
-                    lists[kind].append({"xpath": item.value, "note": ""})
-    notes = {}
-    for line in source.splitlines():
-        found = re.match(r"^\s*'(.*)'\s*,?\s*#\s*(.+?)\s*$", line)
-        if found:
-            notes[found.group(1)] = found.group(2)
-    for entries in lists.values():
-        for entry in entries:
-            entry["note"] = notes.get(entry["xpath"], "")
-    return lists
+def shipped_paths():
+    #the lists every scrape starts from, already laid out as the saved file is, copied so nothing the page
+    #does to them reaches the ones a scrape reads
+    return {kind: [dict(entry) for entry in shipped[kind]] for kind in kinds}
 
 
 def element_paths_path(args, uc):
@@ -69,21 +41,21 @@ def element_settings(args, uc):
                 saved = json.load(f)
         except (OSError, ValueError) as error:
             problem = "could not read {0}: {1}".format(path, error)
-    shipped = shipped_paths(args.script)
+    built_in = shipped_paths()
     lists = {}
     for kind in kinds:
-        from_script = {entry["xpath"]: entry.get("note", "") for entry in shipped[kind]}
+        from_shipped = {entry["xpath"]: entry.get("note", "") for entry in built_in[kind]}
         seen, ordered = set(), []
         for entry in saved.get(kind) or []:
             xpath = (entry or {}).get("xpath")
             if not xpath or xpath in seen:
                 continue
             seen.add(xpath)
-            ordered.append({"xpath": xpath, "note": entry.get("note") or from_script.get(xpath, ""),
-                            "enabled": entry.get("enabled", True), "shipped": xpath in from_script})
+            ordered.append({"xpath": xpath, "note": entry.get("note") or from_shipped.get(xpath, ""),
+                            "enabled": entry.get("enabled", True), "shipped": xpath in from_shipped})
         #anything the file never mentioned is still live, and mirror_base puts it after what the file lists
         ordered += [{"xpath": entry["xpath"], "note": entry.get("note", ""), "enabled": True, "shipped": True}
-                    for entry in shipped[kind] if entry["xpath"] not in seen]
+                    for entry in built_in[kind] if entry["xpath"] not in seen]
         lists[kind] = ordered
     return {"path": path, "saved": bool(saved), "problem": problem,
             "image": lists["image"], "next": lists["next"]}

@@ -33,7 +33,7 @@ archives, and keep them up to date unattended.
 | `standin` | Draws a page for a page no reader can show. `cbz` asks it about every file, so every archive agrees |
 | `exits` | `mirror_base`'s exit codes and what each means, and `MirrorError`, which carries one |
 | `browser` | Starting the browser a scrape drives, and closing it however it ended |
-| `elements` | Finding the comic image and the next link by element path, and pressing the link |
+| `elements` | The element paths shipped as examples, finding the comic image and the next link by them, and pressing the link |
 | `pagecheck` | `--check`: which known paths match a page, and what to add when none do |
 | `download` | Fetching an image, with retries |
 | `guards` | The checks before a page is written: running backwards, writing over another page, one page under two names |
@@ -103,10 +103,16 @@ anything new.
   what the line does. Match the surrounding density; it is high.
 - **No real webcomic is named anywhere in the repo** - not in code, comments, help text, the web page,
   the tests or the docs. Describe the shape of the site instead, and use `example.com` addresses and
-  names like `MyComic` or `SomeAuthor/TheirComic`. The shipped element paths are the generic set from
-  AChillVamp's original; the ones added for particular comics live in the user's own
-  `config/element_paths.json`, which is where any new site-specific path belongs. AChillVamp's credit
-  (`NOTICE`, the README, the header of `mirror_base.py`) is attribution, not a comic, and stays.
+  names like `MyComic` or `SomeAuthor/TheirComic`. The shipped element paths are a short generic set,
+  one per common kind of site (WordPress comic themes, ComicControl, `rel="next"`), kept in
+  `comiclib/elements.py` as `shipped`, in the same `{xpath, note}` shape as `element_paths.json`. They
+  are examples as much as defaults; the ones added for particular comics live in the user's own
+  `config/element_paths.json`, which is where any new site-specific path belongs. Naming comic
+  *software* is fine; naming a comic is not. AChillVamp's credit (`NOTICE`, the README, the header of
+  `mirror_base.py`) is attribution, not a comic, and stays.
+- **The license is PolyForm Noncommercial 1.0.0** (`LICENSE`, verbatim - never edit it; the copyright
+  line lives in `NOTICE` as its `Required Notice:`). No dependency or copied code may carry terms that
+  conflict with that.
 - Errors say what to do next, not just what failed ("Run this comic with `--prefix` so each page is
   numbered as it is saved").
 - Flags that default on use `argparse.BooleanOptionalAction`, so `--no-thing` turns them off, and only

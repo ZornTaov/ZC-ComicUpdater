@@ -349,7 +349,8 @@ The scrape has always recorded whether it reached the end - the page simply had 
   address in the scraper's own browser and says which paths match it,
   with an **add it** button beside each; when nothing matches, it suggests paths from the page's own
   images and links. Paths that came with the script can be turned off but not deleted, so a later
-  version of the script cannot quietly reinstate one you did not want.
+  version of the script cannot quietly reinstate one you did not want. **How to add a path for a new
+  comic**, folded away at the top, walks through it; see [Element paths](#element-paths) for more.
 - **Log** and **Recent**: the updater's output as it happens, and what the last jobs did.
 
 With `--web` and no `--schedule`, the updater stays running and only does what the page or an
@@ -766,9 +767,45 @@ say `MyComic`, not the whole path twice.
 
 ## Element paths
 
-`mirror_base.py` ships with a list of XPaths for the comic image and a list for the next-page link, and
-tries each in order until one matches. A library can add to them without editing the script, by keeping
-a `config/element_paths.json` beside the scripts:
+The scripts ship with a list of XPaths for the comic image and a list for the next-page link (in
+`comiclib/elements.py`, laid out the same way as `element_paths.json`), and a scrape tries each in order
+until one matches. The shipped lists are short on purpose: one path for each of
+the ways comic sites most often mark up a page (WordPress comic themes, ComicControl, a link marked
+`rel="next"`, a link that says "Next"), each with a note saying what it is for. They cover a good
+share of comics, but they are mainly there as examples. Most libraries soon need a path or two of their
+own.
+
+### Adding a path for a new comic
+
+1. **See what already matches.** In the web page, open **Element paths**, paste the address of one of
+   the comic's pages (a page in the middle, not the newest) and press **Check this page**. It says
+   which paths match and which one a scrape would use. If both lists already have a match, there is
+   nothing to add.
+2. **Take a suggestion.** When nothing matches, the check suggests paths built from the page's own
+   images and links, each with an **add it** button. The first suggestion is usually right. Adding one
+   puts it at the top of its list, noted with the site's name.
+3. **Or write one.** Open the page in your own browser, right-click the comic and choose *Inspect*,
+   and look at the `<img>` and at the elements around it for an `id` or a `class` that says what it
+   is. In the browser's console, `$x('//img[@id="strip"]')` shows what a path matches before you save
+   it.
+4. **Save**, then run the comic, or **Check this page** again to see it used.
+
+Some things make a path last longer:
+
+- **An image path must end on the `<img>` itself**, because the page saved is whatever its `src` names.
+  `//*[@id="comic"]//img` works; `//*[@id="comic"]` finds the box around the image, which has no `src`.
+- **Use `id`s and `class`es, not positions.** `//div[@id="strip"]/img` survives a site redesign that
+  `/html/body/div[3]/div[1]/img` does not. Your browser's *Copy XPath* gives you the second kind.
+- **Keep next paths to `<a>`.** A `<link rel="next">` in the page's head matches the same attributes,
+  but clicking it goes nowhere. A next link that points at another site is never followed, whatever
+  matches it.
+- **Order matters when two paths match one page.** The first one wins, so put a path written for one
+  comic above the general ones. Drag rows by their handle, or use the arrows.
+- **Say what it is for** in the note, usually the comic's name. The note is the only record of why a
+  path is there.
+
+The web page writes all of this to `config/element_paths.json`. Hand-editing the file works just as
+well:
 
 ```json
 {
@@ -949,14 +986,11 @@ Those that need Chrome skip themselves where there is none. The container never 
 
 ## Credits and license
 
-`mirror_base.py` began as a script by **AChillVamp**, and a recognizable part of their work is still
-in it. Everything since is built on that. Their archive.org page:
-<https://archive.org/details/@achillvamp>
+This project began as a webcomic-downloading script by **AChillVamp**
+(<https://archive.org/details/@achillvamp>), and its core loop is theirs: find the comic's image by
+trying a list of element paths, save it, press next, repeat. Everything built around that loop came
+later. [NOTICE](NOTICE) has the details. If you are AChillVamp, or know how to reach them, please get
+in touch.
 
-No license was attached to the original and none has been found, so this repository ships without a
-license file rather than claiming a grant nobody can give. Read it, run it on your own comics, take
-ideas from it. Redistribution and commercial use are not something anyone here is in a position to
-permit. See [NOTICE](NOTICE) for the detail, including which parts are whose.
-
-If you are AChillVamp, or know how to reach them, please get in touch — a licensing question is
-waiting on it.
+Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). You're welcome to use it, change it
+and share it for anything that isn't commercial.

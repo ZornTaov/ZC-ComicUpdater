@@ -83,7 +83,8 @@ def run_check(page, url, limit=180):
 def test_the_check_counts_the_pages_on_one_address(web, site, comic):
     found = run_check(web(), site + "/p/2")
     top = (found.get("image") or [{}])[0]
-    assert top.get("xpath") == '//*[@class="comic"]/img', "the winning path is the one that finds them all"
+    assert top.get("xpath") == '//*[contains(concat(" ", normalize-space(@class), " "), " comic ")]//img', \
+        "the winning path is the one that finds them all"
     assert top.get("count") == 4, found.get("image")
     assert top.get("page_count") == 3, top.get("page_count")
     #the button is the one left out

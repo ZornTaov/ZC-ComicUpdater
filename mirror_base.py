@@ -1,4 +1,5 @@
-#a small script to go through a webcomic and download all of the pages. #Written by AChillVamp. #V 3.9
+#goes through a webcomic and downloads every page. this began as a script by AChillVamp, and its loop - find
+#the image, save it, press next, repeat - is still theirs; see NOTICE.
 
 import argparse
 import os
@@ -31,40 +32,9 @@ from comiclib.exits import MirrorError
 custom_args = [
     ]
 
-#the paths this script ships with, as AChillVamp's original had them: a starting point that fits plenty of
-#comics, and nothing more. a library adds its own, puts them in a different order or turns one off without
-#editing this file, by keeping an element_paths.json in its config folder - which is what the web page
-#writes. anything the file does not mention keeps working, so a new entry shipped here later still arrives.
-element_names = ['//*[@id="comic"]/a/img',
-                 '//*[@class="comic"]',
-                 '//*[@class="comic-wrap"]/img',
-                 '//*[@alt="Comic"]',
-                 '//*[@alt="comic"]',
-                 '//*[@id="cc-comic"]',
-                 '//*[@class="comic"]/img',
-                 '//*[@class="ksc"]',
-                 '//*[@id="main-comic"]',
-                 '//*[@id="comicimage"]',
-                 '//*[@id="last-path-for-happy-code"]',
-                 "//img[@alt='post image']"]
-next_ele_names = ['//*[@rel="next"]',
-                  '//*[@alt="Next>"]',
-                  '//*[@title="Next >"]',
-                  '//*[@class="navi navi-next-in"]',
-                  '//*[@class="navi comic-nav-next navi-next"]',
-                  '//*[@alt="Next comic"]',
-                  '//*[contains( text(), "Next")]',
-                  '//*[contains( text(), "NEXT")]',
-                  '//*[@src="next.jpg"]',
-                  '//*[@alt="Next Page"]',
-                  '//*[@id="Next_"]',
-                  '//*[@class="nav-next "]',
-                  '//*[@id="last-path-for-happy-code"]',
-                  "//img[@alt='post image']"]
-
-
-#the library's own element_paths.json laid over the lists above, read once, before anything is tried
-element_names, next_ele_names = elements.with_saved_paths(element_names, next_ele_names, element_paths_file())
+#the paths shipped in comiclib.elements with the library's own element_paths.json laid over them, read
+#once, before anything is tried
+element_names, next_ele_names = elements.with_saved_paths(element_paths_file())
 
 #what the page before this one showed, so an image that appears again can be told from a page of the
 #comic. kept as the raw matches rather than what was kept of them, so furniture is recognised even on a
@@ -172,15 +142,15 @@ def setup():
     global run_start
     global run_id
     #argparse arguements
-    params = argparse.ArgumentParser(description='Mirror\'s most webcomics using the selenium web driver. See the selenium documentation for more details (https://www.selenium.dev/documentation/en/).')
-    params.add_argument("URL",help="This is the url that the program will start mirroring from.")
-    params.add_argument("-i","--increment",type=int,help="This is the incrementation arguement. The program will save pages as this number, counting up. Defaults to 1.",default=1)
+    params = argparse.ArgumentParser(description="Downloads a webcomic page by page: opens it in a browser, saves each page's image and follows the next link until there is none. The comic's image and next link are found by trying a list of element paths, which a library extends in config/element_paths.json.")
+    params.add_argument("URL",help="The address of the comic page to start from.")
+    params.add_argument("-i","--increment",type=int,help="The number the first page saved counts as; each page after it counts up from there. Defaults to 1.",default=1)
     params.add_argument("-ej","--enable_javascript",action='store_true',help="Enables javascript in the driver. Leaving it off usually makes pages load faster. Off by default.",default=False)
     params.add_argument("-f","--firefox",action='store_true',help="Uses Firefox as the webdriver browser. Exclusive with --chrome. Off by default.",default=False)
     params.add_argument("-c","--chrome",action='store_true',help="Uses Chrome as the webdriver browser. Exclusive with --firefox. This is the default.",default=False)
     params.add_argument("--headless",action=argparse.BooleanOptionalAction,help="Runs the browser without a window, which is the only way it will start on a machine with no display. On by default; pass --no-headless to watch it work.",default=True)
-    params.add_argument("-m","--element_find_manual",action='store_true',help="Sets the element path for the image to be inputed manually inside the code. Off by default.",default=False)
-    params.add_argument("-n","--element_find_next_manual",action='store_true',help="Sets the element path for the next button to be inputed manually inside the code. Off by default.",default=False)
+    params.add_argument("-m","--element_find_manual",action='store_true',help="Skip the element paths and take the first image on the page, for a page that holds nothing but the comic. Off by default.",default=False)
+    params.add_argument("-n","--element_find_next_manual",action='store_true',help="Press next with a path written by hand into next() in this script, instead of searching the element paths. Adding the path to element_paths.json does the same without editing anything. Off by default.",default=False)
     params.add_argument("-o","--output",type=str,help="Sets the output folder for the images to be saved in. Defaults to the current working directory/url.origin.")
     params.add_argument("-p","--prefix",action='store_true',help="Include the increment as a filename prefix. Useful if the comic changes filename format mid-way through.")
     params.add_argument("-v","--verbose",action='store_true',help="Output verbose logging for debugging.")

@@ -10,7 +10,7 @@ import pytest
 from comiclib.chapters.index import KeptIndex
 from conftest import scrape_args
 
-COMIC = '//*[@alt="Comic"]'
+COMIC = '//img[@alt="Comic" or @alt="comic"]'
 
 
 class FakeElement(object):

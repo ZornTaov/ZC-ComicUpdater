@@ -14,10 +14,49 @@ from selenium.webdriver.support.ui import WebDriverWait
 #set by the scrape from its --verbose, for saying each path that did not match
 verbose = False
 
+#the paths the scripts ship with: one for each of the ways comic sites most often mark up a page, and
+#examples to write a library's own from, more than a list to rely on. laid out as element_paths.json is,
+#so the web page shows them as they are and a library's file is the same thing with more in it. a library
+#adds its own, reorders them or turns one off in that file, never here; anything it does not mention
+#keeps working, so a path shipped here later still arrives.
+#an image path has to end on the <img> itself, since the page is whatever its src says. a next path is
+#best kept to <a>, since a <link> in the head matches the same attributes and pressing it goes nowhere.
+shipped = {
+    "image": [
+        {"xpath": '//*[@id="comic"]//img',
+         "note": 'inside an element with the id "comic", as most WordPress comic themes have it'},
+        {"xpath": '//img[@id="cc-comic"]',
+         "note": "sites built on ComicControl"},
+        {"xpath": '//img[@id="comic-image" or @id="comicimage" or @id="comic_image"]',
+         "note": "an image whose own id says it is the comic"},
+        {"xpath": '//*[contains(concat(" ", normalize-space(@class), " "), " comic ")]//img',
+         "note": 'inside an element with "comic" among its classes'},
+        {"xpath": '//img[@alt="Comic" or @alt="comic"]',
+         "note": "an image whose alt text just says comic"},
+    ],
+    "next": [
+        {"xpath": '//a[@rel="next"]',
+         "note": "the standard mark for a link to the next page, which most comic software writes"},
+        {"xpath": '//a[contains(@class, "cc-next")]',
+         "note": "sites built on ComicControl"},
+        {"xpath": '//a[contains(@class, "comic-nav-next")]',
+         "note": "Comic Easel, and themes like it"},
+        {"xpath": '//a[contains(@class, "navi-next")]',
+         "note": "ComicPress, and themes like it"},
+        {"xpath": '//a[starts-with(translate(normalize-space(.), "NEXT", "next"), "next")]',
+         "note": 'a link whose text starts with "next", in any case'},
+        {"xpath": '//a[img[starts-with(translate(@alt, "NEXT", "next"), "next")]]',
+         "note": 'a picture button whose alt text starts with "next"'},
+    ],
+}
 
-def with_saved_paths(image, onward, path):
-    #the shipped lists with a library's element_paths.json laid over them: the file decides the order and
-    #which are turned off, and anything it never mentions still arrives, after it
+
+def with_saved_paths(path):
+    #the shipped lists with a library's element_paths.json laid over them, as the xpaths alone, which is
+    #all a search wants: the file decides the order and which are turned off, and anything it never
+    #mentions still arrives, after it
+    image = [entry["xpath"] for entry in shipped["image"]]
+    onward = [entry["xpath"] for entry in shipped["next"]]
     if not os.path.exists(path):
         return image, onward
     try:

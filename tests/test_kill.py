@@ -1,5 +1,6 @@
 #update_comics stopping a scrape that has run past its --timeout: the whole browser tree is killed on time,
 #and the failure says what the scrape was doing when it was stopped.
+import re
 import time
 
 import pytest
@@ -36,3 +37,7 @@ def test_a_scrape_past_its_timeout_is_killed_on_time_and_says_what_it_was_doing(
     assert "TIMED OUT" in done.stdout, done.stdout[-900:]
     assert took < 40, "took {0:.0f}s to stop a run given 8".format(took)
     assert "saving" in done.stdout, "the failure should show what it was doing:\n" + done.stdout[-900:]
+    #the pages it saved before it was stopped are kept, and a timeout is no reason to leave them out
+    assert re.search(r"TIMED OUT after \d+s, \+\d+ pages?", done.stdout), done.stdout[-900:]
+    assert re.search(r"1 updated, 0 already current, 1 failed", done.stdout), done.stdout[-900:]
+    assert re.search(r"MyComic +\+\d+ page\(s\), now \d+, then TIMED OUT", done.stdout), done.stdout[-900:]

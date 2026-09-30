@@ -191,17 +191,28 @@ def pack_chapters(comic, args):
                                          if wrote else "already up to date"))
 
 
-def describe(comic):
-    if comic.skipped:
-        return "skipped ({0})".format(comic.skipped)
+def pages_gained(comic):
+    return "+{0} page{1}".format(comic.gained, "" if comic.gained == 1 else "s")
+
+
+def went_wrong(comic):
+    #how a run that did not finish cleanly ended
     if comic.code == 124:
         return "TIMED OUT after {0:.0f}s".format(comic.elapsed)
     if comic.stopped:
         return "stopped"
-    if comic.ok:
-        return "up to date" if not comic.gained else "+{0} page{1}".format(
-            comic.gained, "" if comic.gained == 1 else "s")
     return "FAILED exit {0} ({1})".format(comic.code, exit_reasons.get(comic.code, "unknown"))
+
+
+def describe(comic):
+    if comic.skipped:
+        return "skipped ({0})".format(comic.skipped)
+    if comic.ok:
+        return "up to date" if not comic.gained else pages_gained(comic)
+    #a run that ends badly has usually saved pages first: a long catch-up is exactly what runs into the
+    #timeout, and every page it saved before then is whole and kept. leaving them out of the line made a
+    #comic that gained two hundred pages read as though it had gained nothing
+    return went_wrong(comic) + (", " + pages_gained(comic) if comic.gained else "")
 
 
 def take_lock(root):
@@ -344,17 +355,21 @@ def run_batch(comics, runnable, args, doing="Updating"):
         except OSError:
             pass
 
-    gained = [c for c in runnable if c.ok and c.gained]
+    #pages gained however the run ended, so a comic that timed out part way through a catch-up is counted
+    #as updated as well as failed: both are true
+    gained = [c for c in runnable if c.gained]
+    current = [c for c in runnable if c.ok and not c.gained]
     stopped = [c for c in runnable if c.stopped]
     failed = [c for c in runnable if not c.ok and not c.stopped]
     skipped = [c for c in comics if c.skipped]
 
     print()
     print("Finished in {0:.0f}s: {1} updated, {2} already current, {3} failed, {4} skipped{5}.".format(
-        time.time() - started, len(gained), len(runnable) - len(gained) - len(failed) - len(stopped),
-        len(failed), len(skipped), ", {0} stopped".format(len(stopped)) if stopped else ""))
+        time.time() - started, len(gained), len(current), len(failed), len(skipped),
+        ", {0} stopped".format(len(stopped)) if stopped else ""))
     for comic in gained:
-        print("  {0:<40} +{1} page(s), now {2}".format(comic.name, comic.gained, comic.after))
+        print("  {0:<40} +{1} page(s), now {2}{3}".format(comic.name, comic.gained, comic.after,
+                                                        "" if comic.ok else ", then " + went_wrong(comic)))
     #named here too, since a comic that never ran is easy to miss among the ones that did
     for comic in skipped:
         if comic.skipped != ended_reason:

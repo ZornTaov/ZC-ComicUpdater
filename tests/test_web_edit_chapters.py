@@ -1,11 +1,12 @@
 #a comic scraped long ago into one archive, given a chapter list from the editor afterwards: the list is
 #saved, the comic walked once to learn which page is which, split into one archive per chapter, and the
-#list's address cleared again without losing the chapters.
+#list's address cleared again without losing the chapters. a walk long enough to matter says how far it
+#has got while it runs, and stopping it stops it.
 import zipfile
 
 import pytest
 
-from conftest import PNG, Site, read_meta, write_meta
+from conftest import PNG, Comic, Site, read_meta, wait_until, write_meta
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 TOTAL = 9
@@ -117,3 +118,38 @@ def test_a_chapter_list_added_from_the_editor_splits_an_old_comic(serve, library
     assert code == 200 and answer.get("saved"), answer
     block = read_meta(comic)["chapters"]
     assert block.get("source_url") is None and len(block["list"]) == len(CHAPTERS), block
+
+
+class Endless(Comic):
+    #far more pages than any test waits for, so the walk is always still going when it is looked at
+    pages = 100000
+
+
+def test_a_long_walk_says_how_far_it_has_got_and_can_be_stopped(serve, library, web):
+    site = serve(Endless)
+    comic = library / "Uncompressed" / "Long"
+    (comic / "0001.png").parent.mkdir(parents=True)
+    (comic / "0001.png").write_bytes(PNG)
+    write_meta(comic, {"schema": 2,
+                       "settings": {"url": site + "/p/1", "output": "Uncompressed/Long", "cbz": True},
+                       "history": {"first_page_url": site + "/p/1", "first_page_number": 1, "runs": []}})
+    page = web()
+    code, answer = page.call("/api/chapterize", {"name": "Uncompressed/Long", "every": "100"})
+    assert code == 200 and answer.get("walking") is True, answer
+
+    #held back until the step ended, a walk of thousands of pages showed nothing at all for most of an hour
+    def doing():
+        current = page.call("/api/state")[1]["current"] or {}
+        return "indexed" in (current.get("doing") or "") and current["doing"]
+    said = wait_until(doing, limit=120, why="the running job never said how far the walk had got")
+    assert said.startswith("index: indexed "), said
+    assert "indexed 25 pages" in page.said(), "the walk's progress should reach the log as it happens"
+
+    assert page.call("/api/stop", {})[1].get("stopping") is True
+    state = page.wait_idle(60)
+    assert state is not None, "stopping the job did not stop the walk"
+    last = state["history"][0]
+    assert last["doing"] is None, last
+    assert "carries on from where it got to" in page.said(), page.said()[-400:]
+    #stopped in the walk, so nothing after it ran
+    assert not (read_meta(comic).get("chapters") or {}).get("list"), "no chapters should have been saved"

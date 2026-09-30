@@ -10,6 +10,7 @@ import threading
 import time
 import traceback
 
+from comiclib.batch import own_group
 from comiclib.metadata import METADATA_FILE, write_json
 
 
@@ -61,6 +62,10 @@ class Job:
         self.cancel = threading.Event()
         #what a check job found, read back by the page
         self.check = None
+        #for a job that is one long step rather than a list of comics: the step running, and the last line
+        #it said, so the page has something to show for a walk of thousands of pages
+        self.process = None
+        self.doing = None
 
 
 class Runner:
@@ -110,6 +115,8 @@ class Runner:
             if comic.process is not None and comic.code is None:
                 comic.stopped = True
                 self.uc.kill_tree(comic.process)
+        if job.process is not None and job.process.poll() is None:
+            self.uc.kill_tree(job.process)
         print("Stopping: {0}".format(job.label), flush=True)
         return True
 
@@ -185,16 +192,32 @@ class Runner:
             if (comic.metadata.get("settings") or {}).get("cbz") is not False:
                 steps.append(["pack", "--replace"])
             for step in steps:
+                if job.cancel.is_set():
+                    break
                 print("{0}: {1} ...".format(comic.name, step[0]), flush=True)
-                done = subprocess.run([sys.executable, script, step[0], comic.folder, "--root", args.root]
-                                      + step[1:], capture_output=True, text=True, errors="replace",
-                                      env=dict(os.environ, PYTHONUNBUFFERED="1"), timeout=None)
-                for line in (done.stdout or "").splitlines():
-                    print("  " + line, flush=True)
-                if done.returncode != 0:
+                job.doing = "{0} ...".format(step[0])
+                #read as it arrives, not all at the end: walking a comic of thousands of pages takes the
+                #best part of an hour, and held back until it finished it looked like nothing was happening
+                job.process = subprocess.Popen(
+                    [sys.executable, script, step[0], comic.folder, "--root", args.root] + step[1:],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
+                    env=dict(os.environ, PYTHONUNBUFFERED="1"), **own_group())
+                for line in job.process.stdout:
+                    print("  " + line.rstrip(), flush=True)
+                    if line.strip():
+                        job.doing = "{0}: {1}".format(step[0], line.strip())
+                code = job.process.wait()
+                if job.cancel.is_set():
+                    break
+                if code != 0:
                     print("{0}: {1} stopped there. The pages are untouched.".format(comic.name, step[0]),
                           flush=True)
-                    return done.returncode
+                    return code
+            if job.cancel.is_set():
+                #a walk stopped part way keeps every page it recorded, and the next one carries on from there
+                print("{0}: stopped. The pages are untouched, and working the chapters out again carries on "
+                      "from where it got to.".format(comic.name), flush=True)
+                return self.uc.stopped_code
             return 0
 
         return self.submit(Job("chapters", "Work out chapters for {0}".format(comic.name), work))

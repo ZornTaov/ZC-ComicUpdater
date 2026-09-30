@@ -37,7 +37,7 @@ def comic_view(comic, uc, live):
 def job_view(job, uc, live=False):
     view = {"id": job.id, "kind": job.kind, "label": job.label, "created": job.created,
             "started": job.started, "finished": job.finished, "error": job.error,
-            "stopping": job.cancel.is_set()}
+            "stopping": job.cancel.is_set(), "doing": job.doing if job.finished is None else None}
     if job.kind == "check":
         view["check"] = job.check
         return view

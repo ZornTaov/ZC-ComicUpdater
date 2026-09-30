@@ -609,9 +609,10 @@ function renderState(state) {
     $("stop").disabled = job.stopping;
     $("stop").textContent = job.stopping ? "Stopping…" : "Stop";
     $("current").innerHTML = `<div class="job-title">${esc(job.label)}</div>
-      <div class="muted">${total ? `${done} of ${total} done` : "starting"} · ${clock(state.now - job.started)}${job.gained ? ` · +${job.gained} pages` : ""}
-        · ${state.jobs_at_once} at a time</div>
+      <div class="muted">${total ? `${done} of ${total} done` : job.doing ? "running" : "starting"} · ${clock(state.now - job.started)}${job.gained ? ` · +${job.gained} pages` : ""}
+        ${total || !job.doing ? `· ${state.jobs_at_once} at a time` : ""}</div>
       <div class="bar"><div style="width:${total ? (100 * done / total) : 0}%"></div></div>
+      ${job.doing ? `<div class="comic"><span class="said" style="grid-column: 1 / 4" title="${esc(job.doing)}">${esc(job.doing)}</span></div>` : ""}
       ${(job.comics || []).filter((c) => c.state !== "ok" || c.gained).slice(0, 60).map(comicLine).join("")}
       ${counts.ok ? `<div class="muted" style="padding-top:6px">${counts.ok - (job.comics || []).filter((c) => c.state === "ok" && c.gained).length} already up to date</div>` : ""}`;
   } else {

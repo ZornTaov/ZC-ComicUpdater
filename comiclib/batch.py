@@ -70,6 +70,13 @@ def kill_tree(process):
         pass
 
 
+def own_group():
+    #a new process group is what makes it possible to take the browser down with the script that started it
+    if os.name == 'nt':
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
 def run_comic(comic, args):
     #each comic runs in its own process: mirror_base caches the xpaths it discovers in module globals, so
     #reusing one process would try the previous comic's paths, and a crash would take the whole run with it
@@ -82,12 +89,7 @@ def run_comic(comic, args):
         return comic
     comic.started_at = started
     say("  start   {0}".format(comic.name))
-    #a new process group is what makes it possible to take the browser down with the script on a timeout
-    grouping = {}
-    if os.name == 'nt':
-        grouping["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-    else:
-        grouping["start_new_session"] = True
+    grouping = own_group()
 
     try:
         #unbuffered, or python holds a piped child's output back in blocks and a live view sees nothing for minutes

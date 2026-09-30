@@ -173,6 +173,17 @@ def free_port():
 
 
 # ---------------- a library and its settings ----------------
+@pytest.fixture(autouse=True)
+def no_real_config(tmp_path_factory, monkeypatch):
+    #every test, not only those asking for a config folder: without MIRROR_CONFIG a scrape or a walk
+    #falls back to the config folder beside the scripts, which is the user's own, and a test that never
+    #asked for one left an index there on every run. kept out of tmp_path, which some tests list whole
+    folder = tmp_path_factory.mktemp("config")
+    (folder / "index").mkdir()
+    monkeypatch.setenv("MIRROR_CONFIG", str(folder))
+    monkeypatch.delenv("MIRROR_ELEMENTS", raising=False)
+
+
 @pytest.fixture
 def config(tmp_path, monkeypatch):
     #a config folder of the test's own, named in the environment so that every script this test runs -

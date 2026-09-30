@@ -20,6 +20,8 @@ def image(n):
 
 class Serial(Site):
     pages = 14
+    #a page whose image will not download, which ends a run with the pages before it saved
+    broken = 0
 
     def do_GET(self):
         bit = self.path.rsplit("/", 1)[-1].split(".")[0]
@@ -27,6 +29,9 @@ class Serial(Site):
             self.send_error(404)
             return
         n = int(bit)
+        if self.path.startswith("/img/") and n == self.broken:
+            self.send_error(500)
+            return
         if self.path.startswith("/img/"):
             self.send(image(n), "image/png")
             return
@@ -125,6 +130,36 @@ def test_a_second_update_with_nothing_new_writes_nothing(held):
     assert "chapters:" not in again.stdout, \
         [line for line in again.stdout.splitlines() if "chapters" in line]
     assert "up to date" in again.stdout, again.stdout[-300:]
+
+
+def test_pages_saved_before_a_run_fails_are_still_packed(held, chapters):
+    #the site's newest page will not download, so the run fails - after saving the page before it
+    held.handler.broken = 14
+    done = held.update()
+    assert "FAILED exit 4" in done.stdout and "+1 page" in done.stdout, done.stdout[-600:]
+    assert "0013.png" in held.chapter(3), "the page it did save should be packed: " + done.stdout[-600:]
+    #and the same again tomorrow gains nothing, so packs nothing
+    again = held.update()
+    assert "chapters:" not in again.stdout, again.stdout[-400:]
+
+
+def test_an_index_line_cut_off_by_a_kill_is_read_past_not_failed_on(held, chapters):
+    #the updater lines a comic up straight after a run it killed, before any scrape has mended the index
+    with open(held.index, "rb") as f:
+        whole = f.read()
+    with open(held.index, "ab") as f:
+        f.write(b'{"n": 13, "url": "http://127.0.0.1/p/13", "src": "htt')
+    assert [line["n"] for line in chapters.read_index(held.index)] == list(range(1, HELD + 1))
+    done = run("chapters.py", "align", held.comic, "--root", held.library, timeout=180)
+    assert done.returncode == 0, done.stdout[-400:]
+    #reading it changes nothing: taking the line off is the next scrape's, which records the page again
+    with open(held.index, "rb") as f:
+        assert f.read() != whole
+    #a line that will not read in the middle of the file is something else, and is not passed over
+    with open(held.index, "wb") as f:
+        f.write(whole.replace(b'"n": 5,', b'"n": 5', 1))
+    with pytest.raises(ValueError):
+        chapters.read_index(held.index)
 
 
 def test_with_pack_chapters_off_an_update_leaves_the_archives_until_packed_by_hand(held, chapters):

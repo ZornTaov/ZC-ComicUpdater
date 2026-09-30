@@ -42,13 +42,28 @@ def index_path(folder, root=None, args=None):
 
 
 def read_index(path):
-    pages = []
-    with open(path, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                pages.append(json.loads(line))
-    return pages
+    #every whole line. one a run was killed part way through writing is left for the next scrape to take
+    #off and record again; a reader has no business changing the file, and no reason to fail on it either -
+    #the updater lines a comic up straight after a run it timed out, and the kill is what cut the line
+    with open(path, 'rb') as f:
+        return whole_lines(f.read())[0]
+
+
+def whole_lines(raw):
+    #the lines of an index, and where one cut short by a kill begins when there is one. each line is
+    #written whole with its newline last, so a last line that will not read and has no newline after it can
+    #only be one cut short. anything else that will not read is not this, and raises.
+    lines, kept = [], 0
+    for line in raw.split(b"\n"):
+        if line.strip():
+            try:
+                lines.append(json.loads(line.decode("utf-8")))
+            except ValueError:
+                if kept + len(line) == len(raw):
+                    return lines, kept
+                raise
+        kept += len(line) + 1
+    return lines, None
 
 
 def head_size(session, url):
@@ -218,28 +233,15 @@ def set_aside(cache):
 
 
 def mend_cut_off_line(path):
-    #the index's lines, with the one a run was killed part way through writing taken off the end. each line
-    #is written whole with its newline last, so a last line that will not read and has no newline after it
-    #can only be one cut short - and it is the page the killed run never finished recording, which the next
-    #run records again. anything else that will not read is not this, and raises.
+    #the index's lines, with the one a run was killed part way through writing taken off the end: it is the
+    #page the killed run never finished recording, which this run records again
     with open(path, 'rb') as f:
-        raw = f.read()
-    lines, kept = [], 0
-    for line in raw.split(b"\n"):
-        if not line.strip():
-            kept += len(line) + 1
-            continue
-        try:
-            lines.append(json.loads(line.decode("utf-8")))
-        except ValueError:
-            if kept + len(line) == len(raw):
-                print("The last line of {0} was cut off part way through, by a run that was stopped; it is "
-                      "taken off and that page recorded again.".format(path))
-                with open(path, 'r+b') as f:
-                    f.truncate(kept)
-                return lines
-            raise
-        kept += len(line) + 1
+        lines, cut = whole_lines(f.read())
+    if cut is not None:
+        print("The last line of {0} was cut off part way through, by a run that was stopped; it is "
+              "taken off and that page recorded again.".format(path))
+        with open(path, 'r+b') as f:
+            f.truncate(cut)
     return lines
 
 

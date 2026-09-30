@@ -125,9 +125,12 @@ def run_comic(comic, args):
     counted = page_count(comic)
     if counted is not None:
         comic.after = counted
-    #only worth doing when the comic actually gained something, and only for a comic that is in chapters
+    #only worth doing when the comic actually gained something, and only for a comic that is in chapters.
+    #however the run ended, short of being stopped by hand: the pages a run saved before it timed out or
+    #failed are whole and in the index, and left unpacked they would wait for a later run that both gains
+    #pages and finishes - a comic that fails at its newest page every day would never have them packed
     known = comic.metadata.get("chapters") or {}
-    if (comic.ok and comic.gained and getattr(args, "pack_chapters", True)
+    if (comic.gained and not comic.stopped and getattr(args, "pack_chapters", True)
             and (known.get("list") or known.get("source_url"))):
         try:
             pack_chapters(comic, args)

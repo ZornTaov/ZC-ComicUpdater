@@ -374,7 +374,9 @@ The scrape has always recorded whether it reached the end - the page simply had 
   images and links. Paths that came with the script can be turned off but not deleted, so a later
   version of the script cannot quietly reinstate one you did not want. **How to add a path for a new
   comic**, folded away at the top, walks through it; see [Element paths](#element-paths) for more.
-- **Log** and **Recent**: the updater's output as it happens, and what the last jobs did.
+- **Log** and **Recent**: the updater's output as it happens, and what the jobs of the last week did,
+  restarts from a restart file among them. Recent is kept in `config/recent.json`, so it survives the
+  container restarting; the log does not.
 
 With `--web` and no `--schedule`, the updater stays running and only does what the page or an
 `update-now` file asks.

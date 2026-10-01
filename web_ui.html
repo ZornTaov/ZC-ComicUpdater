@@ -251,7 +251,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
 
     <section>
       <h2>Recent</h2>
-      <div id="history"><div class="empty">Nothing has run since the updater started.</div></div>
+      <div id="history"><div class="empty">Nothing has run in the last week.</div></div>
     </section>
   </div>
 </main>
@@ -626,6 +626,9 @@ function renderState(state) {
       <button class="small" data-drop="${j.id}">Remove</button></div>`).join("") : "";
 
   const historyHtml = state.history.length ? state.history.map((j) => {
+    //an event rather than a job - the updater restarting - has a time and nothing to count
+    if (j.kind === "restart") return `<div class="history-item">
+      <div class="muted">${esc(j.label)}</div><div class="line">${when(j.finished)}</div></div>`;
     const counts = j.counts || {};
     const parts = [];
     if (j.gained) parts.push(`+${j.gained} pages`);
@@ -638,7 +641,7 @@ function renderState(state) {
       <div class="line">${when(j.finished)} · took ${clock(j.finished - j.started)}${parts.length ? " · " + esc(parts.join(", ")) : " · nothing new"}</div>
       ${notable ? `<details data-job="${esc(String(j.id))}"><summary>${notable} comic${notable === 1 ? "" : "s"}</summary>${j.comics.map(comicLine).join("")}</details>` : ""}
     </div>`;
-  }).join("") : `<div class="empty">Nothing has run since the updater started.</div>`;
+  }).join("") : `<div class="empty">Nothing has run in the last week.</div>`;
   //written over on every poll, an opened run would close again two seconds later. it only changes when a
   //job finishes, and then the runs that were open stay open
   if (historyHtml !== lastHistoryHtml) {

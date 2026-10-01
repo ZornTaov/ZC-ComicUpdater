@@ -1,6 +1,8 @@
 #a restart file in the library makes the long-running process wait for whatever is running, remove the file
 #and exit, for a container set to restart unless stopped to start it again. the file goes before the exit,
 #or the container would restart every time it started; one that cannot be removed is no restart at all.
+#and the page's Recent list, kept in the config folder for a week, shows the restart once it is back.
+import json
 import threading
 import time
 from datetime import datetime, timedelta
@@ -20,7 +22,7 @@ def schedule(config):
 
 
 @pytest.fixture
-def runner():
+def runner(config):
     return fresh("comiclib.web.jobs").Runner(None, None)
 
 
@@ -117,3 +119,52 @@ def test_the_updater_exits_cleanly_on_a_restart_file(library, config, how):
     assert done.returncode == 0, done.stdout[-600:]
     assert "Restarting" in done.stdout, done.stdout[-600:]
     assert not (library / "restart.txt").exists()
+
+
+def wait_for(job):
+    end = time.time() + 10
+    while job.finished is None and time.time() < end:
+        time.sleep(0.05)
+    assert job.finished, "the job never finished"
+
+
+def test_recent_outlasts_a_restart_and_numbers_jobs_on_from_it(config):
+    jobs = fresh("comiclib.web.jobs")
+    before = jobs.Runner(None, None)
+    first = before.submit(Job("update", "Before the restart", lambda job: 0))
+    wait_for(first)
+    #written a moment after the job finishes, and after the page is shown it
+    end = time.time() + 10
+    while not (config / "recent.json").exists() and time.time() < end:
+        time.sleep(0.05)
+    #a fresh process, as the container starting again is
+    after = fresh("comiclib.web.jobs").Runner(None, None)
+    assert [entry["label"] for entry in after.recent] == ["Before the restart"], after.recent
+    second = after.submit(Job("update", "After the restart", lambda job: 0))
+    assert second.id > first.id, "a job since the restart must not share a number with one before it"
+
+
+def test_recent_forgets_what_finished_more_than_a_week_ago(config):
+    jobs = fresh("comiclib.web.jobs")
+    now = time.time()
+    held = [{"id": 2, "label": "Yesterday", "finished": now - 86400},
+            {"id": 1, "label": "Last month", "finished": now - 30 * 86400}]
+    (config / "recent.json").write_text(json.dumps(held), encoding="utf-8")
+    assert [entry["label"] for entry in jobs.Runner(None, None).recent] == ["Yesterday"]
+
+
+def test_a_damaged_recent_file_starts_recent_empty(config, capsys):
+    (config / "recent.json").write_text("{not json", encoding="utf-8")
+    assert fresh("comiclib.web.jobs").Runner(None, None).recent == []
+    assert "could not read" in capsys.readouterr().out
+
+
+def test_a_restart_shows_under_recent_once_the_updater_is_back(library, config, web):
+    (library / "restart.txt").write_text("", encoding="utf-8")
+    done = run("update_comics.py", library, "--progress", "0", "--config", config,
+               "--web", free_port(), "--web-host", "127.0.0.1", timeout=60)
+    assert done.returncode == 0, done.stdout[-600:]
+    #the updater that starts next, as the container brings it back
+    _, state = web().call("/api/state")
+    assert [(entry["kind"], entry["label"]) for entry in state["history"]][:1] == \
+        [("restart", "Restarted, as restart.txt asked")], state["history"][:2]

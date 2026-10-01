@@ -13,6 +13,38 @@ import traceback
 from comiclib.batch import own_group
 from comiclib.chapters.index import index_path, numbered_pages
 from comiclib.metadata import METADATA_FILE, write_json
+from comiclib.paths import config_folder
+from comiclib.web.views import job_view
+
+#how far back the page's Recent list reaches. it is kept in the config folder, so a restart - which a
+#restart file makes routine - does not empty it; and capped by count too, against a week of something
+#queued over and over
+recent_days = 7
+recent_most = 1000
+
+
+def recent_path():
+    return os.path.join(config_folder(), "recent.json")
+
+
+def load_recent():
+    #what finished in the last week, newest first, as the page was shown it when it finished
+    path = recent_path()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            held = json.load(f)
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as error:
+        print("WARNING: could not read {0}, so Recent starts empty: {1}".format(path, error), flush=True)
+        return []
+    return within_week(held if isinstance(held, list) else [])
+
+
+def within_week(entries):
+    since = time.time() - recent_days * 86400
+    return [entry for entry in entries
+            if isinstance(entry, dict) and (entry.get("finished") or 0) >= since][:recent_most]
 
 
 class LogTee:
@@ -76,7 +108,13 @@ class Runner:
         self.uc = uc
         self.waiting = []
         self.current = None
-        self.history = collections.deque(maxlen=25)
+        #what the page shows under Recent: each job as it was shown the moment it finished, newest first
+        self.recent = load_recent()
+        self.saving = threading.Lock()
+        #numbered on from the last week's, so a job from before a restart and one after never share a
+        #number - the page tells finished jobs apart by it
+        Job.counter = itertools.count(max([entry.get("id") for entry in self.recent
+                                           if isinstance(entry.get("id"), int)] or [0]) + 1)
         self.next_run = None
         self.changed = threading.Condition()
         #set while the process is about to exit for a restart: a job queued then waits rather than starting
@@ -119,9 +157,32 @@ class Runner:
                 print("ERROR: {0} failed: {1}".format(job.label, job.error), flush=True)
                 traceback.print_exc(file=sys.stdout)
             job.finished = time.time()
+            try:
+                view = job_view(job, self.uc)
+            except Exception as error:
+                #a summary that will not build is no reason for the queue to stop: the job ran either way
+                view = {"id": job.id, "kind": job.kind, "label": job.label, "started": job.started,
+                        "finished": job.finished, "error": job.error or "could not summarise: {0}".format(error)}
             with self.changed:
                 self.current = None
-                self.history.appendleft(job)
+            self.remember(view)
+
+    def remember(self, view):
+        #added to Recent and written out at once, so a restart a moment later still shows it
+        with self.changed:
+            self.recent = within_week([view] + self.recent)
+            kept = list(self.recent)
+        with self.saving:
+            try:
+                write_json(recent_path(), kept, indent=None)
+            except OSError as error:
+                print("WARNING: could not save Recent to {0}: {1}".format(recent_path(), error), flush=True)
+
+    def note(self, kind, label):
+        #something that happened that was not a job - a restart - shown under Recent among the jobs
+        at = time.time()
+        self.remember({"id": next(Job.counter), "kind": kind, "label": label, "created": at,
+                       "started": at, "finished": at})
 
     def stop(self):
         job = self.current

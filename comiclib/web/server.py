@@ -75,7 +75,7 @@ def make_handler(runner, args, uc, tee):
                 since = int((parse_qs(where.query).get("since") or ["0"])[0] or 0)
                 lines, seq = tee.since(since)
                 with runner.changed:
-                    current, waiting, history = runner.current, list(runner.waiting), list(runner.history)
+                    current, waiting, history = runner.current, list(runner.waiting), list(runner.recent)
                 self.reply({
                     "now": time.time(),
                     "root": args.root,
@@ -83,7 +83,8 @@ def make_handler(runner, args, uc, tee):
                     "next_run": runner.next_run.timestamp() if runner.next_run else None,
                     "current": job_view(current, uc, live=True) if current else None,
                     "waiting": [job_view(job, uc) for job in waiting],
-                    "history": [job_view(job, uc) for job in history],
+                    #summarised as each finished, so a job from before a restart reads the same as one since
+                    "history": history,
                     "log": [{"seq": s, "at": at, "text": text} for s, at, text in lines],
                     "seq": seq,
                 })

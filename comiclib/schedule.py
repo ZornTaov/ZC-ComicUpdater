@@ -135,6 +135,9 @@ def ready_to_restart(root, runner=None):
         print("WARNING: could not remove {0}, so not restarting - it would only restart again every time it "
               "started: {1}".format(path, error), flush=True)
         return False
+    if runner is not None:
+        #written before the exit, so the updater that starts next shows it under Recent
+        runner.note("restart", "Restarted, as {0} asked".format(os.path.basename(path)))
     print("Restarting: exiting so the container starts this again, reading the scripts afresh.", flush=True)
     sys.stdout.flush()
     return True

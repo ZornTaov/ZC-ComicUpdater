@@ -121,6 +121,15 @@ def index_pages(args, uc, comic):
         return 0
 
 
+def primed(lines, history, reaches):
+    #one line that is the comic's first page, recorded as page one, and the newest page it has saved. a
+    #walk begun on the newest page fails the first of those, since its one line is the newest, not the first
+    history = history if isinstance(history, dict) else {}
+    return (len(lines) == 1 and reaches is True and lines[0].get("n") == 1
+            and history.get("first_page_number") in (0, 1)
+            and bool(history.get("first_page_url")) and lines[0].get("url") == history["first_page_url"])
+
+
 def walk_needed(args, uc, comic):
     #whether working out chapters has to walk the comic first: "start" when nothing records which page is
     #which, "carry on" when the record stops short of the comic's newest page, None when it reaches it.
@@ -133,11 +142,14 @@ def walk_needed(args, uc, comic):
         lines = read_index(os.path.join(uc.config_folder(), "index", named))
     except (OSError, ValueError):
         return "start"
-    #a record of a single page is a walk that never happened: started on the comic's newest page, found no
-    #next link there, and wrote that one page down
-    if len(lines) < 2:
+    #a record of a single page is usually a walk that never happened: started on the comic's newest page,
+    #found no next link there, and wrote that one page down. a primed comic's is the other kind - its first
+    #page, the only one it has saved yet - and is the whole of what it holds, which the update fetching the
+    #rest adds to. walking it now would fetch every page that update is about to fetch anyway
+    reaches = reaches_newest(lines, comic.metadata.get("state"))
+    if len(lines) < 2 and not primed(lines, comic.metadata.get("history"), reaches):
         return "start"
-    if reaches_newest(lines, comic.metadata.get("state")) is False:
+    if reaches is False:
         return "carry on"
     return None
 

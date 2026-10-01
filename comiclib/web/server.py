@@ -135,6 +135,12 @@ def make_handler(runner, args, uc, tee):
                         options[key] = int(given if given not in ("", None) else floor)
                 except (TypeError, ValueError):
                     problems.append("the starting number and wait time must be whole numbers")
+                #a comic the adder already knows is long, cut into parts from the start rather than walked
+                #for it afterwards. not a default from the settings file: it is about these comics only
+                every = str(body.get("every") or "").strip()
+                if every and (not every.isdigit() or int(every) < 1):
+                    problems.append("pages per part has to be a whole number, or blank for none")
+                options["every"] = int(every) if every.isdigit() and int(every) > 0 else None
                 if problems:
                     self.reply({"error": "; ".join(problems)}, 400)
                 elif not entries:

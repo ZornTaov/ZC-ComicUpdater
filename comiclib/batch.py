@@ -178,8 +178,11 @@ def pack_chapters(comic, args):
     else:
         steps.append("pack")
     for what in steps:
+        #--replace because a comic in chapters keeps no single archive, and one left from before it was -
+        #built by the prime that came before its chapters were set - would sit on the shelf at one page for
+        #good. pack gives it up only once every page is checked to be in a chapter archive
         done = subprocess.run([sys.executable, script, what, comic.folder, "--root", args.root]
-                              + (["--save"] if what == "chapters" else []),
+                              + {"chapters": ["--save"], "pack": ["--replace"]}.get(what, []),
                               capture_output=True, text=True, errors='replace',
                               env=dict(os.environ, PYTHONUNBUFFERED="1"), timeout=args.timeout or None)
         if what == "pack" and not (read_chapters(comic) or {}).get("list"):

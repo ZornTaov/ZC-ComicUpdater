@@ -304,6 +304,12 @@ shows:
   archive page is read for the boundaries, and the single archive is given up once every page is checked
   to be in a chapter. Leave it blank and the comic is kept as one archive, as before.
 
+  **Cut every** so many pages does the same for a comic you already know is long and has no chapters
+  of its own: it is archived in parts of that size (see *Every so many pages* below) from its first
+  scrape, from the record that scrape keeps, so it never has to be walked. Primed, the size is remembered
+  and the update that fetches the rest writes the parts, with no single archive built in between. It
+  applies to every row added at once; a row with its own chapter list uses that instead.
+
   Leave the archive blank and it is worked out: a comic already inside a group folder gets its `.cbz`
   beside its siblings, and a comic with no folder of its own is given one, since some readers dislike
   archives sitting loose in a root folder. Paste a list to fill in several rows at once, splitting on
@@ -652,8 +658,12 @@ the one by hand writes anything without `--save`:
    is cut by the numbers its files carry, so one of thousands of pages is split in seconds rather than
    after an hour of loading every page. A missing number is a missing page; a file with no number, or
    two files on one number, and it says so and asks for the walk instead. In the
-   web page it is **Or cut every** in a comic's editor, with the chapter list left blank. Corrections by
-   hand apply on top, as they do to any other source.
+   web page it is **Or cut every** in a comic's editor, with the chapter list left blank, or **cut
+   every** when adding it. A comic scraped from its first page needs no walk either way, numbered or
+   not, since the scrape kept the record as it went - a primed one included, whose single page is the
+   whole of what it holds until the update brings the rest. The one-page archive a prime built before the
+   comic was set to be cut is given up by that update, once every page is checked to be in a part.
+   Corrections by hand apply on top, as they do to any other source.
 An archive built as one table per chapter, with the chapter's name in the table's `<th>`, is read the
 same way as one using `<h2>` headings - an archive of 38 such tables reads as 38 chapters, even when
 none of them carries a number or the word "chapter" anywhere.

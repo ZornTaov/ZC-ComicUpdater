@@ -234,8 +234,11 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
         <label class="check">wait <input type="number" id="waittime" value="0" min="0" style="width:60px">s</label>
         <label class="check"><input type="checkbox" id="cbz" checked> make cbz</label>
         <label class="check"><input type="checkbox" id="direction" checked> direction check</label>
+        <label class="check">cut every <input type="number" id="add-every" min="1" style="width:80px" placeholder="off"> pages</label>
       </div>
       <div class="help">Prime only saves the first page and checks the next link works; a later update fetches the rest.
+        Cut every so many pages is for a long comic with no chapters of its own: it is archived in parts of that
+        size as it is scraped, with no walk afterwards. A row with a chapter list uses that instead.
         The options apply to every row, so add comics that need different options separately.</div>
       <div class="row"><button class="primary" id="add">Add to queue</button></div>
       <div class="msg" id="add-msg"></div>
@@ -1485,10 +1488,12 @@ $("add").addEventListener("click", async () => {
       waittime: $("waittime").value,
       cbz: $("cbz").checked,
       direction_check: $("direction").checked,
+      every: $("add-every").value.trim(),
     });
     msg.className = "msg good";
     msg.textContent = `Queued: ${result.label}`;
     addRows = [{ folder: "", cbz: "", url: "", chapters: "" }];
+    $("add-every").value = "";
     renderAddRows();
   } catch (error) {
     msg.className = "msg bad";

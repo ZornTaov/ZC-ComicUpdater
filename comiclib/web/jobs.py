@@ -11,7 +11,7 @@ import time
 import traceback
 
 from comiclib.batch import own_group
-from comiclib.chapters.index import numbered_pages
+from comiclib.chapters.index import index_path, numbered_pages
 from comiclib.metadata import METADATA_FILE, write_json
 
 
@@ -239,7 +239,7 @@ class Runner:
 
     def submit_add(self, entries, options):
         uc = self.uc
-        comics, listings = [], {}
+        comics, listings, cuts = [], {}, {}
         for folder, cbz_path, url, listing in entries:
             settings = {
                 "url": url,
@@ -258,21 +258,26 @@ class Runner:
             comic.argv = uc.settings_to_argv(settings)
             if options["prime"]:
                 comic.argv.insert(0, "--prime")
-            if listing:
+            if listing or options.get("every"):
                 #a comic that is going to be split into chapters records which page is which as it is
-                #scraped, so it never has to be walked afterwards
+                #scraped, so it never has to be walked afterwards. a row's own chapter list wins over
+                #cutting by size, since a comic's chapters come from one or the other
                 comic.argv.insert(0, "--keep-index")
-                listings[comic.name] = listing
+                if listing:
+                    listings[comic.name] = listing
+                else:
+                    cuts[comic.name] = options["every"]
             comics.append(comic)
 
         def work(job):
             chosen = self.uc.with_config(self.args)
             chosen.cancel = job.cancel
-            #a comic with a chapter list is told so before it is scraped, not after: a scrape that does not
-            #know builds the single archive it will never want, and then something has to go and delete it
+            #a comic with a chapter list, or one to be cut by size, is told so before it is scraped, not
+            #after: a scrape that does not know builds the single archive it will never want, and then
+            #something has to go and delete it
             for comic in comics:
-                if listings.get(comic.name):
-                    remember_listing(comic, listings[comic.name], make_folder=True)
+                if listings.get(comic.name) or cuts.get(comic.name):
+                    remember_chapters(comic, listings.get(comic.name), cuts.get(comic.name), make_folder=True)
             #a new comic can be thousands of pages, so only priming keeps the usual limit. a stalled page
             #still ends on its own through mirror_base's page timeout, and anything else can be stopped here
             if not options["prime"]:
@@ -280,7 +285,8 @@ class Runner:
             job.comics = comics
             code = uc.run_batch(comics, comics, chosen, "Priming" if options["prime"] else "Scraping")
             for comic in comics:
-                if not listings.get(comic.name):
+                listing, every = listings.get(comic.name), cuts.get(comic.name)
+                if not (listing or every):
                     continue
                 if not comic.ok:
                     #a comic that saved nothing leaves nothing behind but the note we just wrote, which
@@ -292,11 +298,11 @@ class Runner:
                         except OSError:
                             pass
                     continue
-                #a primed comic has one page and no chapters to find yet, so the archive page is written
+                #a primed comic has one page and no chapters to find yet, so where they come from is written
                 #down and the chapters are worked out by the update that fetches the rest
-                remember_listing(comic, listings[comic.name])
+                remember_chapters(comic, listing, every)
                 if not options["prime"]:
-                    split_into_chapters(comic, listings[comic.name], chosen, self.uc, options["cbz"])
+                    split_into_chapters(comic, listing, chosen, self.uc, options["cbz"], every)
             return code
 
         verb = "Prime" if options["prime"] else "Scrape"
@@ -304,8 +310,9 @@ class Runner:
         return self.submit(Job("add", label, work))
 
 
-def remember_listing(comic, listing, make_folder=False):
-    #so a later run knows where this comic's chapters are listed, whoever starts it
+def remember_chapters(comic, listing, every=None, make_folder=False):
+    #so a later run knows where this comic's chapters are listed, or how many pages go in each part,
+    #whoever starts it
     path = os.path.join(comic.folder, METADATA_FILE)
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -317,24 +324,43 @@ def remember_listing(comic, listing, make_folder=False):
         os.makedirs(comic.folder, exist_ok=True)
         metadata = {}
     block = metadata.setdefault("chapters", {})
-    if block.get("source_url") == listing:
-        return
-    block["source"] = "archive"
-    block["source_url"] = listing
+    if listing:
+        if block.get("source_url") == listing:
+            return
+        block["source"] = "archive"
+        block["source_url"] = listing
+        said = "chapters will be read from {0}".format(listing)
+    else:
+        if block.get("every") == every:
+            return
+        #the same shape the edit form writes, so a comic cut from the start and one set to be cut later
+        #are one kind of comic to everything that reads it
+        block["source"], block["every"] = "every", every
+        said = "will be cut into parts of {0} pages".format(every)
     block.setdefault("list", [])
     write_json(path, metadata)
-    print("  {0}: chapters will be read from {1}".format(comic.name, listing), flush=True)
+    print("  {0}: {1}".format(comic.name, said), flush=True)
 
 
-def split_into_chapters(comic, listing, args, uc, keeps_archives=True):
-    #a new comic that was given a chapter list: line up what was just saved, read the list, and write one
-    #archive per chapter. every step says what it did, and none of them touches the pages themselves.
+def remember_listing(comic, listing, make_folder=False):
+    #its name before a comic could be cut by size as well, which code reaching in through web_ui still uses
+    return remember_chapters(comic, listing, make_folder=make_folder)
+
+
+def split_into_chapters(comic, listing, args, uc, keeps_archives=True, every=None):
+    #a new comic that was given a chapter list, or a size to cut it at: line up what was just saved, work
+    #the chapters out, and write one archive per chapter. every step says what it did, and none of them
+    #touches the pages themselves.
     script = os.path.join(os.path.dirname(os.path.abspath(args.script)), "chapters.py")
     if not os.path.exists(script):
         return
+    #a comic added from part way in keeps no index, since one begun there would number its pages wrong.
+    #cut by size, its numbered filenames say which page is which instead, and there is nothing to line up
+    steps = [["align"]] if not every or os.path.exists(index_path(comic.folder, args.root)) else []
+    steps.append(["chapters", "--every", str(every), "--save"] if every
+                 else ["chapters", "--archive", listing, "--save"])
     #--replace because a comic kept in chapters keeps no single archive: the one the scrape just built
     #is given up as soon as every page is checked to be in a chapter
-    steps = [["align"], ["chapters", "--archive", listing, "--save"]]
     if keeps_archives:
         steps.append(["pack", "--replace"])
     for step in steps:

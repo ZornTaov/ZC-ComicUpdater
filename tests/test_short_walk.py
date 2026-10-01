@@ -99,3 +99,27 @@ def test_working_out_chapters_leaves_a_finished_walk_alone(library, chapters):
 def test_a_record_of_one_page_is_a_walk_that_never_happened(library, chapters):
     folder, _ = comic_with(library, chapters, 1, 1)
     assert walk_needed(None, Setup, Held(folder)) == "start"
+
+
+def primed_as(folder, first_url, first_number=1):
+    with open(str(folder / "mirror_metadata.json"), encoding="utf-8") as f:
+        metadata = json.load(f)
+    metadata["history"].update(first_page_url=first_url, first_page_number=first_number)
+    write_meta(folder, metadata)
+
+
+def test_a_primed_comics_one_page_record_needs_no_walk(library, chapters):
+    #primed: page 1 saved, its line recorded, and the update that fetches the rest adds to it
+    folder, _ = comic_with(library, chapters, 1, 1)
+    primed_as(folder, "{0}/comic/1".format(SITE))
+    assert walk_needed(None, Setup, Held(folder)) is None
+
+
+def test_a_one_page_record_of_some_other_page_still_needs_a_walk(library, chapters):
+    #a walk begun on the newest page writes that page down as its only line: not the comic's first page
+    folder, _ = comic_with(library, chapters, 1, 1)
+    primed_as(folder, "{0}/comic/0".format(SITE))
+    assert walk_needed(None, Setup, Held(folder)) == "start"
+    #nor is a comic recorded as begun part way in, whatever its one line says
+    primed_as(folder, "{0}/comic/1".format(SITE), first_number=40)
+    assert walk_needed(None, Setup, Held(folder)) == "start"

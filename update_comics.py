@@ -21,8 +21,9 @@ from comiclib.library import Comic, find_comics, page_count, resume_argv  # noqa
 from comiclib.metadata import METADATA_FILE, argv_to_settings, saved_command, settings_to_argv  # noqa: F401
 from comiclib.pages import count as folder_pages  # noqa: F401
 from comiclib.paths import config_folder
-from comiclib.schedule import (ignored_triggers, local_zone, next_run, parse_schedule,  # noqa: F401
-                               take_trigger, trigger_files, trigger_poll, wait_until)
+from comiclib.schedule import (RESTART, ignored_triggers, local_zone, next_run, parse_schedule,  # noqa: F401
+                               ready_to_restart, restart_files, take_trigger, trigger_files, trigger_poll,
+                               wait_until)
 
 metadata_file = METADATA_FILE
 
@@ -148,6 +149,8 @@ def main():
         print("Updating every day at {0:02d}:{1:02d} {2}.".format(hour, minute, zone), flush=True)
     print("To update sooner, put a file named {0} in {1}; list comic folders in it, one per line, to update "
           "only those.".format(trigger_files[0], args.root), flush=True)
+    print("To restart, put a file named {0} there; this exits once nothing is running, and a container set "
+          "to restart unless stopped starts it again.".format(restart_files[1]), flush=True)
     if args.now:
         #a fresh container would otherwise do nothing at all until the first scheduled hour came round,
         #which makes it hard to tell a working setup from a broken one
@@ -166,6 +169,11 @@ def main():
         if web is not None:
             web.next_run = target if args.schedule else None
         wanted = wait_until(target, args.root)
+        if wanted is RESTART:
+            #without the page an update runs here, in this loop, so nothing can be running by now
+            if ready_to_restart(args.root, web):
+                return 0
+            continue
         if wanted is None:
             update([], "Scheduled update")
         else:

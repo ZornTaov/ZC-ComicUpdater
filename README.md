@@ -248,6 +248,23 @@ start a run, with no SSH and no restart. Paired with `--prime`, adding a batch o
 them from your own machine, drop an `update-now.txt` naming them, and let the container do the bulk
 download. Its progress shows in the container log as usual.
 
+### Restarting without reaching the container
+
+A file named `restart` (or `restart.txt`) in the library root makes the updater finish whatever is
+running - a scrape, a walk, an add - and then exit. The compose file's `restart: unless-stopped` starts
+the container again, so it comes back up reading every script afresh: the way to pick up a change to
+`update_comics.py` or `comiclib/` with nothing but the file share. It is looked for every 30 seconds, and
+as the updater starts.
+
+- **Nothing running is cut short.** It waits for the job running and any queued behind it. Anything
+  queued after that waits for the restart, which forgets it, so queue it again afterwards.
+- **The file is removed before the exit**, so the container restarts once rather than every time it
+  starts. One that cannot be removed - a share the container may not delete from - is reported in the
+  log and ignored, and nothing restarts.
+- **Changed your mind?** Delete the file while it is waiting and the restart is called off.
+- An `update-now` file dropped at the same time is left for the updater that starts next.
+- Without `restart: unless-stopped` (or `always`) the container just stops, and has to be started by hand.
+
 An updater run summarises what each comic did, including the exit code from `mirror_base.py`:
 
 | Code | Meaning |
@@ -419,7 +436,8 @@ a file share, and:
   scheduled run already in progress will use it for the comics it has not reached yet.
 - **`update_comics.py`, `web_ui.py` and anything in `comiclib/` need a container restart**, since the
   long-running process has them loaded already. The Restart button in Container Station is enough; no
-  ssh. `web_ui.html` needs nothing.
+  ssh. Or drop a `restart.txt` into the library root, which waits for anything running first (see
+  "Restarting without reaching the container"). `web_ui.html` needs nothing.
 - **Settings and element paths need nothing.** They are read from `config/` before each run.
 - **Adopting a new comic needs nothing.** The library is re-scanned at the start of every scheduled
   run, so a `mirror_metadata.json` written today joins tonight's run by itself.

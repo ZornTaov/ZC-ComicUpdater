@@ -79,7 +79,23 @@ class Runner:
         self.history = collections.deque(maxlen=25)
         self.next_run = None
         self.changed = threading.Condition()
+        #set while the process is about to exit for a restart: a job queued then waits rather than starting
+        #a scrape the exit would cut off part way
+        self.closed = False
         threading.Thread(target=self.loop, daemon=True, name="jobs").start()
+
+    def close_if_idle(self):
+        #closed in the same step that finds nothing running and nothing waiting, so nothing slips in between
+        with self.changed:
+            if self.current is not None or self.waiting:
+                return False
+            self.closed = True
+            return True
+
+    def reopen(self):
+        with self.changed:
+            self.closed = False
+            self.changed.notify_all()
 
     def submit(self, job):
         with self.changed:
@@ -91,7 +107,7 @@ class Runner:
     def loop(self):
         while True:
             with self.changed:
-                while not self.waiting:
+                while not self.waiting or self.closed:
                     self.changed.wait()
                 job = self.waiting.pop(0)
                 self.current = job

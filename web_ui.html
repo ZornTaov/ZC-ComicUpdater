@@ -65,6 +65,11 @@ label.check { display: inline-flex; align-items: center; gap: 5px; white-space: 
 .queue-item { display: flex; gap: 8px; align-items: center; padding: 5px 0; border-top: 1px solid var(--line); }
 .queue-item span { flex: 1; overflow-wrap: anywhere; }
 .table-wrap { overflow-x: auto; max-height: 560px; overflow-y: auto; border-top: 1px solid var(--line); margin-top: 10px; }
+/* the library takes whatever height its column has spare, so it ends level with the other column however
+   long Recent or the queue grows. a basis of 0 keeps the list itself from setting the column's height:
+   it scrolls past what fits, and never shrinks below the 560px it used to be fixed at */
+section.fill { flex: 1 1 auto; display: flex; flex-direction: column; }
+section.fill > .table-wrap { flex: 1 1 0; min-height: 560px; max-height: none; }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { position: sticky; top: 0; background: var(--panel); font-size: 12px; color: var(--muted); font-weight: 600;
@@ -186,7 +191,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--soft); paddi
       <div id="queue"></div>
     </section>
 
-    <section>
+    <section class="fill">
       <h2><span class="grow">Library</span><button class="small" id="reload">Refresh</button></h2>
       <div class="row">
         <input type="text" id="filter" placeholder="Filter, e.g. Uncompressed/SomeAuthor/*" style="flex:1; min-width: 220px">

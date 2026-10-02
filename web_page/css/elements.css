@@ -1,0 +1,45 @@
+/* the element paths dialog: its two reorderable lists, and what checking a page found. the check result
+   is shared with the chapter list and boundaries dialogs, which print into the same kind of box */
+
+#elements { width: min(900px, calc(100vw - 32px)); }
+#ep-howto ol, #ep-howto ul { margin: 6px 0; padding-left: 20px; }
+#ep-howto li { margin: 2px 0; }
+/*grip, on/off, the path, a note, what the last check found, and the buttons. the check column is empty
+  until a page has been checked, and an empty column takes no width, so the row is unchanged until then*/
+.ep { display: grid; grid-template-columns: auto auto minmax(0, 1fr) 150px auto auto; gap: 6px; align-items: center;
+  padding: 3px 0; background: var(--bg); }
+.grip { cursor: grab; color: var(--muted); user-select: none; padding: 0 2px; line-height: 1; touch-action: none; }
+.ep.dragging { opacity: .4; }
+.ep.over { box-shadow: inset 0 2px 0 var(--accent); }
+.ep input[type=text] { width: 100%; font-family: var(--mono); font-size: 12px; padding: 3px 6px; }
+.ep .note-in { font-family: inherit; }
+.ep.off input[type=text] { opacity: .45; text-decoration: line-through; }
+.ep .moves { display: flex; gap: 2px; }
+.ep .moves button { padding: 1px 6px; font-size: 11px; line-height: 1.4; }
+@media (max-width: 620px) { .ep { grid-template-columns: auto auto minmax(0, 1fr) auto; }
+  .ep .note-in { grid-column: 3 / 5; }
+  /*on a narrow screen the note drops to a second line; what the check found rides beside it rather than
+    taking a line of its own*/
+  .ep .ep-hit { grid-column: 1 / 3; padding-left: 7px; } }
+.ep-list { max-height: 300px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 8px; background: var(--bg); }
+.ep-head { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 6px; }
+.ep-head h4 { margin: 0; font-size: 13px; }
+.check-box { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+.check-result pre { margin: 0; font-size: 12px; line-height: 1.45; white-space: pre-wrap;
+  word-break: break-word; max-height: 46vh; overflow: auto; }
+.check-result { margin-top: 10px; font-size: 12.5px; }
+.check-result .hit { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; padding: 3px 0; }
+.check-result code { overflow-wrap: anywhere; }
+/*what the check worked out about the page, as opposed to which paths matched it: a comic serving several
+  pages at one address, and a page whose image only exists once javascript has built it*/
+.check-result .note { margin: 6px 0; padding: 6px 8px; background: var(--soft); border-radius: 6px; }
+.check-result .note.warn { background: transparent; color: var(--warn); border: 1px solid var(--warn); }
+/*what the last check found for one path, beside the path itself*/
+.ep-hit { font-size: 11px; white-space: nowrap; color: var(--muted); }
+.ep-hit.on { color: var(--ok); font-weight: 600; }
+/*a list of thirty paths is long enough that a badge alone would be missed, so the rows the last check
+  matched are marked, and the one a scrape would use is marked more strongly*/
+.ep.hit-some { background: var(--soft); }
+.ep.hit-used { background: var(--soft); box-shadow: inset 3px 0 0 var(--ok); }
+.first { font-size: 11px; font-weight: 600; color: var(--ok); text-transform: uppercase; }

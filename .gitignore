@@ -34,7 +34,14 @@
 !comiclib/adopt/
 !comiclib/adopt/*.py
 !web_ui.py
-!web_ui.html
+
+# the page itself, which web_ui serves file by file: the same two lines for each folder in it
+!web_page/
+!web_page/*.html
+!web_page/css/
+!web_page/css/*.css
+!web_page/js/
+!web_page/js/*.js
 
 !Dockerfile
 !docker-compose.yml

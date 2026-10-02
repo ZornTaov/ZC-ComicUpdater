@@ -17,7 +17,7 @@ archives, and keep them up to date unattended.
 | `mirror_base.py` | ~640 | Scrapes one comic: the element-path lists, the arguments, the state a run keeps in module globals, and the loop - find the page's images, save them, press next. Everything it leans on is in `comiclib`, handed that state |
 | `chapters.py` | ~190 | The command for everything about chapters; the work is in `comiclib/chapters/`, below |
 | `web_ui.py` | ~20 | Where `update_comics` finds the web page's server; the server is in `comiclib/web/`, below |
-| `web_ui.html` | ~1460 | The whole front end, one file, no build step |
+| `web_page/` | ~1500 | The whole front end, no build step: `index.html`, `css/`, and `js/` with one plain script per part of the page. See "The web page" below |
 | `update_comics.py` | ~190 | The long-running process: its arguments, the schedule loop, and starting the web page. The work is `comiclib` `config`, `library`, `batch` and `schedule` |
 | `adopt_comic.py` | ~120 | Takes a folder of pages someone else scraped and makes it a comic this tool can update. The work is `comiclib/adopt/`: `scan`, `report`, `adopting` |
 | `comiclib/` | ~760 | What more than one script needs to agree on, below |
@@ -43,11 +43,28 @@ archives, and keep them up to date unattended.
 | `library` | `Comic`, finding every comic in a library, and the command each resumes with |
 | `batch` | One update of a library: each comic its own process, the lock, chapters packed after, the summary |
 | `schedule` | The daily time, and the `update-now` file that starts a run sooner |
-| `web/` | The web page's server: the one job queue (`jobs`), what the page is shown (`views`), the element paths as it edits them (`elementpaths`), the add form (`adding`), the changes it can make (`edits`), and the http handler (`server`). The page itself is `web_ui.html`, at the top |
+| `web/` | The web page's server: the one job queue (`jobs`), what the page is shown (`views`), the element paths as it edits them (`elementpaths`), the add form (`adding`), the changes it can make (`edits`), and the http handler (`server`). The page itself is `web_page/`, at the top |
 | `chapters/` | Walking a comic to record which page is which, and `KeptIndex`, the index a scrape adds to as it goes (`index`), lining that up against the files (`align`), reading an archive page (`archive_page`) or the addresses (`addresses`) for chapters, the chapter list and its corrections (`chapterlist`), packing per chapter (`packing`), and renumbering, inserting and refetching pages (`pageops`) |
 
 The scripts import what they use by its old name (`chapters.page_key`, `mirror_base.metadata_file`), so
 code reaching into a script still finds it; new code should import from `comiclib`.
+
+### The web page
+
+`web_page/` is the page, served file by file by `comiclib/web/server.py`, which hands out only the
+`.html`, `.css` and `.js` inside that folder. `index.html` is the markup, every section and dialog;
+`css/` is `base` (colours and controls), `page` (the sections), `dialogs`, and `elements` (the element
+paths dialog and the check result). `js/` holds one file per part of the page: `common` (`$`, `api`,
+`post`, `esc`, the time formats), `library`, `running` (the `/api/state` poll: Running now, queue, Recent,
+log), `editor`, `elements`, `listcheck`, `bounds`, `adding`, `settings`, and `main`, which starts it all.
+
+They are **plain scripts sharing one global scope, not modules**, on purpose: the dialogs hand each other
+state (`editing`, `checkJob`, `paths`), and an imported `let` cannot be assigned to. So a top-level name
+must be declared in exactly one file, and **only `main.js` may call anything as it loads**, since a
+script can then use what a later one declares. `index.html` loads them in order, `main.js` last. A new
+file needs a `<script>` tag there, and a new folder needs its two lines in `.gitignore`.
+`tests/test_web_status.py` runs the Result column's expression out of `js/library.js` by text, so moving
+that expression means moving the test's markers with it.
 
 Dependencies are **selenium and requests only**, on purpose (`requirements.txt`). Adding one means
 rebuilding the container, which is a real cost to the person running this — `comiclib/standin.py` draws PNGs
@@ -67,7 +84,7 @@ anything new.
   (see the README's "Changing the scripts without rebuilding"). So **committing is not deploying**:
   the running copy is the mounted folder, and a new module has to reach it too or both scripts fail on
   import - `comiclib/` above all, which every script imports. `mirror_base.py`, `chapters.py`,
-  `adopt_comic.py` and `web_ui.html` take effect immediately; `update_comics.py`, `web_ui.py` and
+  `adopt_comic.py` and `web_page/` take effect immediately; `update_comics.py`, `web_ui.py` and
   anything in `comiclib/` need the container restarting, since the long-running process has them
   imported already (a scrape it starts imports `comiclib` afresh, but the web page does not).
 - **Settings live in `config/` beside the scripts** — `ComicScraper.json`, `element_paths.json`, and

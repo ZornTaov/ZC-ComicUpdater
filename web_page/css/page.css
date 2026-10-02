@@ -1,0 +1,52 @@
+/* the sections on the page itself: Running now and its progress, the Library list, the log, Recent, and
+   the rows of Add comics */
+
+.job-title { font-weight: 600; }
+.bar { height: 6px; background: var(--soft); border-radius: 3px; overflow: hidden; margin: 8px 0 10px; }
+.bar > div { height: 100%; background: var(--accent); transition: width .4s; }
+.comic { display: grid; grid-template-columns: 78px minmax(0, 1fr) auto; gap: 2px 10px; padding: 6px 0;
+  border-top: 1px solid var(--line); align-items: baseline; }
+.comic .name { font-weight: 500; overflow-wrap: anywhere; }
+.comic .said { grid-column: 2 / 4; font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.comic .num { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tag { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+.s-running { color: var(--run); } .s-ok { color: var(--ok); } .s-failed { color: var(--bad); }
+/* not a failure, but not finished either: a comic with pages still to fetch */
+.s-waiting { color: var(--run); }
+.s-stopped { color: var(--warn); } .s-waiting { color: var(--muted); }
+.queue-item { display: flex; gap: 8px; align-items: center; padding: 5px 0; border-top: 1px solid var(--line); }
+.queue-item span { flex: 1; overflow-wrap: anywhere; }
+.table-wrap { overflow-x: auto; max-height: 560px; overflow-y: auto; border-top: 1px solid var(--line); margin-top: 10px; }
+/* the library takes whatever height its column has spare, so it ends level with the other column however
+   long Recent or the queue grows. a basis of 0 keeps the list itself from setting the column's height:
+   it scrolls past what fits, and never shrinks below the 560px it used to be fixed at */
+section.fill { flex: 1 1 auto; display: flex; flex-direction: column; }
+section.fill > .table-wrap { flex: 1 1 0; min-height: 560px; max-height: none; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { position: sticky; top: 0; background: var(--panel); font-size: 12px; color: var(--muted); font-weight: 600;
+  cursor: pointer; user-select: none; white-space: nowrap; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.name { overflow-wrap: anywhere; }
+tr.ended td { color: var(--muted); }
+@media (max-width: 640px) { .wide-only { display: none; } }
+tr.problem td.name { color: var(--bad); }
+#log { font-family: var(--mono); font-size: 11.5px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px; height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+#log .t { color: var(--muted); }
+#log .bad { color: var(--bad); }
+#log .good { color: var(--ok); }
+.history-item { border-top: 1px solid var(--line); padding: 7px 0; }
+.history-item .line { color: var(--muted); font-size: 12.5px; }
+.tail { font-family: var(--mono); font-size: 11.5px; color: var(--muted); white-space: pre-wrap; margin: 2px 0 0 88px; }
+.add-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.3fr) auto;
+  gap: 6px; align-items: center; padding: 3px 0; }
+.add-row input { width: 100%; font-family: var(--mono); font-size: 12px; padding: 4px 6px; }
+.add-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.3fr) auto;
+  gap: 6px; font-size: 12px; color: var(--muted); padding-bottom: 2px; }
+@media (max-width: 620px) {
+  .add-row, .add-head { grid-template-columns: minmax(0, 1fr) auto; }
+  .add-head span:nth-child(2), .add-head span:nth-child(3), .add-head span:nth-child(4) { display: none; }
+  .add-row input:nth-child(2), .add-row input:nth-child(3), .add-row input:nth-child(4) { grid-column: 1 / 2; }
+}

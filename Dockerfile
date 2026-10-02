@@ -26,7 +26,8 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # the program: the five commands, the page, and the package they all share. named one by one rather than
 # with a wildcard, so nothing else that happens to sit beside them ends up in a published image
-COPY mirror_base.py chapters.py update_comics.py adopt_comic.py web_ui.py web_ui.html /app/
+COPY mirror_base.py chapters.py update_comics.py adopt_comic.py web_ui.py /app/
+COPY web_page/ /app/web_page/
 COPY comiclib/ /app/comiclib/
 
 # settings and element paths are written here: mount a folder over it to keep them across a new container.

@@ -24,7 +24,7 @@ def status():
     node = shutil.which("node")
     if not node:
         pytest.skip("node is not on PATH, so the page's own expression cannot be run")
-    with open(os.path.join(PROJECT, "web_ui.html"), encoding="utf-8") as f:
+    with open(os.path.join(PROJECT, "web_page", "js", "library.js"), encoding="utf-8") as f:
         html = f.read()
     block = html[html.index("const waiting = c.exit_code === 0"):html.index("const bad = c.problem")]
     script = ("const rows = {0};\nfor (const c of rows) {{\n{1}\n"

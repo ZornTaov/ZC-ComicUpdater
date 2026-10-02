@@ -8,6 +8,6 @@
 !update_comics.py
 !adopt_comic.py
 !web_ui.py
-!web_ui.html
+!web_page
 !comiclib
 comiclib/**/__pycache__

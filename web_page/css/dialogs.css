@@ -1,0 +1,31 @@
+/* what every dialog shares - the head, the scrolling body, the foot with its buttons - and the pieces
+   inside them: labelled fields, the facts about a comic, the table of its runs */
+
+dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink);
+  padding: 0; width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
+dialog[open] { display: flex; overflow: hidden; }
+/*every dialog, not just the editor: the form has to be a column that may shrink, or it grows to its
+  content, the dialog's overflow cuts it off at the screen's edge, and the buttons go with it. a check
+  result or the opened help can push a dialog past a 720p screen*/
+dialog > form { display: flex; flex-direction: column; min-height: 0; width: 100%; }
+.dlg-body { flex: 1; min-height: 0; }
+dialog::backdrop { background: rgba(0, 0, 0, .45); }
+.dlg-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 14px 18px;
+  border-bottom: 1px solid var(--line); }
+.dlg-head h3 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.dlg-head > span { flex: 1 1 200px; min-width: 0; text-align: right; overflow-wrap: anywhere; font-size: 12px; }
+.dlg-body { padding: 14px 18px; overflow: auto; }
+.dlg-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px;
+  padding: 12px 18px; border-top: 1px solid var(--line); }
+.dlg-foot .msg { flex: 1; margin: 0; }
+.field { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 4px 12px; align-items: center; margin-bottom: 10px; }
+.field > label { color: var(--muted); font-size: 13px; }
+.field input[type=text] { width: 100%; }
+.field .note { grid-column: 2; font-size: 12px; color: var(--muted); }
+@media (max-width: 560px) { .field { grid-template-columns: minmax(0, 1fr); } .field .note { grid-column: 1; } }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; font-size: 12.5px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 4px 0 14px; }
+.facts dt { color: var(--muted); } .facts dd { margin: 0; overflow-wrap: anywhere; }
+.facts a, .runs a { color: inherit; }
+.runs { width: 100%; font-size: 12px; }
+.runs td, .runs th { padding: 3px 6px; position: static; cursor: default; }

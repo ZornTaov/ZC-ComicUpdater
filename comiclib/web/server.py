@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from comiclib.paths import PROJECT
 from comiclib.web.adding import parse_entries
@@ -21,7 +21,28 @@ from comiclib.web.views import library_view, walked_pages
 
 #the page, read afresh on every request so editing it needs no restart. it stays beside the scripts, where
 #it is edited, rather than in here
-page_file = os.path.join(PROJECT, "web_ui.html")
+page_folder = os.path.join(PROJECT, "web_page")
+
+#named here rather than asked of mimetypes, which on windows reads the registry, where .js can be text/plain:
+#a browser will not run a script served as that. anything else in the folder is not served at all
+page_kinds = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
+              ".js": "text/javascript; charset=utf-8"}
+
+
+def page_part(address):
+    #the file in the page's folder an address names, or None. resolved and then checked to still be inside
+    #the folder, so a request for /../config/ComicScraper.json reads nothing
+    name = unquote(address).lstrip("/") or "index.html"
+    full = os.path.normpath(os.path.join(page_folder, name))
+    try:
+        if os.path.commonpath([page_folder, full]) != page_folder:
+            return None
+    except ValueError:
+        #on windows, an address naming another drive, /C:/x, which join takes as absolute
+        return None
+    if os.path.splitext(full)[1] not in page_kinds or not os.path.isfile(full):
+        return None
+    return full
 
 
 def make_handler(runner, args, uc, tee):
@@ -64,13 +85,21 @@ def make_handler(runner, args, uc, tee):
             if not self.allowed():
                 return
             where = urlsplit(self.path)
-            if where.path == "/":
+            if not where.path.startswith("/api/"):
                 #read on every request, so editing the page needs no restart
+                part = page_part(where.path)
+                if part is None:
+                    if where.path == "/":
+                        self.reply("the page is missing: {0} should hold index.html. Copy the web_page folder "
+                                   "there beside the scripts.".format(page_folder).encode(), 500, "text/plain")
+                    else:
+                        self.reply({"error": "not found"}, 404)
+                    return
                 try:
-                    with open(page_file, "rb") as f:
-                        self.reply(f.read(), kind="text/html; charset=utf-8")
+                    with open(part, "rb") as f:
+                        self.reply(f.read(), kind=page_kinds[os.path.splitext(part)[1]])
                 except OSError as error:
-                    self.reply("web_ui.html is missing: {0}".format(error).encode(), 500, "text/plain")
+                    self.reply("could not read {0}: {1}".format(part, error).encode(), 500, "text/plain")
             elif where.path == "/api/state":
                 since = int((parse_qs(where.query).get("since") or ["0"])[0] or 0)
                 lines, seq = tee.since(since)

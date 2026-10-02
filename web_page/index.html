@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comic Updater</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/page.css">
+<link rel="stylesheet" href="css/dialogs.css">
+<link rel="stylesheet" href="css/elements.css">
+</head>
+<body>
+<header>
+  <h1>Comic Updater</h1>
+  <span class="meta" id="root"></span>
+  <span class="meta" id="next"></span>
+  <span class="meta" id="conn"></span>
+</header>
+
+<main>
+  <div class="col">
+    <section>
+      <h2><span class="grow">Running now</span><button class="small danger" id="stop" hidden>Stop</button></h2>
+      <div id="current"><div class="empty">Nothing running.</div></div>
+      <div id="queue"></div>
+    </section>
+
+    <section class="fill">
+      <h2><span class="grow">Library</span><button class="small" id="reload">Refresh</button></h2>
+      <div class="row">
+        <input type="text" id="filter" placeholder="Filter, e.g. Uncompressed/SomeAuthor/*" style="flex:1; min-width: 220px">
+        <label class="check"><input type="checkbox" id="show-ended"> show ended</label>
+      </div>
+      <div class="row">
+        <button class="primary" id="update-checked" disabled>Update checked</button>
+        <button id="update-shown">Update all shown</button>
+        <span class="muted" id="count"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th style="width:28px"><input type="checkbox" id="check-all" title="Check all shown"></th>
+            <th data-sort="name">Comic</th>
+            <th data-sort="pages" style="text-align:right">Pages</th>
+            <th data-sort="updated" class="wide-only">Last run</th>
+            <th data-sort="stop_reason" class="wide-only">Result</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="comics"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section>
+      <h2><span class="grow">Add comics</span><button class="small" id="open-listcheck">Check chapter list</button>
+        <button class="small" id="open-config">Settings</button>
+        <button class="small" id="open-elements">Element paths</button></h2>
+      <div class="help">One row per comic. Folders are inside <span id="add-roots"></span>, and a comic with
+        no folder of its own is given one so its archive is not loose in the root. Give a chapter list -
+        the comic's archive page - and it is split into one archive per chapter as soon as it is scraped.
+        Paste a list to fill several rows at once.</div>
+      <div class="add-head"><span>Pages folder</span><span>Archive</span><span>First page</span>
+        <span>Chapter list</span><span></span></div>
+      <div id="add-rows"></div>
+      <div class="row" style="margin-top:6px"><button type="button" class="link" id="add-more">add another row</button></div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="prime"> prime only</label>
+        <label class="check"><input type="checkbox" id="prefix"> number pages</label>
+        <label class="check">from <input type="number" id="increment" value="1" min="0" style="width:74px"></label>
+        <label class="check"><input type="checkbox" id="javascript"> javascript</label>
+        <label class="check">wait <input type="number" id="waittime" value="0" min="0" style="width:60px">s</label>
+        <label class="check"><input type="checkbox" id="cbz" checked> make cbz</label>
+        <label class="check"><input type="checkbox" id="direction" checked> direction check</label>
+        <label class="check">cut every <input type="number" id="add-every" min="1" style="width:80px" placeholder="off"> pages</label>
+      </div>
+      <div class="help">Prime only saves the first page and checks the next link works; a later update fetches the rest.
+        Cut every so many pages is for a long comic with no chapters of its own: it is archived in parts of that
+        size as it is scraped, with no walk afterwards. A row with a chapter list uses that instead.
+        The options apply to every row, so add comics that need different options separately.</div>
+      <div class="row"><button class="primary" id="add">Add to queue</button></div>
+      <div class="msg" id="add-msg"></div>
+    </section>
+
+    <section>
+      <h2><span class="grow">Log</span><label class="check" style="text-transform:none; letter-spacing:0"><input type="checkbox" id="follow" checked> follow</label></h2>
+      <div id="log"></div>
+    </section>
+
+    <section>
+      <h2>Recent</h2>
+      <div id="history"><div class="empty">Nothing has run in the last week.</div></div>
+    </section>
+  </div>
+</main>
+
+<dialog id="config">
+  <form method="dialog">
+    <div class="dlg-head"><h3>Settings</h3><span class="muted" id="cfg-path"></span></div>
+    <div class="dlg-body">
+      <div class="help">Kept beside the scripts rather than in the library, so they survive a library move.
+        Anything passed on the command line wins over what is set here and is marked below.</div>
+      <div class="field"><label for="c-pages_folder">Pages folder</label>
+        <input type="text" id="c-pages_folder" spellcheck="false">
+        <div class="note">Inside the library, holding one folder per comic.</div></div>
+      <div class="field"><label for="c-cbz_folder">Archive folder</label>
+        <input type="text" id="c-cbz_folder" spellcheck="false">
+        <div class="note">Where .cbz files are filed, mirroring the pages folder.</div></div>
+      <div class="field"><label for="c-jobs">Comics at once</label>
+        <span><input type="number" id="c-jobs" min="1" style="width:80px"> <span class="muted" id="c-jobs-note"></span></span></div>
+      <div class="field"><label for="c-timeout">Time limit</label>
+        <span><input type="number" id="c-timeout" min="0" style="width:100px"> seconds per comic, 0 for none
+          <span class="muted" id="c-timeout-note"></span></span></div>
+      <div class="field"><label for="c-progress">Progress every</label>
+        <span><input type="number" id="c-progress" min="0" style="width:80px"> seconds, 0 to stop saying
+          <span class="muted" id="c-progress-note"></span></span></div>
+      <div class="field"><label for="c-max_depth">Folders deep</label>
+        <span><input type="number" id="c-max_depth" min="1" style="width:80px"> when looking for comics
+          <span class="muted" id="c-max_depth-note"></span></span></div>
+      <div class="field"><label for="c-schedule">Daily update</label>
+        <span><input type="text" id="c-schedule" style="width:100px" placeholder="03:30"> local time, blank for none
+          <span class="muted" id="c-schedule-note"></span></span>
+        <div class="note">Read when the updater starts, so this one waits for a restart.</div></div>
+      <div class="field"><label>Add comics starts with</label>
+        <div class="row">
+          <label class="check"><input type="checkbox" id="c-add-prime"> prime only</label>
+          <label class="check"><input type="checkbox" id="c-add-prefix"> number pages</label>
+          <label class="check"><input type="checkbox" id="c-add-javascript"> javascript</label>
+          <label class="check"><input type="checkbox" id="c-add-cbz"> make cbz</label>
+          <label class="check"><input type="checkbox" id="c-add-direction_check"> direction check</label>
+        </div>
+      </div>
+    </div>
+    <div class="dlg-foot">
+      <div class="msg" id="cfg-msg"></div>
+      <button type="button" id="cfg-cancel">Close</button>
+      <button type="button" class="primary" id="cfg-save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="elements">
+  <form method="dialog">
+    <div class="dlg-head"><h3>Element paths</h3><span class="muted" id="ep-path"></span></div>
+    <div class="dlg-body">
+      <div class="help">Every comic is scraped by trying these in order: the first that matches a page is the
+        one used. Paths that came with the script can be turned off but not deleted, so an update to the
+        script cannot quietly put back one you did not want. Order matters when two match the same page.</div>
+      <details class="help" id="ep-howto">
+        <summary>How to add a path for a new comic</summary>
+        <ol>
+          <li>Paste one of the comic's pages below (a page in the middle, not the newest) and press
+            <b>Check this page</b>. If both lists already match, there is nothing to add.</li>
+          <li>When nothing matches, the check suggests paths from the page's own images and links. Press
+            <b>add it</b> beside one to put it at the top of its list.</li>
+          <li>To write one yourself, right-click the comic in your own browser, choose <i>Inspect</i>, and
+            look for an <code>id</code> or <code>class</code> that says what it is. Typing
+            <code>$x('//img[@id="strip"]')</code> in the browser's console shows what a path matches.</li>
+          <li>Press <b>Save</b>, then check the page again to see it used.</li>
+        </ol>
+        <ul>
+          <li>An image path has to end on the <code>&lt;img&gt;</code> itself: <code>//*[@id="comic"]//img</code>,
+            not <code>//*[@id="comic"]</code>.</li>
+          <li>Use <code>id</code>s and <code>class</code>es rather than positions like
+            <code>/html/body/div[3]/img</code>, which break when the site is redesigned.</li>
+          <li>Keep next paths to links (<code>//a[...]</code>). A match in the page's head clicks nothing.</li>
+          <li>Put a path written for one comic above the general ones, and note which comic it is for.</li>
+        </ul>
+        The paths that came with the script are examples of the most common layouts; their notes say which.
+      </details>
+      <div class="check-box">
+        <div class="row">
+          <input type="text" id="check-url" placeholder="https://example.com/comic/some-page" style="flex:1; min-width:220px">
+          <button type="button" class="primary" id="check-go">Check this page</button>
+        </div>
+        <div class="help" style="margin-bottom:0">Loads the page in the browser the scraper uses and says which
+          paths match it, or what to add when none do.</div>
+        <div class="check-result" id="check-result"></div>
+      </div>
+      <div id="ep-lists"></div>
+    </div>
+    <div class="dlg-foot">
+      <div class="msg" id="ep-msg"></div>
+      <button type="button" id="ep-cancel">Close</button>
+      <button type="button" class="primary" id="ep-save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="listcheck">
+  <form method="dialog">
+    <div class="dlg-head"><h3>Check chapter list</h3><span class="muted">reads the page, walks nothing</span></div>
+    <div class="dlg-body">
+      <div class="help">Fetches a comic's archive page and says what it would be read as: how many chapters,
+        what each is called, and which page each starts at. It downloads nothing and changes nothing, so it
+        is the cheap way to find out whether a page is usable before committing a comic to it. Give one of
+        the comic's own page addresses so it can tell that comic's pages from everything else linked there.</div>
+      <div class="field">
+        <label for="lc-url">Chapter list page</label>
+        <input type="text" id="lc-url" spellcheck="false" placeholder="https://example.com/archive.html">
+      </div>
+      <div class="field">
+        <label for="lc-like">One page of the comic</label>
+        <input type="text" id="lc-like" spellcheck="false" placeholder="https://example.com/c1/p1">
+        <div class="note">Its first page will do. Only needed when the comic is not in the library yet.</div>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="lc-browser"> load it in the browser (for a page that builds itself)</label>
+      </div>
+      <div class="check-result" id="lc-result"></div>
+    </div>
+    <div class="dlg-foot">
+      <div class="msg" id="lc-msg"></div>
+      <button type="button" id="lc-close">Close</button>
+      <button type="button" class="primary" id="lc-go">Read it</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="bounds">
+  <form method="dialog">
+    <div class="dlg-head"><h3>Chapter boundaries</h3><span class="muted" id="bd-who"></span></div>
+    <div class="dlg-body">
+      <div class="help">Where each chapter starts, as the archive page or the comic's own addresses were
+        read. A site that names one page oddly - a cover called <code>20-an-odd-name</code> where every
+        other is <code>issue-20-cover</code> - puts a boundary in the wrong place, and no rule can tell.
+        Change one here and it is written down as a correction: working the chapters out again, from a
+        fresh reading of the archive or of the addresses, keeps it. Renaming a chapter to one that is
+        already there moves that chapter to the new page instead of adding a second of the same name.
+        A comic whose chapter archives are already written has the ones that changed written again on the
+        spot, since an archive holding a boundary you just corrected is a wrong archive.</div>
+      <div class="table-wrap" id="bd-wrap"><table id="bd-table"><thead><tr>
+        <th style="width:3.5em">No</th><th>Chapter</th><th style="width:6em">Starts at</th>
+        <th style="width:5em">Pages</th><th>First page</th><th style="width:7em"></th>
+      </tr></thead><tbody id="bd-rows"></tbody></table></div>
+      <div class="row" style="margin-top:10px">
+        <input type="text" id="bd-new-at" list="bd-pages" placeholder="page" style="width:11em">
+        <input type="text" id="bd-new-label" placeholder="a chapter starts at that page, called this" style="flex:1; min-width:200px">
+        <button type="button" id="bd-add">Add a boundary</button>
+      </div>
+      <datalist id="bd-pages"></datalist>
+      <div class="note" id="bd-picked"></div>
+      <details id="bd-insert-box" style="margin-top:10px">
+        <summary>Put in a page the comic's links skip</summary>
+        <div class="help" style="margin-top:8px">Some comics have a page their own next links walk straight
+          past, reachable only from an archive page. Give its address and the page it follows: it is read
+          the way a scrape reads one, its image saved, and every page after it moves along one so the order
+          still reads true. Nothing is touched until the page has actually been fetched.</div>
+        <div class="row">
+          <input type="text" id="bd-in-url" spellcheck="false" placeholder="https://example.com/comic/the-skipped-page" style="flex:1; min-width:220px">
+        </div>
+        <div class="row">
+          <input type="text" id="bd-in-after" list="bd-pages" placeholder="the page it follows" style="flex:1; min-width:160px">
+          <button type="button" id="bd-in-try">See what it would do</button>
+          <button type="button" id="bd-in-go">Put it in</button>
+        </div>
+        <div class="check-result" id="bd-in-said"></div>
+      </details>
+      <div class="note" id="bd-fixes"></div>
+    </div>
+    <div class="dlg-foot">
+      <div class="msg" id="bd-msg"></div>
+      <button type="button" id="bd-reset">Undo every correction</button>
+      <button type="button" class="primary" id="bd-close">Done</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="editor">
+  <form method="dialog" id="edit-form">
+    <div class="dlg-head"><h3 id="edit-name"></h3><span class="muted" id="edit-updated"></span></div>
+    <div class="dlg-body">
+      <dl class="facts" id="edit-facts"></dl>
+      <div class="field">
+        <label for="e-url">Start from</label>
+        <input type="text" id="e-url" spellcheck="false" autofocus>
+        <div class="note">The next update loads this page, saves it, and carries on from there.
+          <span id="e-url-hints"></span></div>
+      </div>
+      <div class="field">
+        <label for="e-increment">Page number</label>
+        <input type="number" id="e-increment" min="0" style="width:110px">
+        <div class="note">What that page is counted as. Only shows in filenames with numbering on.
+          <button type="button" class="link" id="e-next-number"></button></div>
+      </div>
+      <div class="field">
+        <label for="e-cbz_path">Archive</label>
+        <input type="text" id="e-cbz_path" spellcheck="false" placeholder="default: CBZs/… beside the Uncompressed folder">
+      </div>
+      <div class="field">
+        <label for="e-waittime">Wait before next</label>
+        <span><input type="number" id="e-waittime" min="0" style="width:80px"> seconds</span>
+      </div>
+      <div class="field">
+        <label>Options</label>
+        <div class="row">
+          <label class="check"><input type="checkbox" id="e-prefix"> number pages</label>
+          <label class="check"><input type="checkbox" id="e-javascript"> javascript</label>
+          <label class="check"><input type="checkbox" id="e-firefox"> firefox</label>
+          <label class="check"><input type="checkbox" id="e-cbz"> make cbz</label>
+          <label class="check"><input type="checkbox" id="e-direction_check"> direction check</label>
+          <label class="check" title="Save every page the comic puts on one address, not just the first. Off reads one page an address however many are there."><input type="checkbox" id="e-multi_page"> several pages an address</label>
+        </div>
+      </div>
+      <div class="field">
+        <label for="e-chapters">Chapter list</label>
+        <input type="text" id="e-chapters" spellcheck="false" placeholder="the comic's archive page — blank to read its own addresses">
+        <div class="note" id="e-chapters-note"></div>
+      </div>
+      <div class="field">
+        <label for="e-every">Or cut every</label>
+        <span><input type="number" id="e-every" min="1" style="width:110px" placeholder="off"> pages</span>
+        <div class="note">For a comic with no chapters of its own that has grown too big for a reader to open
+          as one archive: 100 makes pages 1–100 one archive, 101–200 the next. Leave the chapter list blank to use it.</div>
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <label class="check"><input type="checkbox" id="e-ended"> ended, leave it alone</label>
+      </div>
+      <details id="edit-runs-box"><summary>Recent runs and edits</summary><div id="edit-runs"></div></details>
+    </div>
+    <div class="dlg-foot">
+      <div class="msg" id="edit-msg"></div>
+      <button type="button" id="edit-cancel">Close</button>
+      <button type="button" id="edit-checklist">Check chapter list</button>
+      <button type="button" id="edit-boundaries">Chapter boundaries</button>
+      <button type="button" id="edit-chapterize">Work out chapters</button>
+      <button type="button" id="edit-save">Save</button>
+      <button type="button" class="primary" id="edit-save-update">Save and update now</button>
+    </div>
+  </form>
+</dialog>
+<script src="js/common.js"></script>
+<script src="js/library.js"></script>
+<script src="js/running.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/elements.js"></script>
+<script src="js/listcheck.js"></script>
+<script src="js/bounds.js"></script>
+<script src="js/adding.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

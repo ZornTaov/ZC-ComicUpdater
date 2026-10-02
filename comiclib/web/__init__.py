@@ -1,4 +1,4 @@
-"""The web page's server, which update_comics starts with --web. The page itself is web_ui.html.
+"""The web page's server, which update_comics starts with --web. The page itself is web_page/.
 
 jobs          the one queue every job goes through
 views         what the page is shown

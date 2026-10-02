@@ -16,7 +16,7 @@ rewriting or re-syncing 250 MB.
 | `update_comics.py` | Walks a library, resumes every comic from its metadata, on demand or on a schedule. |
 | `chapters.py` | Works out which saved file is which page, where the chapters are, and packs one `.cbz` per chapter. |
 | `adopt_comic.py` | Writes metadata for comics you already have, so they join the rotation without re-downloading. |
-| `web_ui.py`, `web_ui.html` | The optional web page `update_comics.py --web` serves. |
+| `web_ui.py`, `web_page/` | The optional web page `update_comics.py --web` serves. |
 | `comiclib/` | What the scripts share. Not run directly; it has to sit beside them. |
 | `config/ComicScraper.json` | Settings: where pages and archives go, and what a run defaults to. |
 | `config/element_paths.json` | The XPaths every scrape tries, when the built-in ones are not enough. |
@@ -385,7 +385,8 @@ There is no login unless you set `MIRROR_WEB_PASSWORD`, in which case the browse
 username). Without one, anyone who can reach the port can start scrapes, so keep the port off the
 internet. The page's actions only accept JSON, so a link or form on another site cannot trigger them.
 
-`web_ui.html` is read fresh on every page load, so editing it needs no restart.
+The page is the `web_page/` folder: `index.html`, its stylesheets in `css/` and its scripts in `js/`,
+plain files with no build step. They are read fresh on every page load, so editing one needs no restart.
 
 ## Running in Docker
 
@@ -428,7 +429,7 @@ instead of the copies built into the image:
 ```
 
 A mount replaces what the image has at that path rather than adding to it, so that folder has to hold
-everything the image does: the five `.py` scripts, `web_ui.html`, the `comiclib/` folder, and a
+everything the image does: the five `.py` scripts, the `web_page/` and `comiclib/` folders, and a
 `config/` folder, which takes over from the settings volume above - drop that line when using this one.
 Writable, because the web page saves settings and element paths into `config/`. Then edit the files over
 a file share, and:
@@ -439,7 +440,7 @@ a file share, and:
 - **`update_comics.py`, `web_ui.py` and anything in `comiclib/` need a container restart**, since the
   long-running process has them loaded already. The Restart button in Container Station is enough; no
   ssh. Or drop a `restart.txt` into the library root, which waits for anything running first (see
-  "Restarting without reaching the container"). `web_ui.html` needs nothing.
+  "Restarting without reaching the container"). `web_page/` needs nothing.
 - **Settings and element paths need nothing.** They are read from `config/` before each run.
 - **Adopting a new comic needs nothing.** The library is re-scanned at the start of every scheduled
   run, so a `mirror_metadata.json` written today joins tonight's run by itself.

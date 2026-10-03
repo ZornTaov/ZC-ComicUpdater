@@ -167,10 +167,12 @@ def numbered_pages(folder):
     twice = [held for held in by_number.values() if len(held) > 1]
     if twice:
         return None, "{0} page number(s) are on more than one file, such as {1}".format(len(twice), twice[0])
-    if min(by_number) < 1:
-        return None, "its files are numbered from {0}, not from 1".format(min(by_number))
-    return [{"n": n, "url": None, "file": (by_number.get(n) or [None])[0]}
-            for n in range(1, max(by_number) + 1)], None
+    #a comic first scraped by a tool that counted from 0000.png, and adopted, carries on from there: its
+    #own scrape numbers on from the last of those, so the whole folder is one run counted from nought, and
+    #every page is simply one further on than its file says. the scrape never asks, so the files stay put
+    shift = 1 if min(by_number) == 0 else 0
+    return [{"n": n, "url": None, "file": (by_number.get(n - shift) or [None])[0]}
+            for n in range(1, max(by_number) + shift + 1)], None
 
 
 def joined_pages(folder, args, numbered=False):

@@ -677,7 +677,9 @@ the one by hand writes anything without `--save`:
    **It needs no walk when the files are numbered** - saved with `--prefix`, or named by the site
    `0001.png` (a second extension an older scrape added, `0001.png.png`, is fine). A comic never walked
    is cut by the numbers its files carry, so one of thousands of pages is split in seconds rather than
-   after an hour of loading every page. A missing number is a missing page; a file with no number, or
+   after an hour of loading every page. A comic whose files count from `0000.png` - begun by another
+   tool, adopted, and scraped on from there - is read one page on, so `0000.png` is page 1. A missing
+   number is a missing page; a file with no number, or
    two files on one number, and it says so and asks for the walk instead. In the
    web page it is **Or cut every** in a comic's editor, with the chapter list left blank, or **cut
    every** when adding it. A comic scraped from its first page needs no walk either way, numbered or

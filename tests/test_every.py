@@ -152,6 +152,32 @@ def test_a_comic_kept_from_part_way_has_no_empty_parts_before_its_first_page(lib
     assert parts(folder) == [(9, 12, "Pages 9-12"), (13, 14, "Pages 13-16")], parts(folder)
 
 
+def test_a_comic_counted_from_nought_is_cut_one_page_on(library, chapters):
+    #begun by another tool that named its pages 0000.png on, then adopted and scraped on with --prefix
+    #from the next number: one run counted from nought, the first file being page one
+    names = ["{0:04d}.png".format(n) for n in range(0, 6)] + ["{0:04d}_strip.png".format(n) for n in range(6, 10)]
+    folder = unwalked(library, names)
+    code, out = ch(folder, library, "chapters", "--every", "4", "--save")
+    assert code == 0 and "from their numbers" in out, out
+    assert parts(folder) == [(1, 4, "Pages 1-4"), (5, 8, "Pages 5-8"), (9, 10, "Pages 9-12")], parts(folder)
+    code, out = ch(folder, library, "pack")
+    assert code == 0, out
+    shelf = library / "CBZs" / "Numbered"
+    held = []
+    for name in sorted(os.listdir(str(shelf))):
+        with zipfile.ZipFile(str(shelf / name)) as zf:
+            held.append(sorted(n for n in zf.namelist() if n.endswith(".png")))
+    assert held == [names[0:4], names[4:8], names[8:10]], held
+
+
+def test_a_comic_counted_from_nought_with_two_files_where_the_runs_meet_is_not_guessed_at(library, chapters):
+    #the scrape that carried on began one page early, so page 3 is on disk under both names
+    folder = unwalked(library, ["0000.png", "0001.png", "0002.png", "0002_strip.png", "0003_strip.png"])
+    code, out = ch(folder, library, "chapters", "--every", "4", "--save")
+    assert code == 2 and "more than one file" in out, out
+    assert not read_meta(folder).get("chapters")
+
+
 def test_filenames_that_do_not_say_which_page_is_which_are_not_guessed_at(library, chapters):
     folder = unwalked(library, ["1.png", "2.png", "cover.png"])
     code, out = ch(folder, library, "chapters", "--every", "4", "--save")

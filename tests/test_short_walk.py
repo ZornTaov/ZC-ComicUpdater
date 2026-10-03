@@ -88,6 +88,27 @@ def test_a_record_listed_ahead_of_the_files_is_not_added_to_twice(library, chapt
     assert held[-1]["file"] == "0021_21.png"
 
 
+def test_a_listed_page_saved_as_another_image_puts_its_line_right(library, chapters):
+    #listed from the site, which named the post's thumbnail; the page itself shows the full strip, saved
+    #under that page's number. one page, so its line is corrected rather than a second added after the end
+    folder, path = comic_with(library, chapters, 20, 9)
+    with open(path, encoding="utf-8") as f:
+        lines = [json.loads(text) for text in f if text.strip()]
+    lines[9].update(src=SITE + "/img/10-thumbnail.png", file="10-thumbnail.png", bytes=7)
+    write_index(path, lines)
+    kept = KeptIndex()
+    kept.open(str(folder), scrape_args("{0}/comic/9".format(SITE)))
+    kept.add("{0}/comic/10".format(SITE), SITE + "/img/10-full.png?x5", "0010_10-full.png", 1100, "Page 10")
+    with open(path, encoding="utf-8") as f:
+        held = [json.loads(text) for text in f if text.strip()]
+    assert len(held) == 20
+    assert held[9]["file"] == "0010_10-full.png" and held[9]["bytes"] == 1100 and held[9]["n"] == 10
+    #and the page after it is still the next line, not one further out
+    kept.add("{0}/comic/11".format(SITE), SITE + "/img/11.png", "0011_11.png", 111, "Page 11")
+    with open(path, encoding="utf-8") as f:
+        assert len([text for text in f if text.strip()]) == 20
+
+
 class Setup:
     #the little of update_comics that walk_needed asks of it
     @staticmethod

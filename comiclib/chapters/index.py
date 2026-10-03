@@ -537,6 +537,15 @@ class KeptIndex:
         named = (same_page(url), page_key(image)) if image else None
         if not self.file or (url, src) in self.pages or named in self.named:
             return
+        #an address the record already holds, saved under the page number one of its lines has: the same page,
+        #whatever the image is called now. a list of a site's posts can name a post's thumbnail where the page
+        #shows the full strip, and a site re-uploads an image under a new name; either way the line is put
+        #right, since a second line for one page moves every page after it one place out
+        number = page_number(image) if image else None
+        where = same_page(url)
+        if number is not None and self.at.get(where, number + 1) <= number <= self.ends.get(where, -1):
+            self.correct(number, url, src, image, size, named)
+            return
         self.last += 1
         self.urls.add(url)
         self.pages.add((url, src))
@@ -550,3 +559,21 @@ class KeptIndex:
                                     "title": title, "bytes": size}) + chr(10))
         except OSError as error:
             print("WARNING: could not add this page to the index: {0}".format(error))
+
+    def correct(self, number, url, src, image, size, named):
+        #the line for page `number` takes the image the page really shows. rewritten whole, aside and moved
+        #into place, which is rare enough that the cost of rewriting thousands of lines does not matter
+        try:
+            lines = read_index(self.file)
+            for line in lines:
+                if line.get("n") == number and same_page(line.get("url")) == same_page(url):
+                    print("The record of which page is which named {0} for page {1}; it shows {2}, which is put "
+                          "right.".format(line.get("file"), number, image))
+                    line.update(src=src, file=image, bytes=size)
+                    write_lines(self.file, lines)
+                    self.pages.add((url, src))
+                    if named:
+                        self.named.add(named)
+                    return
+        except (OSError, ValueError) as error:
+            print("WARNING: could not put page {0} right in the index: {1}".format(number, error))

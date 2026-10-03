@@ -535,7 +535,7 @@ couple of minutes rather than a day of page loads. `--start` names any one page 
 holds it is the one listed, so a site that keeps its comic under `/comic/` and its news under `/blog/` lists
 only the comic. A post that features no image is read for the first image in its body, as older themes kept
 it. An index already there is not written over; `--restart` sets it aside and lists afresh. Two posts
-featuring the very same image are one strip posted twice - `/2024-03-02/` and `/2024-03-02-2/` - and
+featuring the very same image are one strip posted twice - `/comic/page-40/` and `/comic/page-40-2/` - and
 only the first is kept, since one file can never settle two pages.
 
 What the list cannot know is what the next link does. It is in the order the posts are dated, which is the

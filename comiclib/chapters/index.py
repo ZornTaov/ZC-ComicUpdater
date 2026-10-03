@@ -426,7 +426,7 @@ class KeptIndex:
         #has a line for each, so the address on its own no longer says whether a page is in there
         self.pages = set()
         #the same, by what page the image is rather than its whole address. a site that tacks a cache-busting
-        #query onto its images - x.jpg?x66398 - gives a page a new src every visit, and a record listed from
+        #query onto its images - x.jpg?v=123 - gives a page a new src every visit, and a record listed from
         #the site ahead of the files - every page the comic has, not only those saved - already holds the
         #pages a scrape is about to reach. neither is a page to add again
         self.named = set()

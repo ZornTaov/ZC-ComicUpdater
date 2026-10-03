@@ -79,7 +79,7 @@ def test_a_record_listed_ahead_of_the_files_is_not_added_to_twice(library, chapt
     folder, path = comic_with(library, chapters, 20, 10)
     kept = KeptIndex()
     kept.open(str(folder), scrape_args("{0}/comic/10".format(SITE)))
-    kept.add("{0}/comic/10".format(SITE), SITE + "/img/10.png?x66398", "0010_10.png", 110, "Page 10")
+    kept.add("{0}/comic/10".format(SITE), SITE + "/img/10.png?v=123", "0010_10.png", 110, "Page 10")
     kept.add("{0}/comic/11/".format(SITE), SITE + "/img/11.png?x123", "0011_11.png", 111, "Page 11")
     kept.add("{0}/comic/21".format(SITE), SITE + "/img/21.png?x5", "0021_21.png", 121, "Page 21")
     with open(path, encoding="utf-8") as f:

@@ -208,6 +208,14 @@ def moved_within(before, after):
     return bool(before and after) and before != after and urldefrag(before)[0] == urldefrag(after)[0]
 
 
+#the ways of pressing a next button, in the order they are tried on one not pressed before
+PRESSES = ("a plain click", "a click after scrolling to it", "a script click")
+#the way that last pressed each next button, tried first from then on. a button something else covers - a
+#sticky header, a banner - refuses a plain click, then waits out the whole of the scrolled click's timeout,
+#and only then takes a script click: ten seconds on every page of a comic, for an answer that never changes
+pressed_by = {}
+
+
 def next_ele_get(driver,element):
     #three ways to press a link, each tried on its own. they used to be nested, which meant the script
     #click - the one that works on a page whose navigation is an onclick handler rather than a link - only
@@ -221,7 +229,7 @@ def next_ele_get(driver,element):
         shown = found.is_displayed()
     except se.WebDriverException:
         shown = False
-    for way in ("a plain click", "a click after scrolling to it", "a script click"):
+    for way in sorted(PRESSES, key=lambda way: way != pressed_by.get(element)):
         #waiting for an element that cannot be seen to become clickable is waiting for something that
         #cannot happen: selenium calls an element clickable only once it is displayed. it costs the whole
         #of the timeout on every page of a comic whose only next button is hidden, and the script click
@@ -239,8 +247,9 @@ def next_ele_get(driver,element):
             else:
                 #a hidden element, or one behind something else, still runs whatever its onclick says
                 driver.execute_script("arguments[0].click();", found)
-            if verbose and not way.startswith("a plain"):
+            if verbose and not way.startswith("a plain") and pressed_by.get(element) != way:
                 print("\nThe next button {0} took {1}.".format(element, way))
+            pressed_by[element] = way
             return True
         except (se.WebDriverException, AttributeError) as error:
             if verbose:

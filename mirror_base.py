@@ -15,7 +15,8 @@ from selenium.webdriver.common.by import By
 #metadata file and how an archive is packed
 from comiclib import browser, cbz, download, elements, exits, guards, pagecheck, runrecord, walk
 from comiclib.chapters.index import KeptIndex
-from comiclib.metadata import METADATA_FILE, now_stamp
+from comiclib.chapters.links import same_page
+from comiclib.metadata import METADATA_FILE, now_stamp, read as read_metadata
 from comiclib.pages import clear_unfinished, held_pages, page_key, page_number, saved_name, write_page
 from comiclib.standin import held_otherwise
 from comiclib.paths import element_paths_file
@@ -90,6 +91,8 @@ browser_images = os.environ.get("MIRROR_BROWSER_IMAGES", "") not in ("", "0", "n
 #the pages already in the output folder when the run started, mapped to the number each sits at, so a
 #next link walking the comic backwards can be told from a re-scrape walking forward over known pages
 existing_pages = {}
+#the address the comic was first scraped from, for came_round
+comic_start = None
 #files dropped because a newer spelling of the same page replaced them. the archive is told, so it does
 #not end up holding the page under both names.
 superseded = []
@@ -220,7 +223,26 @@ def setup():
     if not (args.index or args.check or args.page_source):
         kept_index.open(output_folder(args), args)
 
+    #where the comic starts, as an earlier run recorded it, for telling a comic that wraps round from its
+    #newest page to its first when it keeps no record of which page is which
+    global comic_start
+    history = (read_metadata(output_folder(args)).get("history") or {})
+    comic_start = history.get("first_page_url") if history.get("first_page_number") in (0, 1, None) else None
+
     return driver, increment, args
+
+
+def came_round(left, reached):
+    #whether the next link has led from the newest page back to the comic's beginning. a run starting on its
+    #first page knows its first page as one it saved; a nightly update starting on the newest has never been
+    #there, and the guard against running backwards lets one step back by, for the sites that start their
+    #filenames again every chapter - after which the numbers climb, and the whole comic is saved a second
+    #time. the record of which page is which says where both pages sit, whatever they are called; failing
+    #that, the page the comic was first scraped from is the one it wraps to
+    went = kept_index.went_back(left, reached)
+    if went is not None:
+        return went
+    return bool(comic_start) and same_page(reached) == same_page(comic_start) and same_page(left) != same_page(comic_start)
 
 
 def build_driver(args):
@@ -555,6 +577,12 @@ def main():
                 #some comics wrap from the last page back to the first, which would otherwise re-scrape everything
                 print("Reached a page that was already saved this run, so the comic has looped.")
                 stop_reason = "looped back to an already saved page"
+                completed = True
+                break
+            if came_round(current_url, driver.current_url):
+                print("Caught up: the next link has come round to {0}, which is where the comic begins, so {1} "
+                      "is the latest page.".format(driver.current_url, current_url))
+                stop_reason = "came round to the comic's beginning"
                 completed = True
                 break
             #a page followed a next link to, and meant to be saved: this is what a later run carries on

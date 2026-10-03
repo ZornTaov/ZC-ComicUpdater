@@ -430,6 +430,9 @@ class KeptIndex:
         #the site ahead of the files - every page the comic has, not only those saved - already holds the
         #pages a scrape is about to reach. neither is a page to add again
         self.named = set()
+        #where each address first comes in the record, so a next link that leads back to a page the record
+        #places earlier - a comic wrapping round from its newest page to its first - is known for what it is
+        self.at = {}
 
     def open(self, folder, args=None):
         held = read_metadata(folder)
@@ -487,6 +490,8 @@ class KeptIndex:
             self.pages.add((held.get("url"), held.get("src")))
             if held.get("file"):
                 self.named.add((same_page(held.get("url")), page_key(held["file"])))
+            if held.get("url"):
+                self.at.setdefault(same_page(held["url"]), held.get("n") or 0)
             self.last = max(self.last, held.get("n") or 0)
         if reaches_newest(lines, saved) is False:
             #a walk that stopped short - a site that began refusing it part way - leaves a record ending
@@ -502,6 +507,14 @@ class KeptIndex:
             print("This comic keeps an index of which page is which ({0} pages); new pages are added to "
                   "it.".format(self.last))
 
+    def went_back(self, left, reached):
+        #whether the record places the page a next link reached before the page it left: the comic has come
+        #round to its beginning. None when the record cannot say, for an address it does not hold
+        before, after = self.at.get(same_page(left)), self.at.get(same_page(reached))
+        if before is None or after is None:
+            return None
+        return after < before
+
     def add(self, url, src, image, size, title):
         #one line per page, the same shape chapters.py writes, so nothing has to be walked again. a page is
         #an image, not an address: a comic serving several at once gets a line each, or the index would
@@ -512,6 +525,7 @@ class KeptIndex:
         self.last += 1
         self.urls.add(url)
         self.pages.add((url, src))
+        self.at.setdefault(same_page(url), self.last)
         if named:
             self.named.add(named)
         try:

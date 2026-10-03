@@ -76,6 +76,23 @@ def test_a_comic_that_wraps_round_is_not_resumed_from_page_one(tmp_path, site):
     assert settings["increment"] == PAGES
 
 
+@pytest.mark.parametrize("keep_index", ["--keep-index", "--no-keep-index"])
+def test_a_comic_that_wraps_round_stops_there_on_every_later_run_too(tmp_path, site, keep_index):
+    #the run that scraped it from page 1 recognises page 1 as a page it saved itself. a nightly update starts
+    #on the newest page, and to it page 1 is an address it has never visited - so the comic's own record
+    #of which page is which, or failing that where the comic starts, is what says it has come round again
+    out, done = scrape(tmp_path, site + "/w/1", keep_index)
+    assert len(pages_in(out)) == PAGES
+    out, done = scrape(tmp_path, site + "/w/{0}".format(PAGES), "-i", str(PAGES), keep_index)
+    assert done.returncode == 0, done.stdout[-400:]
+    assert "come round to" in done.stdout, done.stdout[-400:]
+    assert len(pages_in(out)) == PAGES, pages_in(out)
+    meta = read_meta(out)
+    assert meta["settings"]["url"].endswith("/w/{0}".format(PAGES))
+    assert meta["settings"]["increment"] == PAGES
+    assert meta["state"]["completed"] is True
+
+
 def test_a_page_that_will_not_download_is_where_the_next_run_starts(tmp_path, site):
     out, done = scrape(tmp_path, site + "/b/1")
     settings = read_meta(out)["settings"]

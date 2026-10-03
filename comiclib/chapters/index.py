@@ -425,6 +425,11 @@ class KeptIndex:
         #which pages it already holds, as address and image together: an address serving several pages
         #has a line for each, so the address on its own no longer says whether a page is in there
         self.pages = set()
+        #the same, by what page the image is rather than its whole address. a site that tacks a cache-busting
+        #query onto its images - x.jpg?x66398 - gives a page a new src every visit, and a record listed from
+        #the site ahead of the files - every page the comic has, not only those saved - already holds the
+        #pages a scrape is about to reach. neither is a page to add again
+        self.named = set()
 
     def open(self, folder, args=None):
         held = read_metadata(folder)
@@ -480,6 +485,8 @@ class KeptIndex:
         for held in lines:
             self.urls.add(held.get("url"))
             self.pages.add((held.get("url"), held.get("src")))
+            if held.get("file"):
+                self.named.add((same_page(held.get("url")), page_key(held["file"])))
             self.last = max(self.last, held.get("n") or 0)
         if reaches_newest(lines, saved) is False:
             #a walk that stopped short - a site that began refusing it part way - leaves a record ending
@@ -499,11 +506,14 @@ class KeptIndex:
         #one line per page, the same shape chapters.py writes, so nothing has to be walked again. a page is
         #an image, not an address: a comic serving several at once gets a line each, or the index would
         #name one of them as the whole address and chapters built on it would put the rest in the wrong place
-        if not self.file or (url, src) in self.pages:
+        named = (same_page(url), page_key(image)) if image else None
+        if not self.file or (url, src) in self.pages or named in self.named:
             return
         self.last += 1
         self.urls.add(url)
         self.pages.add((url, src))
+        if named:
+            self.named.add(named)
         try:
             with open(self.file, 'a', encoding='utf-8') as f:
                 f.write(json.dumps({"n": self.last, "url": url, "src": src, "file": image,

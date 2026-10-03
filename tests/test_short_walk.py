@@ -72,6 +72,22 @@ def test_a_scrape_carries_on_a_record_that_ends_where_the_last_run_died(library,
     assert [one["n"] for one in held] == list(range(1, 12)), held[-2:]
 
 
+def test_a_record_listed_ahead_of_the_files_is_not_added_to_twice(library, chapters):
+    #listed from the site to page 20 while only 10 pages are saved, and the site puts a different query on
+    #its images every visit. the resumed page, and the pages after it the record already lists, are not
+    #new pages; the first page past the record is
+    folder, path = comic_with(library, chapters, 20, 10)
+    kept = KeptIndex()
+    kept.open(str(folder), scrape_args("{0}/comic/10".format(SITE)))
+    kept.add("{0}/comic/10".format(SITE), SITE + "/img/10.png?x66398", "0010_10.png", 110, "Page 10")
+    kept.add("{0}/comic/11/".format(SITE), SITE + "/img/11.png?x123", "0011_11.png", 111, "Page 11")
+    kept.add("{0}/comic/21".format(SITE), SITE + "/img/21.png?x5", "0021_21.png", 121, "Page 21")
+    with open(path, encoding="utf-8") as f:
+        held = [json.loads(text) for text in f if text.strip()]
+    assert [one["n"] for one in held] == list(range(1, 22))
+    assert held[-1]["file"] == "0021_21.png"
+
+
 class Setup:
     #the little of update_comics that walk_needed asks of it
     @staticmethod

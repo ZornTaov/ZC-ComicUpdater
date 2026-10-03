@@ -6,6 +6,9 @@ const flags = ["prefix", "javascript", "firefox", "cbz", "direction_check", "mul
 //behaviour it actually gets rather than an unticked box
 const onByDefault = ["cbz", "direction_check", "multi_page"];
 let editing = null;
+//the chapters job the editor queued, watched by running.js so that if it stops to ask, the question is
+//put here while the editor is still open
+let chapterJob = null;
 
 
 async function openEditor(name) {
@@ -44,9 +47,12 @@ async function openEditor(name) {
     : chapters.source === "archive" && chapters.source_url ? "that page" : "the comic's own addresses";
   $("e-chapters-note").textContent = (chapters.count
     ? `${chapters.count} chapter(s) worked out from ${from}${chapters.packed ? ", archives written " + when(chapters.packed) : ""}. `
+    : detail.stale_walk ? `A walk that never got past ${detail.indexed_pages} page(s) is recorded for it, which says nothing about which page is which. `
     : detail.indexed_pages > 1 ? `Which page is which is known for ${detail.indexed_pages} page(s); the walk carries on from there. `
     : "Working these out walks the comic once, downloading nothing. It can take a few minutes. ")
     + "Leave it blank to read the chapters out of the comic's own page addresses instead.";
+  $("e-discard-walk").hidden = !detail.stale_walk;
+  showDecision(detail.decide);
   flags.forEach((key) => { $("e-" + key).checked = onByDefault.includes(key) ? s[key] !== false : !!s[key]; });
   const next = detail.pages_in_folder + 1;
   $("e-next-number").textContent = `use ${next}, the number after the pages held`;
@@ -110,13 +116,90 @@ $("edit-chapterize").addEventListener("click", async () => {
     await saveEditor(false);
     const result = await post("/api/chapterize", { name: editing.name, url: $("e-chapters").value.trim(),
                                                     every: $("e-every").value.trim() });
+    chapterJob = { id: result.queued, name: editing.name };
+    showDecision(null);
     msg.className = "msg good";
     msg.textContent = (result.from === "addresses" ? "Queued, reading the comic's own addresses. "
       : result.from === "every" ? `Queued, cutting it every ${$("e-every").value.trim()} pages. ` : "Queued. ")
-      + (result.numbers_first ? "Where every file carries its page number it is cut from those; otherwise it walks the comic first. Watch it under Running now."
+      + (result.numbers_first ? "Where every file carries its page number it is cut from those; otherwise it stops and asks here what to do. Watch it under Running now."
         : result.carrying_on ? "The record of which page is which stops short of the newest page, so the walk carries on from where it stopped; watch it under Running now."
         : result.walking ? "It walks the comic first, which takes a few minutes; watch it under Running now."
         : "Watch it under Running now.");
+  } catch (error) {
+    msg.className = "msg bad";
+    msg.textContent = error.message;
+  }
+});
+function showDecision(decide) {
+  //why cutting by the file numbers stopped before it did anything, and the ways on from there. nothing
+  //is chosen for the reader where the copies differ: only they can say which one is the page
+  const box = $("edit-decide");
+  box.hidden = !decide;
+  if (!decide) { box.innerHTML = ""; return; }
+  const twice = decide.twice || [], stale = decide.stale_walk, unnumbered = decide.unnumbered || [];
+  const kb = (bytes) => `${Math.round(bytes / 1024).toLocaleString()} KB`;
+  const groups = twice.map((group, at) => `<fieldset class="decide-group" data-page="${group.page}">
+    <legend>Page ${group.page} is on ${group.files.length} files${group.identical ? ", the same image each time" : ", and they differ"}: keep</legend>
+    ${group.files.map((file, which) => `<label class="check"><input type="radio" name="keep-${at}" value="${esc(file.name)}"
+      ${group.identical && which === 0 ? "checked" : ""}> ${esc(file.name)} <span class="muted">${kb(file.bytes)}</span></label>`).join("")}
+  </fieldset>`).join("");
+  const fix = twice.length && stale ? "Set the others aside, discard that walk, and cut"
+    : twice.length ? "Set the others aside and cut" : stale ? "Discard that walk and cut" : "";
+  box.innerHTML = `<div class="decide-why">Stopped before walking or changing anything: ${esc(decide.why)}.</div>
+    ${groups}
+    ${twice.length ? `<div class="note">The file not kept is moved into the comic's <code>.set aside</code> folder, not deleted, and goes in no archive.</div>` : ""}
+    ${stale ? `<div class="note">The walk recorded for it (${esc(stale.file)}, ${stale.pages} page(s)) is renamed aside in the config folder, not deleted.</div>` : ""}
+    ${unnumbered.length ? `<div class="note">${decide.unnumbered_count} file(s) carry no page number, such as ${unnumbered.slice(0, 5).map(esc).join(", ")}.
+      Only a walk can say where those go.</div>` : ""}
+    <div class="row">
+      ${fix && !unnumbered.length ? `<button type="button" class="primary" id="decide-go">${fix}</button>` : ""}
+      <button type="button" id="decide-walk">Walk it instead</button>
+      <span class="note">A walk loads every page of the comic, which can take an hour.</span>
+    </div>`;
+  box.dataset.every = decide.every || "";
+  box.dataset.stale = stale ? "1" : "";
+}
+
+async function decideAndRun(walk) {
+  const box = $("edit-decide"), msg = $("edit-msg");
+  const setAside = [];
+  if (!walk) {
+    for (const group of box.querySelectorAll(".decide-group")) {
+      const kept = group.querySelector("input:checked");
+      if (!kept) {
+        msg.className = "msg bad";
+        msg.textContent = `Choose which file to keep for page ${group.dataset.page}.`;
+        return;
+      }
+      group.querySelectorAll("input").forEach((input) => { if (input !== kept) setAside.push(input.value); });
+    }
+  }
+  try {
+    const result = await post("/api/chapterize", { name: editing.name, url: "", every: box.dataset.every,
+      set_aside: setAside, discard_walk: !!box.dataset.stale, walk });
+    chapterJob = { id: result.queued, name: editing.name };
+    showDecision(null);
+    msg.className = "msg good";
+    msg.textContent = walk ? "Queued, walking it first; watch it under Running now."
+      : "Queued, with what you chose done first; watch it under Running now.";
+  } catch (error) {
+    msg.className = "msg bad";
+    msg.textContent = error.message;
+  }
+}
+
+$("edit-decide").addEventListener("click", (event) => {
+  if (event.target.id === "decide-go") decideAndRun(false);
+  else if (event.target.id === "decide-walk") decideAndRun(true);
+});
+$("e-discard-walk").addEventListener("click", async () => {
+  const msg = $("edit-msg");
+  if (!confirm("Discard the walk recorded for this comic? Its files are renamed aside in the config folder, not deleted.")) return;
+  try {
+    const result = await post("/api/discardwalk", { name: editing.name });
+    msg.className = "msg good";
+    msg.textContent = `Moved aside: ${result.moved.join(", ")}.`;
+    $("e-discard-walk").hidden = true;
   } catch (error) {
     msg.className = "msg bad";
     msg.textContent = error.message;

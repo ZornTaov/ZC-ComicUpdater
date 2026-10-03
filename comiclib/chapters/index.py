@@ -1,6 +1,7 @@
 #the record of which page is which: one line per page of the comic, in reading order, written by a walk
 #that follows the comic from its first page saving nothing, or by a scrape that keeps it as it goes. the
 #alignment that lines it up against the files is kept beside it.
+import filecmp
 import json
 import os
 import subprocess
@@ -12,7 +13,7 @@ import requests
 
 from comiclib.metadata import read as read_metadata, write as write_metadata, write_json
 from comiclib.chapters.links import same_page
-from comiclib.pages import held_pages, listing as folder_pages, page_key, page_number
+from comiclib.pages import SET_ASIDE, held_pages, listing as folder_pages, page_key, page_number
 from comiclib.paths import PROJECT, index_folder, index_name
 
 #the scraper, which a walk runs with --index to follow the comic and save nothing
@@ -155,24 +156,108 @@ def numbered_pages(folder):
     #needs, and walking thousands of pages to learn it again is an hour of a site's patience. a missing
     #number is a missing page, as a gap in a walk is; two files on one number, or one with none, and the
     #names say nothing certain, so the comic has to be walked after all
-    names = folder_pages(folder, others=True)
+    names, by_number, unnumbered = numbered_files(folder)
     if not names:
         return None, "it holds no pages"
-    unnumbered = [name for name in names if page_number(name) is None]
     if unnumbered:
         return None, "{0} of its files carry no page number, such as {1}".format(len(unnumbered), unnumbered[0])
-    by_number = {}
-    for name in names:
-        by_number.setdefault(page_number(name), []).append(name)
     twice = [held for held in by_number.values() if len(held) > 1]
     if twice:
         return None, "{0} page number(s) are on more than one file, such as {1}".format(len(twice), twice[0])
+    shift = counted_from_nought(by_number)
+    return [{"n": n, "url": None, "file": (by_number.get(n - shift) or [None])[0]}
+            for n in range(1, max(by_number) + shift + 1)], None
+
+
+def numbered_files(folder):
+    #every page file, those by the number each carries, and those carrying none
+    names = folder_pages(folder, others=True)
+    by_number, unnumbered = {}, []
+    for name in names:
+        number = page_number(name)
+        if number is None:
+            unnumbered.append(name)
+        else:
+            by_number.setdefault(number, []).append(name)
+    return names, by_number, unnumbered
+
+
+def counted_from_nought(by_number):
     #a comic first scraped by a tool that counted from 0000.png, and adopted, carries on from there: its
     #own scrape numbers on from the last of those, so the whole folder is one run counted from nought, and
     #every page is simply one further on than its file says. the scrape never asks, so the files stay put
-    shift = 1 if min(by_number) == 0 else 0
-    return [{"n": n, "url": None, "file": (by_number.get(n - shift) or [None])[0]}
-            for n in range(1, max(by_number) + shift + 1)], None
+    return 1 if by_number and min(by_number) == 0 else 0
+
+
+def numbering_trouble(folder, cache=None):
+    #why a comic cannot be cut by the numbers its files carry, in enough detail for the reader to decide
+    #what to do about it - none when it can. two files on one number are usually one page saved twice, by
+    #an older scrape that added a second extension, but only the reader can say which copy is the page:
+    #that is shown rather than guessed. and a walk that never got past one page leaves an alignment that
+    #cutting and packing would both go by ahead of the filenames, so it stands in the way as surely
+    names, by_number, unnumbered = numbered_files(folder)
+    if not names:
+        return {"why": "it holds no pages"}
+    trouble, said = {}, []
+    if unnumbered:
+        trouble["unnumbered"] = unnumbered[:20]
+        trouble["unnumbered_count"] = len(unnumbered)
+        said.append("{0} of its files carry no page number, such as {1}".format(len(unnumbered), unnumbered[0]))
+    shift = counted_from_nought(by_number)
+    twice = []
+    for number in sorted(number for number, held in by_number.items() if len(held) > 1):
+        held = sorted(by_number[number], key=lambda name: (len(name), name))
+        sizes = [os.path.getsize(os.path.join(folder, name)) for name in held]
+        #the same bytes under two names is one page twice over, whichever is kept
+        same = len(set(sizes)) == 1 and all(filecmp.cmp(os.path.join(folder, held[0]), os.path.join(folder, name),
+                                                        shallow=False) for name in held[1:])
+        twice.append({"page": number + shift, "identical": same,
+                      "files": [{"name": name, "bytes": size} for name, size in zip(held, sizes)]})
+    if twice:
+        trouble["twice"] = twice
+        said.append("{0} page number(s) are on more than one file, such as {1}".format(
+            len(twice), " and ".join(entry["name"] for entry in twice[0]["files"])))
+    if cache and os.path.exists(alignment_path(cache)):
+        try:
+            lines = len(read_index(cache))
+        except (OSError, ValueError):
+            lines = 0
+        trouble["stale_walk"] = {"pages": lines, "file": os.path.basename(cache)}
+        said.append("a walk that never got past {0} page(s) is recorded for it, and cutting would go by that "
+                    "rather than the file numbers".format(lines))
+    if not said:
+        return None
+    trouble["why"] = "; ".join(said)
+    return trouble
+
+
+def set_aside_pages(folder, names):
+    #files the reader chose to take out of the comic - one of two on the same page number - moved into a
+    #folder inside it rather than deleted, so a wrong choice is undone by moving the file back. a file is
+    #only moved while another stays on its number: setting aside the last copy of a page would lose it from
+    #every archive without anyone having asked for that. (moved, refused) as lists of (name, why)
+    _, by_number, _ = numbered_files(folder)
+    going = set(names)
+    aside = os.path.join(folder, SET_ASIDE)
+    moved, refused = [], []
+    for name in names:
+        number = page_number(name)
+        if name != os.path.basename(name) or name not in by_number.get(number, []):
+            refused.append((name, "it is not one of this comic's numbered pages"))
+            continue
+        if not [other for other in by_number[number] if other not in going]:
+            refused.append((name, "nothing else would be left on its page number"))
+            continue
+        os.makedirs(aside, exist_ok=True)
+        target = os.path.join(aside, name)
+        stem, ending = os.path.splitext(name)
+        again = 1
+        while os.path.exists(target):
+            again += 1
+            target = os.path.join(aside, "{0} ({1}){2}".format(stem, again, ending))
+        os.replace(os.path.join(folder, name), target)
+        moved.append((name, os.path.relpath(target, folder)))
+    return moved, refused
 
 
 def joined_pages(folder, args, numbered=False):

@@ -7,9 +7,10 @@ import subprocess
 import sys
 import time
 
+from comiclib.chapters.index import index_path, set_aside
 from comiclib.metadata import write_json
 from comiclib.web.adding import clean_folder
-from comiclib.web.views import find_comic, is_running, read_metadata
+from comiclib.web.views import find_comic, is_running, read_metadata, walk_needed
 
 #the settings a person may change from the page, and what each one has to be. output is left out on
 #purpose: a comic's folder is what says where it lives, and update_comics ignores a stored output anyway
@@ -275,3 +276,19 @@ def save_config(args, uc, given):
         return 500, {"error": "could not write {0}: {1}".format(uc.config_path(), error)}
     print("Saved {0}".format(uc.config_path()), flush=True)
     return 200, {"saved": True, "path": uc.config_path(), "settings": uc.load_config(quiet=True)}
+
+
+def discard_walk(args, uc, comic):
+    #a walk that never got past the comic's first page - begun on its newest, say, by a site whose
+    #first-page link leads there - leaves a record of one page and an alignment made from it, which cutting
+    #by size goes by ahead of the file numbers. renamed aside, not deleted, and only a record that says
+    #nothing: one that covers the comic is an hour of walking, which no button should throw away
+    if walk_needed(args, uc, comic) != "start":
+        return 409, {"error": "that comic's record of which page is which is not a failed walk, so it is kept"}
+    moved = set_aside(index_path(comic.folder, args.root))
+    if not moved:
+        return 404, {"error": "there is no record of a walk for that comic to discard"}
+    for old, new in moved:
+        print("{0}: moved {1} aside as {2}, as asked".format(comic.name, os.path.basename(old),
+                                                             os.path.basename(new)), flush=True)
+    return 200, {"moved": [os.path.basename(new) for _, new in moved]}

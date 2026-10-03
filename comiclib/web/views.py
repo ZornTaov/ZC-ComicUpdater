@@ -42,6 +42,8 @@ def job_view(job, uc, live=False):
     if job.kind == "check":
         view["check"] = job.check
         return view
+    if getattr(job, "decide", None):
+        view["decide"] = job.decide
     if job.started is None:
         return view
     comics = [comic_view(comic, uc, live) for comic in job.comics]
@@ -154,6 +156,11 @@ def walk_needed(args, uc, comic):
     return None
 
 
+def chapters_label(name):
+    #what a job working out a comic's chapters is called, which is also how its last one is found again
+    return "Work out chapters for {0}".format(name)
+
+
 def comic_detail(args, uc, runner, name):
     comic = find_comic(args, uc, name)
     if comic is None:
@@ -166,6 +173,14 @@ def comic_detail(args, uc, runner, name):
     history = metadata.get("history") or {}
     runs = history.get("runs") or []
     chapters = metadata.get("chapters") or {}
+    indexed_pages = index_pages(args, uc, comic)
+    #the newest time working out its chapters stopped to ask, unless something about its chapters has run
+    #since - answered, or worked out some other way - when the question no longer stands
+    asked = None
+    for job in runner.recent:
+        if job.get("kind") == "chapters" and job.get("label") == chapters_label(comic.name):
+            asked = job.get("decide")
+            break
     return {
         "name": comic.name,
         "updated": metadata.get("updated"),
@@ -178,7 +193,11 @@ def comic_detail(args, uc, runner, name):
         "indexed": bool((metadata.get("history") or {}).get("index_cache")),
         #how much of the comic that record actually covers. a comic with a record of one page has been
         #walked in name only, and saying the number is what makes that visible
-        "indexed_pages": index_pages(args, uc, comic),
+        "indexed_pages": indexed_pages,
+        #a record there is, but one that a walk never got past the first page of: it says nothing, and
+        #stands in the way of cutting by the file numbers until it is discarded
+        "stale_walk": indexed_pages > 0 and walk_needed(args, uc, comic) == "start",
+        "decide": asked,
         "state": metadata.get("state") or {},
         "first_page_url": history.get("first_page_url"),
         "runs": [{key: run.get(key) for key in ("started", "start_url", "start_page_number", "last_url",

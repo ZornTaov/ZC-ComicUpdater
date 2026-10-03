@@ -50,9 +50,12 @@ function renderState(state) {
     if (counts.stopped) parts.push(`${counts.stopped} stopped`);
     if (j.error) parts.push(j.error);
     const notable = (j.comics || []).length;
+    //stopped to ask rather than walking on its own, so it says so, and the editor is where it is answered
+    if (j.decide) parts.push("stopped to ask what to do");
     return `<div class="history-item">
-      <div><span class="${counts.failed || j.error ? "s-failed" : ""}">${esc(j.label)}</span></div>
+      <div><span class="${counts.failed || j.error || j.decide ? "s-failed" : ""}">${esc(j.label)}</span></div>
       <div class="line">${when(j.finished)} · took ${clock(j.finished - j.started)}${parts.length ? " · " + esc(parts.join(", ")) : " · nothing new"}</div>
+      ${j.decide ? `<div class="line">${esc(j.decide.why)} <button type="button" class="link" data-open="${esc(j.decide.comic)}">Open its editor</button></div>` : ""}
       ${notable ? `<details data-job="${esc(String(j.id))}"><summary>${notable} comic${notable === 1 ? "" : "s"}</summary>${j.comics.map(comicLine).join("")}</details>` : ""}
     </div>`;
   }).join("") : `<div class="empty">Nothing has run in the last week.</div>`;
@@ -72,6 +75,18 @@ function renderState(state) {
       checkJob = null;
     } else if (state.current && state.current.id === checkJob.id) {
       $("check-result").innerHTML = `<span class="muted">Checking ${esc($("check-url").value.trim())}…</span>`;
+    }
+  }
+
+  if (chapterJob) {
+    const done = state.history.find((j) => j.id === chapterJob.id);
+    if (done) {
+      if (editing && editing.name === chapterJob.name && $("editor").open && done.decide) {
+        showDecision(done.decide);
+        $("edit-msg").className = "msg bad";
+        $("edit-msg").textContent = "It stopped to ask what to do; the choices are above.";
+      }
+      chapterJob = null;
     }
   }
 
@@ -111,6 +126,10 @@ async function poll() {
 $("queue").addEventListener("click", async (event) => {
   const id = event.target.dataset.drop;
   if (id) await post("/api/drop", { id: Number(id) }).catch((e) => alert(e.message));
+});
+$("history").addEventListener("click", (event) => {
+  const name = event.target.dataset.open;
+  if (name) openEditor(name);
 });
 $("stop").addEventListener("click", async () => {
   if (confirm("Stop the running job? Pages already saved are kept, and the comic resumes from there next time.")) {

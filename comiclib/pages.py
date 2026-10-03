@@ -160,6 +160,10 @@ def reading_order(folder, names):
 
 #what a page is written as until it is whole, so no reader or run ever sees half of one
 UNFINISHED = ".writing"
+#the folder inside a comic that a file the reader took out of it goes to, rather than being deleted. the
+#dot keeps a reader serving the loose pages from taking it for a book, and the library search from going
+#into it; nothing that counts or packs pages looks at anything but files
+SET_ASIDE = ".set aside"
 
 
 def write_page(target, content):
@@ -190,6 +194,6 @@ def clear_unfinished(folder):
 def count(folder):
     #how many files the comic holds, for the progress a run reports while it goes
     try:
-        return len([f for f in os.listdir(folder) if f != METADATA_FILE])
+        return len([f for f in os.listdir(folder) if f not in (METADATA_FILE, SET_ASIDE)])
     except OSError:
         return 0

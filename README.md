@@ -679,10 +679,18 @@ the one by hand writes anything without `--save`:
    is cut by the numbers its files carry, so one of thousands of pages is split in seconds rather than
    after an hour of loading every page. A comic whose files count from `0000.png` - begun by another
    tool, adopted, and scraped on from there - is read one page on, so `0000.png` is page 1. A missing
-   number is a missing page; a file with no number, or
-   two files on one number, and it says so and asks for the walk instead. In the
-   web page it is **Or cut every** in a comic's editor, with the chapter list left blank, or **cut
-   every** when adding it. A comic scraped from its first page needs no walk either way, numbered or
+   number is a missing page; a file with no number, or two files on one number, and it says so and
+   asks for the walk instead. In the web page it is **Or cut every** in a comic's editor, with the
+   chapter list left blank, then **Work out chapters**; or **cut every** when adding it. When the
+   filenames cannot say which page is which, the web page **stops and asks** rather than walking on
+   its own, and says why in the editor, and under Recent with a link to it. A page on two files
+   (usually one image saved twice, `0742.png` and `0742.png.png`) is shown with each file's size and
+   whether they are the same image, and you choose which to keep: the other is moved into the comic's
+   `.set aside` folder, not deleted, and goes in no archive. A walk that never got past one page -
+   begun on the newest page by a site whose first-page link leads there - leaves a record that cutting
+   would go by ahead of the numbers, so it is offered for discarding, which renames it aside in the
+   config folder (**Discard that walk** in the editor). **Walk it instead** is always one of the
+   choices. A comic scraped from its first page needs no walk either way, numbered or
    not, since the scrape kept the record as it went - a primed one included, whose single page is the
    whole of what it holds until the update brings the rest. The one-page archive a prime built before the
    comic was set to be cut is given up by that update, once every page is checked to be in a part.

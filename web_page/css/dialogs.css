@@ -29,3 +29,12 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .facts a, .runs a { color: inherit; }
 .runs { width: 100%; font-size: 12px; }
 .runs td, .runs th { padding: 3px 6px; position: static; cursor: default; }
+/*working out chapters stopped to ask: why, each page held twice with a choice of copy, and the ways on.
+  a filename can be long, and a radio row has to wrap rather than push the dialog wider*/
+.decide { border: 1px solid var(--warn); border-radius: 6px; padding: 10px 12px; margin: 4px 0 14px; font-size: 12.5px; }
+.decide-why { color: var(--warn); margin-bottom: 8px; overflow-wrap: anywhere; }
+.decide-group { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 8px; padding: 6px 10px; }
+.decide-group legend { color: var(--muted); padding: 0 4px; }
+.decide-group label.check { display: flex; white-space: normal; overflow-wrap: anywhere; padding: 2px 0; }
+.decide .note { color: var(--muted); margin: 6px 0; }
+.decide .row { margin-top: 8px; }

@@ -307,7 +307,8 @@
       <div class="field">
         <label for="e-chapters">Chapter list</label>
         <input type="text" id="e-chapters" spellcheck="false" placeholder="the comic's archive page — blank to read its own addresses">
-        <div class="note" id="e-chapters-note"></div>
+        <div class="note"><span id="e-chapters-note"></span>
+          <button type="button" class="link" id="e-discard-walk" hidden>Discard that walk</button></div>
       </div>
       <div class="field">
         <label for="e-every">Or cut every</label>
@@ -315,6 +316,7 @@
         <div class="note">For a comic with no chapters of its own that has grown too big for a reader to open
           as one archive: 100 makes pages 1–100 one archive, 101–200 the next. Leave the chapter list blank to use it.</div>
       </div>
+      <div class="decide" id="edit-decide" hidden></div>
       <div class="field">
         <label>Status</label>
         <label class="check"><input type="checkbox" id="e-ended"> ended, leave it alone</label>

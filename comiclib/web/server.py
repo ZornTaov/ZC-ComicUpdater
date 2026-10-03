@@ -13,10 +13,11 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from comiclib.paths import PROJECT
 from comiclib.web.adding import parse_entries
-from comiclib.web.edits import fix_chapter, insert_page, save_config, save_settings, try_chapter_list
+from comiclib.web.edits import discard_walk, fix_chapter, insert_page, save_config, save_settings, try_chapter_list
 from comiclib.web.elementpaths import element_settings, save_elements
 from comiclib.web.jobs import LogTee, Runner
-from comiclib.web.views import comic_detail, config_view, find_comic, is_running, job_view, walk_needed
+from comiclib.web.views import chapters_label, comic_detail, config_view, find_comic, is_running, job_view
+from comiclib.web.views import walk_needed
 from comiclib.web.views import library_view, walked_pages
 
 #the page, read afresh on every request so editing it needs no restart. it stays beside the scripts, where
@@ -220,7 +221,13 @@ def make_handler(runner, args, uc, tee):
                     #thousands on a network share is no thing to make a request wait for
                     walk = walk_needed(args, uc, comic)
                     numbers_first = bool(every) and walk == "start"
-                    job = runner.submit_chapterize(comic, listing, walk, every)
+                    #what the reader chose after this last stopped to ask. only names of files in the
+                    #comic's own folder are passed on, and the job checks each again before moving it
+                    aside = body.get("set_aside") if isinstance(body.get("set_aside"), list) else []
+                    choices = {"set_aside": [str(name) for name in aside
+                                             if str(name) == os.path.basename(str(name)) and str(name) not in ("", ".", "..")],
+                               "discard_walk": body.get("discard_walk") is True, "walk": body.get("walk") is True}
+                    job = runner.submit_chapterize(comic, listing, walk, every, choices)
                     self.reply({"queued": job.id, "label": job.label, "walking": bool(walk) and not numbers_first,
                                 "carrying_on": walk == "carry on", "numbers_first": numbers_first,
                                 "from": "every" if every else "archive" if listing else "addresses"})
@@ -256,6 +263,16 @@ def make_handler(runner, args, uc, tee):
                     self.reply({"error": "that comic is being scraped right now"}, 409)
                 else:
                     status, result = fix_chapter(uc.with_config(args), comic, body)
+                    self.reply(result, status)
+            elif path == "/api/discardwalk":
+                name = str(body.get("name") or "")
+                comic = find_comic(args, uc, name)
+                if comic is None:
+                    self.reply({"error": "no comic named {0}".format(name)}, 404)
+                elif runner.current is not None and runner.current.label == chapters_label(name):
+                    self.reply({"error": "that comic's chapters are being worked out right now"}, 409)
+                else:
+                    status, result = discard_walk(uc.with_config(args), uc, comic)
                     self.reply(result, status)
             elif path == "/api/stop":
                 self.reply({"stopping": runner.stop()})

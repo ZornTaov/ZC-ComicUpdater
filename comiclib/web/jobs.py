@@ -11,10 +11,11 @@ import time
 import traceback
 
 from comiclib.batch import own_group
-from comiclib.chapters.index import index_path, numbered_pages
+from comiclib.chapters.index import index_path, numbering_trouble, set_aside, set_aside_pages
+from comiclib.exits import USAGE
 from comiclib.metadata import METADATA_FILE, write_json
 from comiclib.paths import config_folder
-from comiclib.web.views import job_view
+from comiclib.web.views import chapters_label, job_view
 
 #how far back the page's Recent list reaches. it is kept in the config folder, so a restart - which a
 #restart file makes routine - does not empty it; and capped by count too, against a week of something
@@ -99,6 +100,9 @@ class Job:
         #it said, so the page has something to show for a walk of thousands of pages
         self.process = None
         self.doing = None
+        #why working out chapters stopped short of doing anything, and what the reader can choose to do
+        #about it, which the page offers in the comic's editor
+        self.decide = None
 
 
 class Runner:
@@ -250,24 +254,46 @@ class Runner:
 
         return self.submit(Job("check", "Check {0}".format(url), work))
 
-    def submit_chapterize(self, comic, listing, walk, every=None):
+    def submit_chapterize(self, comic, listing, walk, every=None, choices=None):
         uc = self.uc
+        choices = choices or {}
 
         def work(job):
             args = uc.with_config(self.args)
             script = os.path.join(os.path.dirname(os.path.abspath(args.script)), "chapters.py")
             steps = []
             if every and walk == "start":
-                #cutting by size needs only which file is which page, and numbered filenames say that
-                #already: a comic of thousands of pages is spared an hour of walking, and its site the load
-                job.doing = "reading the page numbers in its filenames ..."
-                print("{0}: reading the page numbers in its filenames ...".format(comic.name), flush=True)
-                _, why = numbered_pages(comic.folder)
-                if why:
-                    print("  they cannot say which page is which ({0}), so the comic is walked "
-                          "first".format(why), flush=True)
+                #what the reader chose when this stopped short last time, done first and said out loud
+                cache = index_path(comic.folder, args.root)
+                if choices.get("discard_walk"):
+                    for old, new in set_aside(cache):
+                        print("{0}: moved {1} aside as {2}, as asked".format(
+                            comic.name, os.path.basename(old), os.path.basename(new)), flush=True)
+                if choices.get("set_aside"):
+                    moved, refused = set_aside_pages(comic.folder, choices["set_aside"])
+                    for name, where in moved:
+                        print("{0}: set {1} aside, in {2}".format(comic.name, name, where), flush=True)
+                    for name, why in refused:
+                        print("{0}: left {1} where it is: {2}".format(comic.name, name, why), flush=True)
+                if choices.get("walk"):
+                    print("{0}: walking it, as asked".format(comic.name), flush=True)
                     steps.append(["index"])
                 else:
+                    #cutting by size needs only which file is which page, and numbered filenames say that
+                    #already: a comic of thousands of pages is spared an hour of walking, and its site the
+                    #load. when they cannot say, the reader decides what happens next rather than this
+                    #walking on its own: a walk can be an hour, can fail on a site whose first-page link is
+                    #broken, and leaves a record behind that then stands in the way of the numbers
+                    job.doing = "reading the page numbers in its filenames ..."
+                    print("{0}: reading the page numbers in its filenames ...".format(comic.name), flush=True)
+                    trouble = numbering_trouble(comic.folder, cache)
+                    if trouble:
+                        trouble["comic"] = comic.name
+                        trouble["every"] = every
+                        job.decide = trouble
+                        print("  they cannot say which page is which: {0}. Nothing was walked or changed; the "
+                              "comic's editor says what can be done about it.".format(trouble["why"]), flush=True)
+                        return USAGE
                     print("  every file carries its page number, so it is cut from those without walking",
                           flush=True)
             elif walk:
@@ -312,7 +338,7 @@ class Runner:
                 return self.uc.stopped_code
             return 0
 
-        return self.submit(Job("chapters", "Work out chapters for {0}".format(comic.name), work))
+        return self.submit(Job("chapters", chapters_label(comic.name), work))
 
     def submit_add(self, entries, options):
         uc = self.uc

@@ -52,13 +52,17 @@ def default_path(folder):
     return beside
 
 
-def expected(folder, names):
+def expected(folder, names, sizes=None):
     #what an archive of these files should hold, as entry name to size: the file itself, or its stand-in,
-    #which is drawn the same way every time, so its size is what says it is already there
+    #which is drawn the same way every time, so its size is what says it is already there. sizes, when given,
+    #is every file's size from one listing of the folder, so a comic of thousands is not asked file by file
     wanted = {}
     for name in names:
         entry, made = archive_entry(folder, name)
-        wanted[entry] = len(made) if made is not None else os.path.getsize(os.path.join(folder, name))
+        if made is not None:
+            wanted[entry] = len(made)
+        else:
+            wanted[entry] = sizes[name] if sizes and name in sizes else os.path.getsize(os.path.join(folder, name))
     return wanted
 
 

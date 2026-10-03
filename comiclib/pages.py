@@ -143,11 +143,37 @@ def held_pages(folder):
 def listing(folder, others=False):
     #the comic's pages as files, in reading order. a page held as a video, as flash, or as a note saying
     #where it lives now is asked for only where a page has to be accounted for - the lining up, and the
-    #packing that puts a stand-in in its place
-    names = [f for f in os.listdir(folder)
-             if (PAGE_TYPES.search(f) or (others and held_otherwise(folder, f)))
-             and os.path.isfile(os.path.join(folder, f))]
+    #packing that puts a stand-in in its place. whether each is a file comes with the listing itself, rather
+    #than being asked file by file: on a network share that was a round trip for every page of the comic
+    names = []
+    with os.scandir(folder) as entries:
+        for entry in entries:
+            if not (PAGE_TYPES.search(entry.name) or (others and held_otherwise(folder, entry.name))):
+                continue
+            try:
+                if entry.is_file():
+                    names.append(entry.name)
+            except OSError:
+                continue
     return reading_order(folder, names)
+
+
+def sizes(folder):
+    #every file in a folder with its size, from one listing. windows hands the size over with each name, so
+    #a folder of thousands of pages on a share is one request rather than thousands; linux asks for each
+    #once, and only once, where looking each up as it was needed asked two or three times over
+    found = {}
+    try:
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                try:
+                    if entry.is_file():
+                        found[entry.name] = entry.stat().st_size
+                except OSError:
+                    continue
+    except OSError:
+        pass
+    return found
 
 
 def reading_order(folder, names):

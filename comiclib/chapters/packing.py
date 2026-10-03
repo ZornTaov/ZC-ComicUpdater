@@ -11,7 +11,7 @@ from comiclib.chapters.align import place_recovered, recovered_files
 from comiclib.chapters.index import joined_pages
 from comiclib.metadata import METADATA_FILE as metadata_file, now_stamp as time_stamp, read as read_metadata
 from comiclib.metadata import write as write_metadata
-from comiclib.pages import listing as folder_pages
+from comiclib.pages import listing as folder_pages, sizes as file_sizes
 from comiclib.standin import held_otherwise
 
 
@@ -114,13 +114,13 @@ def chapter_contents(folder, chapters, pages):
     return parcels
 
 
-def already_packed(path, names, folder):
+def already_packed(path, names, folder, sizes=None):
     #an archive only needs writing again if what it holds is not what it should hold
     if not os.path.exists(path):
         return False
     try:
         held = cbz.held(path)
-        wanted = cbz.expected(folder, names)
+        wanted = cbz.expected(folder, names, sizes)
     except (OSError, zipfile.BadZipFile):
         return False
     held.pop("ComicInfo.xml", None)
@@ -154,9 +154,10 @@ def pack(folder, args):
 
     print("{0}: {1} chapter(s) into {2}".format(folder, len(parcels), shelf))
     print("  looking at what the archives already hold ...", flush=True)
+    sizes = file_sizes(folder)
     todo = []
     for at, (chapter, names) in enumerate(parcels, 1):
-        if not already_packed(os.path.join(shelf, chapter_file(folder, chapter)), names, folder):
+        if not already_packed(os.path.join(shelf, chapter_file(folder, chapter)), names, folder, sizes):
             todo.append((chapter, names))
         if at % 10 == 0 and at < len(parcels):
             print("    looked at {0} of {1}".format(at, len(parcels)), flush=True)

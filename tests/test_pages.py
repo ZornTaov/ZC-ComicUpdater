@@ -87,3 +87,20 @@ def test_a_page_is_never_half_written_under_its_own_name(tmp_path, monkeypatch):
 def test_a_page_saved_the_old_way_is_the_same_page_saved_now():
     #pages saved before names were taken as the site gives them had .png tacked on; they are still the page
     assert page_key("page.jpg.png") == page_key(saved_name("https://example.com/page.jpg"))
+
+
+def test_a_folder_is_listed_once_with_every_files_size(tmp_path, monkeypatch):
+    #one listing answers both what the files are and how big each is, on windows and linux alike; nothing
+    #asks file by file, which on a network share was a round trip for every page of the comic
+    (tmp_path / "0002_b.png").write_bytes(b"x" * 20)
+    (tmp_path / "0001_a.jpg").write_bytes(b"x" * 10)
+    (tmp_path / "notes.txt").write_bytes(b"x" * 5)
+    (tmp_path / "extras.png").mkdir()
+    asked = []
+    monkeypatch.setattr(pages_module.os.path, "getsize", lambda path: asked.append(path) or 0)
+    monkeypatch.setattr(pages_module.os.path, "isfile", lambda path: asked.append(path) or True)
+    assert pages_module.sizes(str(tmp_path)) == {"0001_a.jpg": 10, "0002_b.png": 20, "notes.txt": 5}
+    #a folder named like a page is not one
+    assert pages_module.listing(str(tmp_path)) == ["0001_a.jpg", "0002_b.png"]
+    assert not asked
+    assert pages_module.sizes(str(tmp_path / "gone")) == {}

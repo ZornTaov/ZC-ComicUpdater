@@ -6,7 +6,7 @@ import os
 from comiclib.chapters.index import alignment_path, fill_sizes, index_path, read_index, remember_cache, save_alignment
 from comiclib.metadata import METADATA_FILE as metadata_file, now_stamp as time_stamp, read as read_metadata
 from comiclib.metadata import write as write_metadata
-from comiclib.pages import listing as folder_pages, page_key
+from comiclib.pages import listing as folder_pages, page_key, sizes as file_sizes
 from comiclib.standin import video_types
 
 
@@ -79,7 +79,7 @@ def anchors_within(size_pages, size_files, name_pages, name_files, why):
     return longest_run(sorted(found.items()))
 
 
-def align(pages, files, folder=None):
+def align(pages, files, folder=None, held=None):
     #pages are what the walk saw, in order; files are what is on disk, in order. the answer is which file
     #each page was saved as. anchors - pages whose image name is still recognisable in a filename - pin
     #positions exactly; between two anchors, a stretch that holds the same number of each lines up one to
@@ -96,14 +96,14 @@ def align(pages, files, folder=None):
     #sent, so an exact match on a size nothing else shares is as good as a name
     size_pages, size_files = {}, {}
     if folder:
+        #held: each file's size, from one listing of the folder rather than a question per file
+        held = file_sizes(folder) if held is None else held
         for at, page in enumerate(pages):
             if page.get("bytes"):
                 size_pages.setdefault(page["bytes"], []).append(at)
         for at, name in enumerate(files):
-            try:
-                size_files.setdefault(os.path.getsize(os.path.join(folder, name)), []).append(at)
-            except OSError:
-                pass
+            if name in held:
+                size_files.setdefault(held[name], []).append(at)
 
     why = {}
     anchors = anchors_within(size_pages, size_files, name_pages, name_files, why)
@@ -164,24 +164,22 @@ def anchor_kinds(pages, files, anchors, folder):
     return kinds
 
 
-def verify(folder, files, pages, aligned):
+def verify(folder, files, pages, aligned, held=None):
     #every placement can be checked, not just the anchored ones: the file on disk should be as big as the
     #site says its image is. a size that differs is not proof of anything on its own - a comic that moved
     #host years ago serves re-encoded images that no longer match what was downloaded then. what does
     #prove something is the site's size matching a DIFFERENT file in this folder: that is a page sitting
     #where another page's file is, which is exactly what a wrong alignment looks like.
+    held = file_sizes(folder) if held is None else held
     held_sizes = {}
     for name in files:
-        try:
-            held_sizes.setdefault(os.path.getsize(os.path.join(folder, name)), []).append(name)
-        except OSError:
-            pass
+        if name in held:
+            held_sizes.setdefault(held[name], []).append(name)
     agree, changed, conflict = 0, 0, []
     for page, name in zip(pages, aligned):
         if not name or not page.get("bytes"):
             continue
-        held = held_sizes and next((size for size, names in held_sizes.items() if name in names), None)
-        if held == page["bytes"]:
+        if held.get(name) == page["bytes"]:
             agree += 1
         elif page["bytes"] in held_sizes:
             conflict.append((page["n"], name, held_sizes[page["bytes"]][:2]))
@@ -190,7 +188,7 @@ def verify(folder, files, pages, aligned):
     return agree, changed, conflict
 
 
-def describe(folder, pages, files, aligned, how, anchors, trouble, rescued=(), recovered=None):
+def describe(folder, pages, files, aligned, how, anchors, trouble, rescued=(), recovered=None, held=None):
     matched = [name for name in aligned if name]
     recovered = recovered or {}
     spare = [name for name in files if name not in set(matched)]
@@ -249,7 +247,7 @@ def describe(folder, pages, files, aligned, how, anchors, trouble, rescued=(), r
             if len(astray) > 6:
                 print("      ... and {0} more".format(len(astray) - 6))
             print("      chapters.py refetch {0} --page <n> --as-named puts one right.".format(folder))
-    agree, changed, conflict = verify(folder, files, pages, aligned)
+    agree, changed, conflict = verify(folder, files, pages, aligned, held)
     #a size says where a page is only where sizes say anything at all. a site that re-exported its whole
     #archive - every image re-encoded at four fifths the size - leaves every one of them different, and then
     #a size that happens to match some other file among thousands is a coincidence rather than a page in
@@ -359,6 +357,10 @@ def do_align(folder, args):
     held = folder_pages(folder, others=True)
     files = [name for name in held if name not in recovered]
     rescued = [name for name in held if name in recovered]
+    #every file's size from one listing, shared by the lining up and the check after it: asking file by
+    #file was most of the time a comic of thousands took, run against a library on a network share
+    print("  reading the size of every file ...", flush=True)
+    sizes = file_sizes(folder)
     fill_sizes(cache, pages)
     if args.by_time:
         aligned, how = by_written_order(folder, pages, files)
@@ -366,8 +368,8 @@ def do_align(folder, args):
             return 2
         anchors, trouble = [], []
     else:
-        aligned, how, anchors, trouble = align(pages, files, folder)
-    settled = describe(folder, pages, files, aligned, how, anchors, trouble, rescued, recovered)
+        aligned, how, anchors, trouble = align(pages, files, folder, sizes)
+    settled = describe(folder, pages, files, aligned, how, anchors, trouble, rescued, recovered, sizes)
     where = save_alignment(alignment_path(cache), folder, pages, aligned, how, settled)
     remember_cache(folder, cache)
     print("  written to {0}".format(where))

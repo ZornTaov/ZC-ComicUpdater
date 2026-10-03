@@ -433,6 +433,9 @@ class KeptIndex:
         #where each address first comes in the record, so a next link that leads back to a page the record
         #places earlier - a comic wrapping round from its newest page to its first - is known for what it is
         self.at = {}
+        #and where each ends, an address holding several pages having a line for each: the page after it
+        #is the line after its last
+        self.ends = {}
 
     def open(self, folder, args=None):
         held = read_metadata(folder)
@@ -492,6 +495,7 @@ class KeptIndex:
                 self.named.add((same_page(held.get("url")), page_key(held["file"])))
             if held.get("url"):
                 self.at.setdefault(same_page(held["url"]), held.get("n") or 0)
+                self.ends[same_page(held["url"])] = max(self.ends.get(same_page(held["url"]), 0), held.get("n") or 0)
             self.last = max(self.last, held.get("n") or 0)
         if reaches_newest(lines, saved) is False:
             #a walk that stopped short - a site that began refusing it part way - leaves a record ending
@@ -515,6 +519,17 @@ class KeptIndex:
             return None
         return after < before
 
+    def skipped(self, left, reached):
+        #how many pages the record puts between the page a next link left and the one it reached, when that
+        #is further on than the very next. a site can carry two next links that disagree - one through the
+        #whole comic, one only through the pages of the same series - and the wrong one is followed without
+        #a word, every page after it numbered as though nothing were missing. None when the record cannot
+        #say, or the next link went where it should, or backwards, which went_back answers
+        end, start = self.ends.get(same_page(left)), self.at.get(same_page(reached))
+        if end is None or start is None or start <= end + 1:
+            return None
+        return start - end - 1
+
     def add(self, url, src, image, size, title):
         #one line per page, the same shape chapters.py writes, so nothing has to be walked again. a page is
         #an image, not an address: a comic serving several at once gets a line each, or the index would
@@ -526,6 +541,7 @@ class KeptIndex:
         self.urls.add(url)
         self.pages.add((url, src))
         self.at.setdefault(same_page(url), self.last)
+        self.ends[same_page(url)] = self.last
         if named:
             self.named.add(named)
         try:

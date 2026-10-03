@@ -71,6 +71,7 @@ EXIT_TIMEOUT = exits.TIMEOUT
 EXIT_UNEXPECTED = exits.UNEXPECTED
 EXIT_BACKWARDS = exits.BACKWARDS
 EXIT_SAME_NAMES = exits.SAME_NAMES
+EXIT_SKIPS = exits.SKIPS
 
 #how long to let one page load before giving up on it. selenium otherwise waits for the page to finish
 #loading with no limit of its own, and the only thing that eventually breaks the wait is its internal
@@ -225,9 +226,20 @@ def setup():
 
     #where the comic starts, as an earlier run recorded it, for telling a comic that wraps round from its
     #newest page to its first when it keeps no record of which page is which
-    global comic_start
-    history = (read_metadata(output_folder(args)).get("history") or {})
+    global comic_start, image_xpath, next_xpath
+    held = read_metadata(output_folder(args))
+    history = held.get("history") or {}
     comic_start = history.get("first_page_url") if history.get("first_page_number") in (0, 1, None) else None
+    #the paths that found this comic's image and pressed its next link last time are tried first, ahead of
+    #the list. a site can hold two next links that both match something - one through the whole comic, one
+    #only through the pages of the same series - and searching the list afresh every run took whichever
+    #came first in it, which on a page of the other series was the wrong one. a path that stops matching
+    #still falls back to the list, as it does part way through a run
+    state = held.get("state") or {}
+    if not args.element_find_manual and state.get("image_xpath"):
+        image_xpath = state["image_xpath"]
+    if not args.element_find_next_manual and state.get("next_xpath"):
+        next_xpath = state["next_xpath"]
 
     return driver, increment, args
 
@@ -521,6 +533,27 @@ def next(driver,args):
         return False
 
 
+def next_instead(driver, args, left):
+    #the next link just pressed skipped pages the record lists. a site can carry two that disagree - one
+    #through the whole comic, one only through the pages of the same series - so the page is gone back to and
+    #every other known path tried, and the first that goes to the very next page the record lists is the one
+    #used from now on. False, back on the page left, when none does
+    global next_xpath
+    wrong = next_xpath
+    for element in [path for path in next_ele_names if path != wrong]:
+        driver.get(left)
+        if not test_next_ele_get(driver, element) or not next_ele_get(driver, element):
+            continue
+        reached = driver.current_url
+        if reached != left and not kept_index.skipped(left, reached) and not kept_index.went_back(left, reached):
+            print("The next link {0} skips pages here, so {1} is used instead: it goes to {2}, the page that "
+                  "comes next.".format(wrong, element, reached))
+            next_xpath = element
+            return True
+    driver.get(left)
+    return False
+
+
 def main():
     #the scrape itself, or one of the modes that look instead: --page-source, --index and --check
     global stop_reason
@@ -585,6 +618,16 @@ def main():
                 stop_reason = "came round to the comic's beginning"
                 completed = True
                 break
+            gap = kept_index.skipped(current_url, driver.current_url)
+            if gap and not next_instead(driver, args, current_url):
+                #stopped before anything from the far page is saved, so the next run starts where this one
+                #left off rather than past pages it never fetched
+                raise MirrorError(
+                    "The next link from {0} skips {1} page(s) this comic's record of which page is which puts "
+                    "after it, and no other next path known goes to the page that should come next. Check the "
+                    "site's next link on that page, and add a path for it in the element paths.".format(
+                        current_url, gap),
+                    EXIT_SKIPS, "next link skips pages")
             #a page followed a next link to, and meant to be saved: this is what a later run carries on
             #from if this one stops before it gets there, and the only thing that counts as having moved on
             scrape_state["walked_to"] = driver.current_url

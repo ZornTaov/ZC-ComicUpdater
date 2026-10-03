@@ -278,6 +278,8 @@ An updater run summarises what each comic did, including the exit code from `mir
 | 6 | a page never finished loading |
 | 7 | something unexpected, printed with the error |
 | 8 | the next link is running backwards through pages already held |
+| 9 | the site reuses image names between chapters; the comic needs prefix turned on |
+| 10 | the next link skips pages the comic's record lists, and no other known path goes to the right one |
 
 Code 3 on a comic that used to work is the one to look at: the site has changed its markup and the
 saved XPath no longer matches. Code 6 is usually transient and worth simply retrying.
@@ -1053,9 +1055,18 @@ python update_comics.py "D:/Comics" --only MyComic --dry-run
 - Sites that need a login, or that paginate with JavaScript only, will not work as-is. `-ej` enables
   JavaScript in the driver, which is off by default because pages load faster without it.
 - The image and "next" element are found by trying a list of common XPaths. The one that works is
-  remembered per comic. If a comic's newest page has different markup to every page before it — which
-  happens, since many themes wrap the image in a link to the next page and the newest page has no next
-  page — the search runs again rather than giving up.
+  remembered per comic, and the next run tries it first. If a comic's newest page has different markup
+  to every page before it — which happens, since many themes wrap the image in a link to the next page
+  and the newest page has no next page — the search runs again rather than giving up.
+- Some sites carry **two next links that disagree**: one through the whole comic and one only through
+  the pages of the same series, say a weekly strip running beside a daily one. Following the wrong one
+  skips pages without a word. A comic with a record of which page is which notices: when the next link
+  leads further on than the page the record says comes next, the page is gone back to and every other
+  known next path tried, and the first that reaches the right page is used from then on. With none that
+  does, the run stops with code 10 before saving anything past the gap.
+- A next link on the newest page that **wraps round to the first page** ends the run there, on a nightly
+  update as much as on the run that started from page one: the record of which page is which, or failing
+  that the address the comic was first scraped from, says the comic has come round.
 - `-m` and `-n` let you supply the XPaths yourself for a site the guesses do not cover.
 - Some comics wrap the page image in a link to the **previous** page, and some keep a next
   button on the last page pointing at the front page. Both make a scrape walk somewhere it

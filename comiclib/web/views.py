@@ -42,6 +42,8 @@ def job_view(job, uc, live=False):
     if job.kind == "check":
         view["check"] = job.check
         return view
+    if getattr(job, "outcome", None):
+        view["outcome"] = job.outcome
     if getattr(job, "decide", None):
         view["decide"] = job.decide
     if job.started is None:

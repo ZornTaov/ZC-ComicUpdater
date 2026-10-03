@@ -326,6 +326,25 @@ shows:
   scrape, from the record that scrape keeps, so it never has to be walked. Primed, the size is remembered
   and the update that fetches the rest writes the parts, with no single archive built in between. It
   applies to every row added at once; a row with its own chapter list uses that instead.
+- **Upload a comic**: a comic you already have, as one `.zip` or `.cbz` of its pages (zip a folder first).
+  It is written to disk as it arrives, with its progress shown, so an upload of gigabytes is fine, and
+  then looked inside without being unpacked: how many pages, how they are numbered, and whether it holds
+  a `mirror_metadata.json`. Each upload then gets a card saying where it goes:
+  - **Adopted before** - it carries its settings - and it goes in as it came, its `output` changed to
+    wherever you put it. Its record of which page is which never comes with it: copy that into the
+    config folder's `index` by hand, or the comic is walked when its chapters are next worked out.
+  - **Not adopted yet**, and the card is `adopt_comic.py`: the last page you have (or the first you do
+    not), or *ended* for a finished comic; whether to number new pages and from where, filled in from the
+    numbering it found; and *cut every* so many pages.
+  - A `.cbz` can go in as **loose pages**, to carry on scraping, or stay **this archive, as it is** on the
+    archive shelf, for a finished comic or one you only want tracked.
+
+  It goes in by a job in the queue, so it never lands in a folder a scrape is writing to. A comic already
+  in the library under that name is only replaced when you tick *replace*, and is then moved into a
+  `.replaced` folder beside it, not deleted; the library scan skips dot-folders, so it is never updated as
+  a second copy. Pages in more than one folder inside the zip, or a path that would land outside it, are
+  refused, and anything that is neither a page nor the settings is left out and said so. Uploads wait in
+  `.uploads` at the library root until they are put in or discarded.
 
   Leave the archive blank and it is worked out: a comic already inside a group folder gets its `.cbz`
   beside its siblings, and a comic with no folder of its own is given one, since some readers dislike

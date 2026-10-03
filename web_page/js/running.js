@@ -49,6 +49,8 @@ function renderState(state) {
     if (counts.failed) parts.push(`${counts.failed} failed`);
     if (counts.stopped) parts.push(`${counts.stopped} stopped`);
     if (j.error) parts.push(j.error);
+    //a job that is not about scraping says what it did instead: an upload put in the library
+    if (j.outcome) parts.push(j.outcome);
     const notable = (j.comics || []).length;
     //stopped to ask rather than walking on its own, so it says so, and the editor is where it is answered
     if (j.decide) parts.push("stopped to ask what to do");

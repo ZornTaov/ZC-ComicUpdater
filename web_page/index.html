@@ -85,6 +85,24 @@
     </section>
 
     <section>
+      <h2><span class="grow">Upload a comic</span></h2>
+      <div class="help">A comic you already have, as one .zip or .cbz of its pages - zip a folder first. One this
+        updater kept before carries its settings with it; anything else is adopted here, by saying where the
+        comic is up to. A comic already in the library under the same name is only replaced when you say so,
+        and is then kept in a .replaced folder beside it rather than deleted.</div>
+      <div class="row">
+        <input type="file" id="up-file" accept=".zip,.cbz">
+        <button class="primary" id="up-send">Upload</button>
+      </div>
+      <div class="row" id="up-progress-row" hidden>
+        <progress id="up-progress" max="1" value="0" style="flex:1"></progress><span id="up-progress-text" class="muted"></span>
+        <button type="button" class="small" id="up-cancel">Cancel</button>
+      </div>
+      <div class="msg" id="up-msg"></div>
+      <div id="up-pending"></div>
+    </section>
+
+    <section>
       <h2><span class="grow">Log</span><label class="check" style="text-transform:none; letter-spacing:0"><input type="checkbox" id="follow" checked> follow</label></h2>
       <div id="log"></div>
     </section>
@@ -342,6 +360,7 @@
 <script src="js/listcheck.js"></script>
 <script src="js/bounds.js"></script>
 <script src="js/adding.js"></script>
+<script src="js/uploads.js"></script>
 <script src="js/settings.js"></script>
 <script src="js/main.js"></script>
 </body>

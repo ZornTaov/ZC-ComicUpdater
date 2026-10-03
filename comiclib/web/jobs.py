@@ -9,12 +9,14 @@ import sys
 import threading
 import time
 import traceback
+import zipfile
 
 from comiclib.batch import own_group
 from comiclib.chapters.index import index_path, numbering_trouble, set_aside, set_aside_pages
 from comiclib.exits import USAGE
 from comiclib.metadata import METADATA_FILE, write_json
 from comiclib.paths import config_folder
+from comiclib.web.uploads import Refused, mark_queued, place
 from comiclib.web.views import chapters_label, job_view
 
 #how far back the page's Recent list reaches. it is kept in the config folder, so a restart - which a
@@ -103,6 +105,8 @@ class Job:
         #why working out chapters stopped short of doing anything, and what the reader can choose to do
         #about it, which the page offers in the comic's editor
         self.decide = None
+        #what a job that is not about scraping did, in a sentence, for Recent: an upload put in the library
+        self.outcome = None
 
 
 class Runner:
@@ -411,6 +415,30 @@ class Runner:
         verb = "Prime" if options["prime"] else "Scrape"
         label = "{0} {1}".format(verb, comics[0].name if len(comics) == 1 else "{0} new comics".format(len(comics)))
         return self.submit(Job("add", label, work))
+
+
+    def submit_place(self, chosen):
+        #an upload put into the library: in the queue like everything else, so it never unpacks into a folder
+        #a scrape is writing to, or replaces a comic part way through being updated
+        uc = self.uc
+
+        def every_pages(folder, every):
+            remember_chapters(uc.Comic(folder, {}, self.args.root), None, every)
+
+        def work(job):
+            try:
+                job.outcome = place(chosen, uc.with_config(self.args), every_pages, job.cancel)
+            except (Refused, OSError, zipfile.BadZipFile) as error:
+                job.error = str(error)
+                print("ERROR: {0}: {1}".format(job.label, error), flush=True)
+                #offered again, so it can be tried another way rather than uploaded afresh
+                mark_queued(self.args.root, chosen["id"], False)
+                return 1
+            print("{0}: {1}".format(job.label, job.outcome), flush=True)
+            return 0
+
+        mark_queued(self.args.root, chosen["id"], True)
+        return self.submit(Job("upload", "Upload {0}".format(chosen["pages_at"]), work))
 
 
 def remember_chapters(comic, listing, every=None, make_folder=False):

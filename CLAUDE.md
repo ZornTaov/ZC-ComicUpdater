@@ -43,7 +43,7 @@ archives, and keep them up to date unattended.
 | `library` | `Comic`, finding every comic in a library, and the command each resumes with |
 | `batch` | One update of a library: each comic its own process, the lock, chapters packed after, the summary |
 | `schedule` | The daily time, and the `update-now` file that starts a run sooner |
-| `web/` | The web page's server: the one job queue (`jobs`), what the page is shown (`views`), the element paths as it edits them (`elementpaths`), the add form (`adding`), the changes it can make (`edits`), and the http handler (`server`). The page itself is `web_page/`, at the top |
+| `web/` | The web page's server: the one job queue (`jobs`), what the page is shown (`views`), the element paths as it edits them (`elementpaths`), the add form (`adding`), a comic uploaded as a zip and put in or adopted (`uploads`), the changes it can make (`edits`), and the http handler (`server`). The page itself is `web_page/`, at the top |
 | `chapters/` | Walking a comic to record which page is which, and `KeptIndex`, the index a scrape adds to as it goes (`index`), the same index read from a WordPress site's post list instead of walked (`wordpress`), lining that up against the files (`align`), reading an archive page (`archive_page`) or the addresses (`addresses`) for chapters, the chapter list and its corrections (`chapterlist`), packing per chapter (`packing`), and renumbering, inserting and refetching pages (`pageops`) |
 
 The scripts import what they use by its old name (`chapters.page_key`, `mirror_base.metadata_file`), so
@@ -56,7 +56,7 @@ code reaching into a script still finds it; new code should import from `comicli
 `css/` is `base` (colours and controls), `page` (the sections), `dialogs`, and `elements` (the element
 paths dialog and the check result). `js/` holds one file per part of the page: `common` (`$`, `api`,
 `post`, `esc`, the time formats), `library`, `running` (the `/api/state` poll: Running now, queue, Recent,
-log), `editor`, `elements`, `listcheck`, `bounds`, `adding`, `settings`, and `main`, which starts it all.
+log), `editor`, `elements`, `listcheck`, `bounds`, `adding`, `uploads`, `settings`, and `main`, which starts it all.
 
 They are **plain scripts sharing one global scope, not modules**, on purpose: the dialogs hand each other
 state (`editing`, `checkJob`, `paths`), and an imported `let` cannot be assigned to. So a top-level name

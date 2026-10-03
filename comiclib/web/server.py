@@ -16,6 +16,7 @@ from comiclib.web.adding import parse_entries
 from comiclib.web.edits import discard_walk, fix_chapter, insert_page, save_config, save_settings, try_chapter_list
 from comiclib.web.elementpaths import element_settings, save_elements
 from comiclib.web.jobs import LogTee, Runner
+from comiclib.web.uploads import KINDS as upload_kinds, discard, pending, plan, receive
 from comiclib.web.views import chapters_label, comic_detail, config_view, find_comic, is_running, job_view
 from comiclib.web.views import walk_needed
 from comiclib.web.views import library_view, walked_pages
@@ -118,6 +119,8 @@ def make_handler(runner, args, uc, tee):
                     "log": [{"seq": s, "at": at, "text": text} for s, at, text in lines],
                     "seq": seq,
                 })
+            elif where.path == "/api/uploads":
+                self.reply({"uploads": pending(args.root)})
             elif where.path == "/api/config":
                 self.reply(config_view(args, uc))
             elif where.path == "/api/elements":
@@ -133,6 +136,23 @@ def make_handler(runner, args, uc, tee):
 
         def do_POST(self):
             if not self.allowed():
+                return
+            if urlsplit(self.path).path == "/api/upload":
+                #the one request whose body is not json: a whole comic, streamed to disk as it arrives. only
+                #a type a browser has to ask this server about first is taken, which keeps the same guard
+                kind = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
+                if kind not in upload_kinds:
+                    self.reply({"error": "send the .zip or .cbz itself"}, 415)
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    length = 0
+                status, result = receive(self.rfile, length, args.root, unquote(self.headers.get("X-Filename", "")))
+                if status != 200:
+                    #whatever is left of a body that was refused is not read, so the connection goes
+                    self.close_connection = True
+                self.reply(result, status)
                 return
             #json only: a page on another site cannot send that without the browser asking first, which is
             #what keeps a stray link from starting scrapes
@@ -274,6 +294,15 @@ def make_handler(runner, args, uc, tee):
                 else:
                     status, result = discard_walk(uc.with_config(args), uc, comic)
                     self.reply(result, status)
+            elif path == "/api/upload/place":
+                status, result = plan(uc.with_config(args), body)
+                if status == 200:
+                    job = runner.submit_place(result)
+                    result = {"queued": job.id, "label": job.label}
+                self.reply(result, status)
+            elif path == "/api/upload/discard":
+                status, result = discard(args.root, body.get("id"))
+                self.reply(result, status)
             elif path == "/api/stop":
                 self.reply({"stopping": runner.stop()})
             elif path == "/api/drop":

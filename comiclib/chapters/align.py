@@ -61,6 +61,24 @@ def unique_pairs(by_page, by_file):
     return pairs
 
 
+def inside(held, low, high):
+    #the positions of each value that fall strictly between two anchors
+    return {value: [at for at in ats if low < at < high] for value, ats in held.items()}
+
+
+def anchors_within(size_pages, size_files, name_pages, name_files, why):
+    #the pages pinned to a file by a size, or failing that a name, that nothing else here shares, keeping only
+    #those that agree with each other. why learns how each was pinned
+    found = {}
+    for at, to in unique_pairs(size_pages, size_files):
+        found[at], why[at] = to, "size"
+    #a name that agrees is no extra information, and a name that disagrees is the weaker of the two
+    for at, to in unique_pairs(name_pages, name_files):
+        if at not in found:
+            found[at], why[at] = to, "name"
+    return longest_run(sorted(found.items()))
+
+
 def align(pages, files, folder=None):
     #pages are what the walk saw, in order; files are what is on disk, in order. the answer is which file
     #each page was saved as. anchors - pages whose image name is still recognisable in a filename - pin
@@ -87,14 +105,25 @@ def align(pages, files, folder=None):
             except OSError:
                 pass
 
-    found, why = {}, {}
-    for at, to in unique_pairs(size_pages, size_files):
-        found[at], why[at] = to, "size"
-    #a name that agrees is no extra information, and a name that disagrees is the weaker of the two
-    for at, to in unique_pairs(name_pages, name_files):
-        if at not in found:
-            found[at], why[at] = to, "name"
-    anchors = longest_run(sorted(found.items()))
+    why = {}
+    anchors = anchors_within(size_pages, size_files, name_pages, name_files, why)
+    #a size two pages of a long comic happen to share - eight thousand jpegs of half a megabyte each make that
+    #a certainty, not a fluke - anchors neither, and the stretch around them will not count out. between
+    #two anchors already agreed, only a handful of pages and files are left, and among those the size
+    #almost always points at one of each. so each stretch is asked again, on its own, until nothing more
+    #is found; an anchor found there cannot cross the ones either side of it, which is what keeps it honest
+    while True:
+        more = []
+        edges = [(-1, -1)] + anchors + [(len(pages), len(files))]
+        for (page_from, file_from), (page_to, file_to) in zip(edges, edges[1:]):
+            if page_to - page_from < 2 or file_to - file_from < 2:
+                continue
+            more += anchors_within(inside(size_pages, page_from, page_to), inside(size_files, file_from, file_to),
+                                   inside(name_pages, page_from, page_to), inside(name_files, file_from, file_to),
+                                   why)
+        if not more:
+            break
+        anchors = sorted(anchors + more)
 
     aligned = [None] * len(pages)
     how = [None] * len(pages)

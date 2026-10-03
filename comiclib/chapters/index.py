@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
@@ -68,19 +69,48 @@ def whole_lines(raw):
     return lines, None
 
 
+#what a site says when it wants asking less often. both are a request to wait, not an answer
+BUSY = (429, 503)
+
+
+def patiently(call, url, tries=6, **options):
+    #a request, made again after a wait when the site says it is being asked too often. thousands of
+    #requests in a row - every image's size, every page of a listing - are exactly what a site limits, and
+    #taking its 429 for an answer would record thousands of pages as having no size. the site's own
+    #Retry-After is the wait where it gives one; otherwise each wait is longer than the last
+    for attempt in range(tries):
+        answer = call(url, **options)
+        if answer.status_code not in BUSY or attempt == tries - 1:
+            return answer
+        said = answer.headers.get("Retry-After") or ""
+        wait = min(int(said), 300) if said.isdigit() else min(5 * 2 ** attempt, 120)
+        print("  the site asked for a pause ({0}); waiting {1}s".format(answer.status_code, wait), flush=True)
+        answer.close()
+        time.sleep(wait)
+    return answer
+
+
 def head_size(session, url):
     #a HEAD asks for the headers only, so this costs nothing but the round trip
     try:
-        answer = session.head(url, timeout=20, allow_redirects=True)
+        answer = patiently(session.head, url, timeout=20, allow_redirects=True)
         length = answer.headers.get("Content-Length")
         if length is None and answer.status_code < 400:
             #a site that will not answer a HEAD properly is asked for the first byte instead
-            answer = session.get(url, timeout=20, stream=True, headers={"Range": "bytes=0-0"})
+            answer = patiently(session.get, url, timeout=20, stream=True, headers={"Range": "bytes=0-0"})
             length = (answer.headers.get("Content-Range") or "").rsplit("/", 1)[-1]
             answer.close()
         return int(length) if length and str(length).isdigit() else None
     except (requests.RequestException, ValueError):
         return None
+
+
+def write_lines(path, pages):
+    spare = path + ".writing"
+    with open(spare, 'w', encoding='utf-8') as f:
+        for page in pages:
+            f.write(json.dumps(page) + chr(10))
+    os.replace(spare, path)
 
 
 def fill_sizes(path, pages, workers=6):
@@ -89,7 +119,7 @@ def fill_sizes(path, pages, workers=6):
     wanted = [page for page in pages if page.get("src") and page.get("bytes") is None]
     if not wanted:
         return 0
-    print("Asking the site how big {0} image(s) are ...".format(len(wanted)))
+    print("Asking the site how big {0} image(s) are ...".format(len(wanted)), flush=True)
     session = requests.Session()
     session.headers.update({"User-Agent": "Mozilla/5.0"})
     done = 0
@@ -98,16 +128,16 @@ def fill_sizes(path, pages, workers=6):
             page["bytes"] = size
             done += 1
             if done % 100 == 0:
-                print("  {0} of {1}".format(done, len(wanted)))
+                print("  {0} of {1}".format(done, len(wanted)), flush=True)
+            #written back as it goes: a comic of thousands of pages takes long enough that a site losing
+            #patience, or the run being stopped, would otherwise throw every size already asked away
+            if done % 1000 == 0:
+                write_lines(path, pages)
     missed = [page["n"] for page in wanted if page.get("bytes") is None]
     if missed:
         print("  {0} image(s) would not say how big they are: {1}{2}".format(
             len(missed), missed[:6], "..." if len(missed) > 6 else ""))
-    spare = path + ".writing"
-    with open(spare, 'w', encoding='utf-8') as f:
-        for page in pages:
-            f.write(json.dumps(page) + chr(10))
-    os.replace(spare, path)
+    write_lines(path, pages)
     return len(wanted) - len(missed)
 
 

@@ -12,7 +12,7 @@ from comiclib.chapters.index import alignment_path, index_path, joined_pages, on
 from comiclib.chapters.links import page_at
 from comiclib.chapters.packing import repack
 from comiclib.metadata import now_stamp as time_stamp, read as read_metadata, write as write_metadata, write_json
-from comiclib.pages import numbered_name, page_number, saved_name
+from comiclib.pages import numbered_name, page_number, saved_name, type_from_bytes
 
 
 def refetch(folder, args):
@@ -154,7 +154,12 @@ def renumber(folder, args):
         name = page.get("file")
         if not name:
             continue
-        want = numbered_name(page["n"], name)
+        if getattr(args, "site_names", False) and page.get("src"):
+            #the number in front of the site's own name for the image, which is what a scrape with
+            #--prefix writes: so a comic first saved by some other tool reads the same as what it gains next
+            want = "{0:04d}_{1}".format(page["n"], site_name(folder, page["src"], name))
+        else:
+            want = numbered_name(page["n"], name)
         if want == name:
             already += 1
         else:
@@ -213,6 +218,22 @@ def renumber(folder, args):
     print("  the archive still holds the old names: chapters.py repack {0} --root <library>, or pack "
           "for a chaptered comic.".format(folder))
     return 0
+
+
+def site_name(folder, src, name):
+    #what the site calls a page's image, with the extension the file's own bytes call for. another tool can
+    #have saved a jpg as 0042.png, and the site can since have swapped a gif for a jpg under a new name; a
+    #reader goes by the extension to know how to open an entry, so the bytes on disk decide it, not the site
+    want = saved_name(src)
+    try:
+        with open(os.path.join(folder, name), 'rb') as f:
+            kind = type_from_bytes(f.read(12))
+    except OSError:
+        kind = None
+    stem, ending = os.path.splitext(want)
+    if kind and ending.lower().lstrip(".").replace("jpeg", "jpg") != kind:
+        want = "{0}.{1}".format(stem, kind)
+    return want
 
 
 def shift_up(folder, pages, at):

@@ -30,6 +30,7 @@ from comiclib.chapters.packing import (already_packed, chapter_contents, chapter
                                        chapter_folder, comic_info, drop_single, pack, repack, tidy_name,
                                        verify_chapters)
 from comiclib.chapters.pageops import insert_page, mark_recovered, refetch, renumber, shift_up  # noqa: F401
+from comiclib.chapters.wordpress import wordpress_index
 from comiclib.metadata import METADATA_FILE as metadata_file  # noqa: F401
 from comiclib.pages import listing as folder_pages, page_key, page_number, plain_name  # noqa: F401
 from comiclib.paths import config_folder  # noqa: F401
@@ -42,7 +43,8 @@ def setup():
         description="Line a comic's saved files up with the pages they came from.")
     params.add_argument("what", choices=["index", "align", "show", "chapters", "fix", "try", "pack",
                                          "refetch", "repack", "renumber", "recovered", "insert"],
-                        help="index: walk the comic and line it up. align: line up a walk already done. "
+                        help="index: walk the comic (or, with --wordpress, read its list of posts) and "
+                             "line it up. align: line up a walk already done. "
                              "show: what the last alignment says. refetch: fetch again any page whose file "
                              "is not what the site serves. chapters: work out where the chapters start. "
                              "try: read an archive page and say what it would be read as, before walking "
@@ -59,6 +61,14 @@ def setup():
                         help="With index, throw away what is already recorded and walk the comic from the "
                              "start. For a record that begins somewhere other than the first page, which "
                              "cannot be carried on from because its page numbers count from the wrong place.")
+    params.add_argument("--wordpress", action='store_true', default=False,
+                        help="With index, read which page is which from the site's own list of its posts "
+                             "instead of walking, for a comic on a WordPress site. A hundred pages a request "
+                             "rather than one a page load; --start names any one of the comic's pages.")
+    params.add_argument("--site-names", action='store_true', default=False,
+                        help="With renumber, name each file after the image the site serves for its page, "
+                             "as a scrape with --prefix would - 0001_the-sites-name.jpg - rather than keeping "
+                             "the name it has.")
     params.add_argument("--first", action='store_true', default=False,
                         help="Follow the comic's first-page link before walking.")
     params.add_argument("--limit", type=int, default=0, help="Stop the walk after this many pages.")
@@ -189,7 +199,7 @@ def main():
     if args.what == "repack":
         return repack(folder, args)
     if args.what == "index":
-        if walk(folder, args) is None:
+        if (wordpress_index if args.wordpress else walk)(folder, args) is None:
             return 2
     return do_align(folder, args)
 

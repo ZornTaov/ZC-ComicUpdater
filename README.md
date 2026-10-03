@@ -501,12 +501,40 @@ address, image and title. It is written as it goes, so a walk that is stopped or
 from where it left off when run again. `--start URL` says where the comic begins, and `--first` follows
 the comic's own first-page link when its metadata only records a later page.
 
+### Comics on WordPress: no walk needed
+
+```sh
+python chapters.py index "D:/Comics/Uncompressed/MyComic" --wordpress --start "https://example.com/comic/some-page/"
+```
+
+A comic on a WordPress site - which most comic themes are - can list every one of its pages without being
+walked. `/wp-json/` answers with every post of the comic's type, a hundred at a time, each with its address
+and the image it features, which is everything a walk records. A comic of eight thousand pages is listed in a
+couple of minutes rather than a day of page loads. `--start` names any one page of the comic: the type that
+holds it is the one listed, so a site that keeps its comic under `/comic/` and its news under `/blog/` lists
+only the comic. A post that features no image is read for the first image in its body, as older themes kept
+it. An index already there is not written over; `--restart` sets it aside and lists afresh. Two posts
+featuring the very same image are one strip posted twice - `/2024-03-02/` and `/2024-03-02-2/` - and
+only the first is kept, since one file can never settle two pages.
+
+What the list cannot know is what the next link does. It is in the order the posts are dated, which is the
+order a theme's next link follows, but a site can post a page and link it from nowhere, or upload an image
+and post nothing for it at all - and a page in neither the list nor the links has to be put in by hand. The
+sizes asked for while lining up are what say whether the list and the folder agree.
+
+Asking thousands of sizes in a row is exactly what a site limits. When it answers `429` or `503`, each
+request waits as long as its `Retry-After` says, or longer each time when it does not say, and the sizes
+already asked are written back every thousand pages, so a run stopped part way keeps them.
+
 Lining up then rests on three things, in order:
 
 1. **Filenames**, for pages never renamed.
 2. **Image sizes**, asked of the site with a HEAD request that downloads nothing. The bytes on disk are
    the bytes the site sent, so a size nothing else shares identifies a page whose file was renamed years
-   ago. This is what makes an old comic recoverable at all.
+   ago. This is what makes an old comic recoverable at all. On a comic of thousands of pages two
+   strips will share a size somewhere, and neither is unique across the comic; between the pages
+   already pinned either side, though, it almost always is, so each stretch left over is matched
+   again on its own.
 3. **Counting**, for the stretches between two anchors that hold the same number of each.
 
 Two checks then run over the result. The first needs no network at all: the walk recorded each page's
@@ -597,6 +625,11 @@ the alignment, so it refuses when that is not settled: numbering a guess just wr
 filenames. A name that already carries a number is renumbered rather than numbered twice, so running it
 again is safe, and it turns `prefix` on so new pages are numbered as they arrive. Nothing is renamed
 unless every new name is free and unique.
+
+`--site-names` names each file after the image the site serves for its page instead, which is what a
+scrape with `--prefix` writes: `0042.png` becomes `0043_strip-0043-jan12.jpeg`, so a comic another tool
+saved under numbers of its own reads the same as the pages it gains afterwards. The extension follows
+the file's own bytes rather than the site's name, since another tool may have saved a jpeg as `.png`.
 
 The archive still holds the old names afterwards, so follow it with `repack`, or `pack` for a chaptered
 comic.

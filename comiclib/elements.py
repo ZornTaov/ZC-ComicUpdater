@@ -3,7 +3,7 @@
 import json
 import os
 import re
-from time import sleep
+from time import monotonic, sleep
 from urllib.parse import urldefrag, urlparse
 
 import selenium.common.exceptions as se
@@ -208,8 +208,10 @@ def moved_within(before, after):
     return bool(before and after) and before != after and urldefrag(before)[0] == urldefrag(after)[0]
 
 
-#the ways of pressing a next button, in the order they are tried on one not pressed before
-PRESSES = ("a plain click", "a click after scrolling to it", "a script click")
+#the ways of pressing a next button, in the order they are tried on one not pressed before. the scrolled
+#click is last because it is the only one that can wait: for a button something covers it waits out the
+#whole of its timeout, where a script click answers at once
+PRESSES = ("a plain click", "a script click", "a click after scrolling to it")
 #the way that last pressed each next button, tried first from then on. a button something else covers - a
 #sticky header, a banner - refuses a plain click, then waits out the whole of the scrolled click's timeout,
 #and only then takes a script click: ten seconds on every page of a comic, for an answer that never changes
@@ -229,6 +231,8 @@ def next_ele_get(driver,element):
         shown = found.is_displayed()
     except se.WebDriverException:
         shown = False
+    #a script click a page took without going anywhere, kept as the last resort it always was
+    pressed_blind = False
     for way in sorted(PRESSES, key=lambda way: way != pressed_by.get(element)):
         #waiting for an element that cannot be seen to become clickable is waiting for something that
         #cannot happen: selenium calls an element clickable only once it is displayed. it costs the whole
@@ -246,7 +250,16 @@ def next_ele_get(driver,element):
                 ready.click()
             else:
                 #a hidden element, or one behind something else, still runs whatever its onclick says
+                before = driver.current_url
                 driver.execute_script("arguments[0].click();", found)
+                #but a site that answers only a reader's own click ignores one a script makes, and says
+                #nothing. taken for a press, that ends the run as though this were the latest page, so the
+                #page has to be seen to move before it counts; the real click after scrolling comes next
+                if not page_moved(driver, found, before):
+                    if verbose:
+                        print("\na script click on the next button {0} went nowhere.".format(element))
+                    pressed_blind = True
+                    continue
             if verbose and not way.startswith("a plain") and pressed_by.get(element) != way:
                 print("\nThe next button {0} took {1}.".format(element, way))
             pressed_by[element] = way
@@ -254,6 +267,28 @@ def next_ele_get(driver,element):
         except (se.WebDriverException, AttributeError) as error:
             if verbose:
                 print("\n{0} on the next button {1} failed: {2}".format(way, element, type(error).__name__))
+    if pressed_blind:
+        #nothing else would press it either. a comic that redraws its page in place, address and all, moves
+        #in a way this cannot see, and the run's own check of whether it is still on the same page decides
+        return True
     #the next button vanishing is how many comics end, so this stops the run rather than failing it
     if verbose: print("\nThe next button {0} could not be pressed at all.".format(element))
     return False
+
+
+def page_moved(driver, pressed, before, wait=2.0):
+    #whether pressing took the browser somewhere: a new address, or the page holding the button replaced.
+    #a link the browser follows has already loaded by the time the script returns, so this is at once
+    until = monotonic() + wait
+    while True:
+        try:
+            if driver.current_url != before:
+                return True
+            pressed.is_enabled()
+        except se.StaleElementReferenceException:
+            return True
+        except se.WebDriverException:
+            return False
+        if monotonic() >= until:
+            return False
+        sleep(0.05)

@@ -158,3 +158,18 @@ def test_replacing_gives_up_the_single_archive_once_everything_checks_out(tiny, 
             inside |= {n for n in zf.namelist() if n != "ComicInfo.xml"}
     pages = set(chapters.folder_pages(str(tiny.comic)))
     assert inside == pages, sorted(pages - inside)
+
+
+def test_a_comic_with_no_archive_named_keeps_its_chapters_on_the_shelf(tmp_path, chapters):
+    #adopted or uploaded, with no cbz_path: its chapters go where a scrape would have filed its one
+    #archive, in the CBZs tree beside Uncompressed - not in a folder beside its loose pages
+    root = tmp_path / "lib"
+    comic = root / "Uncompressed" / "Group" / "Adopted"
+    comic.mkdir(parents=True)
+    (root / "CBZs").mkdir()
+    shelf = chapters.chapter_folder(str(comic), {"settings": {}}, str(root))
+    assert shelf == str(root / "CBZs" / "Group" / "Adopted")
+    #a library not laid out that way still keeps them beside the pages, as before
+    loose = tmp_path / "loose" / "Adopted"
+    loose.mkdir(parents=True)
+    assert chapters.chapter_folder(str(loose), {"settings": {}}) == str(loose) + "_chapters"

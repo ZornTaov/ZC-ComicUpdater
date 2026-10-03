@@ -6,6 +6,7 @@ import shutil
 import zipfile
 
 from comiclib import cbz
+from comiclib.cbz import shelf
 from comiclib.chapters.align import place_recovered, recovered_files
 from comiclib.chapters.index import joined_pages
 from comiclib.metadata import METADATA_FILE as metadata_file, now_stamp as time_stamp, read as read_metadata
@@ -28,9 +29,16 @@ def chapter_folder(folder, metadata, root=None, given=None):
     if given:
         return given
     cbz = (metadata.get("settings") or {}).get("cbz_path")
-    if not cbz:
-        return os.path.abspath(folder) + "_chapters"
-    full = cbz if os.path.isabs(cbz) or not root else os.path.join(root, cbz.replace('/', os.sep))
+    if cbz:
+        full = cbz if os.path.isabs(cbz) or not root else os.path.join(root, cbz.replace('/', os.sep))
+    else:
+        #a comic adopted or uploaded with no archive named is filed by the same rule a scrape files its single
+        #archive by: under Uncompressed, so on the CBZs shelf beside it. going straight to a folder beside the
+        #pages put a comic's chapters among the loose pages, where no reader looks for them
+        tree, found = shelf(folder)
+        if not found:
+            return os.path.abspath(folder) + "_chapters"
+        full = os.path.join(found, os.path.relpath(os.path.abspath(folder), tree)) + ".cbz"
     name = os.path.basename(os.path.abspath(folder))
     if os.path.basename(os.path.dirname(full)).lower() == name.lower():
         return os.path.dirname(full)

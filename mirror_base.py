@@ -35,7 +35,7 @@ custom_args = [
 
 #the paths shipped in comiclib.elements with the library's own element_paths.json laid over them, read
 #once, before anything is tried
-element_names, next_ele_names = elements.with_saved_paths(element_paths_file())
+element_names, next_ele_names, first_ele_names = elements.with_saved_paths(element_paths_file())
 
 #what the page before this one showed, so an image that appears again can be told from a page of the
 #comic. kept as the raw matches rather than what was kept of them, so furniture is recognised even on a
@@ -264,7 +264,7 @@ def build_driver(args):
 
 def check_page(driver):
     #--check, against the element paths this run would try, in the order it would try them
-    return pagecheck.check_page(driver, element_names, next_ele_names)
+    return pagecheck.check_page(driver, element_names, next_ele_names, first_ele_names)
 
 
 def output_folder(args):
@@ -569,7 +569,7 @@ def main():
         #a walk that records what it saw and downloads nothing
         code = EXIT_OK
         try:
-            walk.build_index(driver, args, page_images, next, still_on)
+            walk.build_index(driver, args, page_images, next, still_on, first_ele_names)
         except MirrorError as error:
             print("\nERROR: {0}".format(error))
             code = error.code

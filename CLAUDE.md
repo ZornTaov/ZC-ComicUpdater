@@ -33,7 +33,7 @@ archives, and keep them up to date unattended.
 | `standin` | Draws a page for a page no reader can show. `cbz` asks it about every file, so every archive agrees |
 | `exits` | `mirror_base`'s exit codes and what each means, and `MirrorError`, which carries one |
 | `browser` | Starting the browser a scrape drives, and closing it however it ended |
-| `elements` | The element paths shipped as examples, finding the comic image and the next link by them, and pressing the link |
+| `elements` | The element paths shipped as examples (comic image, next link, first-page link), finding the image and the links by them, and pressing a link |
 | `pagecheck` | `--check`: which known paths match a page, and what to add when none do |
 | `download` | Fetching an image, with retries |
 | `guards` | The checks before a page is written: running backwards, writing over another page, one page under two names |
@@ -110,7 +110,8 @@ anything new.
 - **Alignment** matches that record against the files on disk, by name, by size, then by order. It has
   to *settle* before a comic can be chaptered. Missing pages are tolerated; unplaced files are not.
 - **Element paths** are XPaths for the comic image and the next link, tried in order, with the winner
-  remembered per comic. A library adds its own through `config/element_paths.json`, which is the
+  remembered per comic, and for the first-page link a walk follows back to page 1 when a comic's start
+  was never recorded - a walk that finds none stops, rather than start an index part way through. A library adds its own through `config/element_paths.json`, which is the
   sanctioned way to handle an awkward site — **do not special-case a comic in the code.**
 
 ## Conventions worth matching

@@ -170,7 +170,7 @@
         <summary>How to add a path for a new comic</summary>
         <ol>
           <li>Paste one of the comic's pages below (a page in the middle, not the newest) and press
-            <b>Check this page</b>. If both lists already match, there is nothing to add.</li>
+            <b>Check this page</b>. If the comic image and next page lists already match, there is nothing to add.</li>
           <li>When nothing matches, the check suggests paths from the page's own images and links. Press
             <b>add it</b> beside one to put it at the top of its list.</li>
           <li>To write one yourself, right-click the comic in your own browser, choose <i>Inspect</i>, and
@@ -184,6 +184,9 @@
           <li>Use <code>id</code>s and <code>class</code>es rather than positions like
             <code>/html/body/div[3]/img</code>, which break when the site is redesigned.</li>
           <li>Keep next paths to links (<code>//a[...]</code>). A match in the page's head clicks nothing.</li>
+          <li>First page paths are only for walking a comic whose start was never recorded: the walk begins at
+            the latest page it knows and follows one back to page 1, and stops if none matches. Check one of
+            the comic's later pages to see which would be used.</li>
           <li>Put a path written for one comic above the general ones, and note which comic it is for.</li>
         </ul>
         The paths that came with the script are examples of the most common layouts; their notes say which.

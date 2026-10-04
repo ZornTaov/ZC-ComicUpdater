@@ -1,6 +1,9 @@
 //the element paths dialog: the two lists as they are being edited, and checking a page against them
 
-let paths = { image: [], next: [] };
+//each list the dialog edits, in the order they are shown, by what it is called there
+const pathLabels = { image: "Comic image", next: "Next page", first: "First page" };
+const pathKinds = Object.keys(pathLabels);
+let paths = { image: [], next: [], first: [] };
 let checkJob = null;
 //the last page checked, kept so the path list can say what each path actually found there. a path that
 //catches the buttons alongside the pages is worth seeing while the list is being edited, not afterwards
@@ -32,10 +35,10 @@ function renderPaths(fromCheck) {
   //moving a row rebuilds the lists, and a rebuilt list would otherwise jump back to the top
   const scrolled = {};
   $("ep-lists").querySelectorAll(".ep-list").forEach((list) => { scrolled[list.dataset.list] = list.scrollTop; });
-  //worked out once for both lists, since a row cannot declare anything of its own inside the markup below
-  const hits = { image: checkedPaths("image"), next: checkedPaths("next") };
-  $("ep-lists").innerHTML = ["image", "next"].map((kind) => `
-    <div class="ep-head"><h4>${kind === "image" ? "Comic image" : "Next page"} paths</h4>
+  //worked out once for every list, since a row cannot declare anything of its own inside the markup below
+  const hits = Object.fromEntries(pathKinds.map((kind) => [kind, checkedPaths(kind)]));
+  $("ep-lists").innerHTML = pathKinds.map((kind) => `
+    <div class="ep-head"><h4>${pathLabels[kind]} paths</h4>
       <span class="muted">${paths[kind].filter((p) => p.enabled).length} on, ${paths[kind].length} listed${
         lastCheck && lastCheck.url ? `, counts from the check of ${esc(lastCheck.url)}` : ""}</span>
       <button type="button" class="link" data-add="${kind}">add one</button></div>
@@ -100,7 +103,7 @@ async function openElements() {
   $("ep-msg").className = "msg"; $("ep-msg").textContent = "";
   try {
     const data = await (await fetch(api("/api/elements"))).json();
-    paths = { image: data.image, next: data.next };
+    paths = Object.fromEntries(pathKinds.map((kind) => [kind, data[kind] || []]));
     $("ep-path").textContent = data.problem ? data.problem : data.path + (data.saved ? "" : " (not written yet)");
     renderPaths();
     $("elements").showModal();
@@ -135,7 +138,7 @@ $("ep-save").addEventListener("click", async () => {
   const msg = $("ep-msg");
   msg.className = "msg"; msg.textContent = "Saving…";
   try {
-    await post("/api/elements", { image: paths.image, next: paths.next });
+    await post("/api/elements", paths);
     msg.className = "msg good";
     msg.textContent = "Saved. The next comic to run uses these.";
   } catch (error) {
@@ -150,7 +153,7 @@ function addPath(kind, xpath, note) {
   paths[kind].unshift({ xpath, note: note || "", enabled: true, shipped: false });
   renderPaths();
   $("ep-msg").className = "msg";
-  $("ep-msg").textContent = `Added to the top of the ${kind === "image" ? "comic image" : "next page"} paths. Save to keep it.`;
+  $("ep-msg").textContent = `Added to the top of the ${pathLabels[kind].toLowerCase()} paths. Save to keep it.`;
 }
 
 function hit(kind, xpath, detail, first) {
@@ -198,9 +201,16 @@ function renderCheck(found, host) {
   //here rather than waiting for it to be reopened. an untouched list has nothing to redraw yet
   if (paths.image.length || paths.next.length) renderPaths(true);
   const parts = [`<div class="muted">${esc(found.title || "")}</div>`];
-  ["image", "next"].forEach((kind) => {
-    const label = kind === "image" ? "Comic image" : "Next page";
+  pathKinds.forEach((kind) => {
+    const label = pathLabels[kind];
     const hits = found[kind] || [];
+    if (kind === "first" && !hits.length) {
+      //only a walk of a comic whose start was never recorded needs one, and a comic's own first page often
+      //has no link back to itself, so this is said quietly and offers nothing to add
+      parts.push(`<div style="margin-top:8px"><b>${label}</b>: <span class="muted">nothing matched, so a walk
+        from this page could not find its way back to page 1</span></div>`);
+      return;
+    }
     if (hits.length) {
       parts.push(`<div style="margin-top:8px"><b>${label}</b>: ${hits.length} match${hits.length === 1 ? "" : "es"}</div>` +
         hits.map((h, at) => hit(kind, h.xpath, h.src || (h.found && (h.found.href || h.found.title || h.found.class)) || "", at === 0)).join("") +

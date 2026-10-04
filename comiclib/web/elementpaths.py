@@ -4,12 +4,11 @@ import json
 import os
 import time
 
-from comiclib.elements import shipped
+from comiclib.elements import kinds, shipped
 from comiclib.metadata import write_json
 
 #the file mirror_base reads its element paths from, kept in the config folder so the container can write it
 element_file = "element_paths.json"
-kinds = ("image", "next")
 
 
 def shipped_paths():
@@ -57,13 +56,18 @@ def element_settings(args, uc):
         ordered += [{"xpath": entry["xpath"], "note": entry.get("note", ""), "enabled": True, "shipped": True}
                     for entry in built_in[kind] if entry["xpath"] not in seen]
         lists[kind] = ordered
-    return {"path": path, "saved": bool(saved), "problem": problem,
-            "image": lists["image"], "next": lists["next"]}
+    return dict(lists, path=path, saved=bool(saved), problem=problem)
 
 
 def save_elements(args, uc, given):
     cleaned, problems = {}, []
     for kind in kinds:
+        if kind not in given:
+            #a page loaded before this kind of path existed sends nothing for it. that is not a list with
+            #everything turned off, so whatever is saved for it now is kept as it is
+            cleaned[kind] = [{"xpath": entry["xpath"], "note": entry["note"], "enabled": entry["enabled"]}
+                             for entry in element_settings(args, uc)[kind]]
+            continue
         entries, seen = [], set()
         for entry in given.get(kind) or []:
             xpath = str((entry or {}).get("xpath") or "").strip()
@@ -93,7 +97,6 @@ def save_elements(args, uc, given):
         write_json(path, body)
     except OSError as error:
         return 500, {"error": "could not write {0}: {1}".format(path, error)}
-    print("Saved {0}: {1} image path(s), {2} next path(s)".format(
-        path, len([e for e in cleaned["image"] if e["enabled"]]),
-        len([e for e in cleaned["next"] if e["enabled"]])), flush=True)
+    print("Saved {0}: {1} image path(s), {2} next path(s), {3} first-page path(s)".format(
+        path, *(len([e for e in cleaned[kind] if e["enabled"]]) for kind in kinds)), flush=True)
     return 200, {"saved": True, "path": path}

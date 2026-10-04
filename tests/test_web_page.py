@@ -48,6 +48,9 @@ def test_the_element_lists_reorder_by_button_and_by_drag(page, browser):
                                               "&& paths.image.length && document.querySelectorAll("
                                               "'[data-list=\"image\"] [data-move=\"up\"]').length"),
                why="the element lists never arrived")
+    #the links back to the first page are a list of their own, drawn like the other two
+    assert browser.execute_script("return document.querySelectorAll('[data-list=\"first\"] .ep').length "
+                                  "=== paths.first.length && paths.first.length > 0"), "no first page list"
     #a row well down the list, so moving it happens somewhere a re-render could scroll away from
     at = browser.execute_script("return Math.min(8, paths.image.length - 1)")
     assert at >= 1, "the image list is too short to move a row up"

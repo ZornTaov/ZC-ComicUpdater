@@ -10,18 +10,6 @@ from comiclib.elements import next_ele_get, test_next_ele_get
 from comiclib.exits import USAGE as EXIT_USAGE, MirrorError
 from comiclib.pages import saved_name
 
-#links back to the first page, used by --index when it is not told where a comic starts. only ever
-#followed once, before the walk begins
-first_ele_names = [
-                   '//*[@rel="first"]',
-                   '//*[@class="comic-nav-base comic-nav-first"]', #the ComicPress theme's
-                   '//*[@class="navi navi-first"]',
-                   '//*[@class="comic-nav-first"]',
-                   '//*[@title="First"]',
-                   '//*[@alt="First"]',
-                   '//a[contains(translate(text(),"FIRST","first"), "first")]']
-
-
 def index_read(path):
     #what an earlier attempt already got through, so a walk that stopped can be carried on
     if not os.path.exists(path):
@@ -33,22 +21,23 @@ def index_read(path):
                           EXIT_USAGE, "unreadable index")
 
 
-def go_to_first(driver):
-    for element in first_ele_names:
+def go_to_first(driver, first_paths):
+    #the first-page link, by the paths the library knows: only ever followed once, before the walk begins
+    for element in first_paths:
         if not test_next_ele_get(driver, element):
             continue
         was = driver.current_url
         if next_ele_get(driver, element) and driver.current_url != was:
             print("Followed {0} back to {1}".format(element, driver.current_url))
             return True
-    print("No first-page link found, so the walk starts where it was pointed.")
     return False
 
 
-def build_index(driver, args, page_images, next, still_on):
+def build_index(driver, args, page_images, next, still_on, first_paths=()):
     #walks the comic the way a scrape does, but saves nothing: this is only about which page is which.
     #each line is written as it is reached, so a walk that is stopped or times out keeps what it had.
-    #page_images(driver, args), next(driver, args) and still_on(driver, before) are the scrape's own.
+    #page_images(driver, args), next(driver, args) and still_on(driver, before) are the scrape's own, and
+    #first_paths are the library's links back to page 1.
     path = args.index
     folder = os.path.dirname(os.path.abspath(path))
     if folder:
@@ -69,8 +58,15 @@ def build_index(driver, args, page_images, next, still_on):
         if not next(driver, args):
             print("The page it stopped on has no next link, so the index is already complete.")
             return len(done)
-    elif args.index_first:
-        go_to_first(driver)
+    elif args.index_first and not go_to_first(driver, first_paths):
+        #an index is numbered from where it starts, so one begun part way through calls its first page
+        #page 1 and every page after it wrong - and lines up against none of the files. nothing is
+        #written, so the walk can be run again once it knows the way back
+        raise MirrorError("No first-page link found on {0}, so where this comic starts is not known and a "
+                          "walk from here would number every page wrong. Add a path that finds the "
+                          "first-page link in the web page's Element paths, or give the walk the comic's "
+                          "first page: chapters.py index <folder> --start <its first page>."
+                          .format(driver.current_url), EXIT_USAGE, "no first-page link")
 
     at = len(done)
     seen = {line["url"] for line in done}

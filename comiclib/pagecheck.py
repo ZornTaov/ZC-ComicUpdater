@@ -105,9 +105,22 @@ def built_by_javascript(url, src):
     return bool(name) and name not in body
 
 
-def check_page(driver, element_names, next_ele_names):
+def links_matching(driver, names):
+    #every link path that matches, as a scrape would find it, with enough of what it found to tell it apart
+    matched = []
+    for element in names:
+        if test_next_ele_get(driver, element):
+            try:
+                bits = describe_element(driver, driver.find_element(By.XPATH, element))
+            except se.WebDriverException:
+                bits = {}
+            matched.append({"xpath": element, "found": bits})
+    return matched
+
+
+def check_page(driver, element_names, next_ele_names, first_ele_names=()):
     #every path that matches, in the order a scrape would try them, so it is clear which one would win
-    found = {"url": driver.current_url, "title": driver.title, "image": [], "next": []}
+    found = {"url": driver.current_url, "title": driver.title, "image": [], "next": [], "first": []}
     for element in element_names:
         srcs = ele_get_all(driver, element)
         if srcs:
@@ -118,13 +131,9 @@ def check_page(driver, element_names, next_ele_names):
             pages = comic_images(srcs, found["url"]) if len(srcs) > 1 else srcs
             found["image"].append({"xpath": element, "src": srcs[0], "count": len(srcs),
                                    "srcs": srcs[:20], "pages": pages[:20], "page_count": len(pages)})
-    for element in next_ele_names:
-        if test_next_ele_get(driver, element):
-            try:
-                bits = describe_element(driver, driver.find_element(By.XPATH, element))
-            except se.WebDriverException:
-                bits = {}
-            found["next"].append({"xpath": element, "found": bits})
+    found["next"] = links_matching(driver, next_ele_names)
+    #a walk finds its way back to page 1 the way a scrape finds its next link
+    found["first"] = links_matching(driver, first_ele_names)
     if not found["image"] or not found["next"]:
         images, links = suggest_paths(driver)
         found["suggestions"] = {"image": images, "next": links}
@@ -153,6 +162,13 @@ def check_page(driver, element_names, next_ele_names):
             print("  {0}: nothing matched".format(kind))
             for guess in found.get("suggestions", {}).get(kind, []):
                 print("    maybe {0}  ({1})".format(guess.get("suggested"), describe_guess(guess)))
+    if found["first"]:
+        print("  first: {0} of the known paths match; a walk looking for the start would use {1}".format(
+            len(found["first"]), found["first"][0]["xpath"]))
+    else:
+        #only a walk of a comic whose start was never recorded needs one, and a comic's own first page
+        #often has no link back to itself, so this is worth saying but not worth alarm
+        print("  first: nothing matched, so a walk from here could not find its way back to page 1")
     #a machine readable copy on one line, for the web page to read back
     print("CHECK-JSON {0}".format(json.dumps(found)))
     return found

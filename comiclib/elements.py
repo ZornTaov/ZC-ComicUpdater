@@ -48,25 +48,49 @@ shipped = {
         {"xpath": '//a[img[starts-with(translate(@alt, "NEXT", "next"), "next")]]',
          "note": 'a picture button whose alt text starts with "next"'},
     ],
+    #links back to a comic's first page, for a walk of a comic whose beginning was never recorded: it is
+    #pointed at the latest page it knows, and follows one of these back to page 1 before it begins
+    "first": [
+        {"xpath": '//*[@rel="first"]',
+         "note": "the standard mark for a link to the first page"},
+        {"xpath": '//*[@class="comic-nav-base comic-nav-first"]',
+         "note": "the ComicPress theme"},
+        {"xpath": '//*[@class="navi navi-first"]',
+         "note": "ComicPress, and themes like it"},
+        {"xpath": '//*[@class="comic-nav-first"]',
+         "note": "Comic Easel, and themes like it"},
+        {"xpath": '//*[@title="First"]',
+         "note": 'an element titled "First"'},
+        {"xpath": '//*[@alt="First"]',
+         "note": 'a picture button whose alt text is "First"'},
+        {"xpath": '//a[contains(translate(text(),"FIRST","first"), "first")]',
+         "note": 'a link whose text says "first", in any case'},
+        {"xpath": '//a[img[contains(translate(@src, "FIRST", "first"), "first")]]',
+         "note": 'a picture button with nothing to say what it is but its picture\'s name, as on a site '
+                 'built by hand: comicfirst.gif'},
+    ],
 }
+
+#the lists a scrape reads, in the order it hands them back
+kinds = ("image", "next", "first")
 
 
 def with_saved_paths(path):
     #the shipped lists with a library's element_paths.json laid over them, as the xpaths alone, which is
     #all a search wants: the file decides the order and which are turned off, and anything it never
-    #mentions still arrives, after it
-    image = [entry["xpath"] for entry in shipped["image"]]
-    onward = [entry["xpath"] for entry in shipped["next"]]
+    #mentions still arrives, after it - a file written before there was a list of first-page links still
+    #gets every one of them
+    lists = [[entry["xpath"] for entry in shipped[kind]] for kind in kinds]
     if not os.path.exists(path):
-        return image, onward
+        return tuple(lists)
     try:
         with open(path, 'r', encoding='utf-8-sig') as f:
             saved = json.load(f)
-        return merge_paths(image, saved.get("image")), merge_paths(onward, saved.get("next"))
+        return tuple(merge_paths(xpaths, saved.get(kind)) for kind, xpaths in zip(kinds, lists))
     except (ValueError, OSError, AttributeError, TypeError) as error:
         #a broken file must not stop every comic in the library, so the built-in lists carry on alone
         print("WARNING: ignoring {0}: {1}".format(path, error))
-        return image, onward
+        return tuple(lists)
 
 
 def merge_paths(shipped, saved):

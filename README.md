@@ -520,7 +520,9 @@ python chapters.py show  "D:/Comics/Uncompressed/MyComic"          # what the la
 The walk follows the comic from its first page and **downloads nothing** - it only records each page's
 address, image and title. It is written as it goes, so a walk that is stopped or times out carries on
 from where it left off when run again. `--start URL` says where the comic begins, and `--first` follows
-the comic's own first-page link when its metadata only records a later page.
+the comic's own first-page link when its metadata only records a later page. That link is found by the
+first page paths (see [Element paths](#element-paths)); when none of them matches, the walk stops
+without writing anything, since an index begun part way through would number every page wrong.
 
 ### Comics on WordPress: no walk needed
 
@@ -886,9 +888,10 @@ say `MyComic`, not the whole path twice.
 
 ## Element paths
 
-The scripts ship with a list of XPaths for the comic image and a list for the next-page link (in
-`comiclib/elements.py`, laid out the same way as `element_paths.json`), and a scrape tries each in order
-until one matches. The shipped lists are short on purpose: one path for each of
+The scripts ship with a list of XPaths for the comic image, a list for the next-page link and a list for
+the first-page link (in `comiclib/elements.py`, laid out the same way as `element_paths.json`), and a
+scrape tries each in order until one matches. The first-page list is only used by a walk of a comic
+whose start was never recorded, to find its way back to page 1. The shipped lists are short on purpose: one path for each of
 the ways comic sites most often mark up a page (WordPress comic themes, ComicControl, a link marked
 `rel="next"`, a link that says "Next"), each with a note saying what it is for. They cover a good
 share of comics, but they are mainly there as examples. Most libraries soon need a path or two of their
@@ -898,8 +901,9 @@ own.
 
 1. **See what already matches.** In the web page, open **Element paths**, paste the address of one of
    the comic's pages (a page in the middle, not the newest) and press **Check this page**. It says
-   which paths match and which one a scrape would use. If both lists already have a match, there is
-   nothing to add.
+   which paths match and which one a scrape would use. If the image and next-page lists already have a
+   match, there is nothing to add. It also says which first-page path matches, which only matters for a
+   comic that has to be walked from a later page.
 2. **Take a suggestion.** When nothing matches, the check suggests paths built from the page's own
    images and links, each with an **add it** button. The first suggestion is usually right. Adding one
    puts it at the top of its list, noted with the site's name.
@@ -929,7 +933,8 @@ well:
 ```json
 {
   "image": [{ "xpath": "//img[@class=\"strip-art\"]", "note": "Odd Comic", "enabled": true }],
-  "next":  [{ "xpath": "//*[@class=\"onwards\"]", "note": "Odd Comic", "enabled": true }]
+  "next":  [{ "xpath": "//*[@class=\"onwards\"]", "note": "Odd Comic", "enabled": true }],
+  "first": [{ "xpath": "//a[@class=\"to-start\"]", "note": "Odd Comic", "enabled": true }]
 }
 ```
 

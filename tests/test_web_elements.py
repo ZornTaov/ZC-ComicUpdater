@@ -62,7 +62,7 @@ def test_the_shipped_lists_as_the_page_shows_them(web, config):
     lists, notes = shipped_from_source()
     code, data = web().call("/api/elements")
     assert code == 200, data
-    for kind in ("image", "next"):
+    for kind in ("image", "next", "first"):
         assert data[kind], "the {0} list is empty".format(kind)
         assert all(entry.get("xpath") for entry in data[kind]), data[kind]
         #in the order the script tries them, with the comment beside each one as its note

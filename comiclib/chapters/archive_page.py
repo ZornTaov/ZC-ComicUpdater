@@ -9,7 +9,20 @@ import sys
 import requests
 
 from comiclib.chapters.index import MIRROR
-from comiclib.chapters.links import link_targets, looks_like_pages, same_page
+from comiclib.chapters.links import link_targets, looks_like_pages, page_shape, same_page
+
+#the words a site calls its chapters by
+chapter_words = r'(chapters?|chap|arcs?|volumes?|vol|books?|parts?|episodes?|seasons?)'
+
+
+def names_a_chapter(text):
+    #a link whose own words are a chapter's name: "Chapter 2: The Long Way Round", "Book #3". an archive
+    #that writes its chapter names only as links - to a page listing that chapter, or to its first page -
+    #has no heading anywhere else to name it by. the number has to be there, or "Chapters" in a menu would
+    #be one, and a page of a chapter ("Chapter 3 Page 4") is a page, not a name
+    if not re.match(chapter_words + r'\s*[-_.#:]?\s*(no\.?\s*)?#?\d', (text or "").strip(), re.I):
+        return False
+    return not re.search(r'\b(pages?|pg)\.?\s*#?\d', text, re.I)
 
 
 def drawn_heading(attrs):
@@ -23,8 +36,7 @@ def drawn_heading(attrs):
         text = re.sub(r'\s+', ' ', re.sub(r'[_-]+', ' ', re.sub(r'\.\w+$', '', name))).strip()
     #the word has to be followed by its number or by nothing, or "partners" and "bookmark" would head
     #chapters of their own
-    if not re.match(r'^(chapters?|chap|arcs?|volumes?|vol|books?|parts?|episodes?|seasons?)'
-                    r'\s*[-_.]?\s*(\d|$)', text, re.I):
+    if not re.match('^' + chapter_words + r'\s*[-_.]?\s*(\d|$)', text, re.I):
         return None
     #"chapter12" is a name with its number run into it, which reads better - and sorts better - apart
     text = re.sub(r'^([^\W\d_]+)(\d)', r'\1 \2', text)
@@ -44,6 +56,12 @@ class ArchiveReader(html.parser.HTMLParser):
         html.parser.HTMLParser.__init__(self)
         self.events = []
         self.heading = None
+        #how many tags like the heading's own are open inside it, so a <div> heading ends at its own
+        #</div> and not at the first one inside it - which on a storyline's box is the first page's row,
+        #and made that page's date the name of a chapter one page long
+        self.depth = 0
+        #whether the heading's class says it is the name of a chapter, not just somewhere near one
+        self.named = False
         self.rank = 1
         self.said = []
         #what the heading says in its own right, with the words of the links inside it left out. a real
@@ -81,6 +99,12 @@ class ArchiveReader(html.parser.HTMLParser):
         words = set(re.split(r'[^a-z]+', "{0} {1}".format(got.get("class") or "", got.get("id") or "").lower()))
         looks_like = tag in self.heading_tags or bool(
             words & {"chapter", "chapters", "arc", "arcs", "volume", "book", "story", "storyline"})
+        #a box per storyline - its thumbnail, its name, its list of pages - is named for the storyline, and
+        #so is the header inside it. the header is the one that says the name: the box only holds it
+        names = looks_like and bool(words & {"header", "heading", "title", "name"})
+        if (names and self.heading and not self.named and self.heading not in self.title_tags
+                and tag not in self.title_tags):
+            self.stop_holding()
         #the outermost heading wins, so a <b> inside an <h4> is emphasis in a title rather than a title of
         #its own - except that a real heading tag beats a container whose class merely says "chapter",
         #since such a container holds the description and the icon too, and none of that is a name
@@ -89,8 +113,12 @@ class ArchiveReader(html.parser.HTMLParser):
             if not self.heading:
                 self.inside = []
             self.heading = tag
+            self.depth = 0
+            self.named = names
             self.rank = 0 if tag in self.title_tags else 1
             self.said = []
+        elif self.heading and tag == self.heading:
+            self.depth += 1
 
     def words_of_its_own(self):
         #whether this candidate says anything beyond the links it holds. the separators between links are
@@ -108,11 +136,23 @@ class ArchiveReader(html.parser.HTMLParser):
             #whatever words it has of its own can still name what follows; the bars between its links cannot
             self.events.append(("heading", said, self.rank))
         for href, text in self.inside:
-            self.events.append(("link", href, text))
+            self.give_link(href, text)
         self.heading = None
+        self.depth = 0
+        self.named = False
         self.said = []
         self.said_alone = []
         self.inside = []
+
+    def give_link(self, href, said):
+        if names_a_chapter(said):
+            #a link named for its chapter is that chapter's heading as well as a link. given out on its
+            #own too, so a link to a page listing the chapter - not a page of the comic - still names the
+            #first page of the comic that comes after it
+            self.events.append(("heading", said, 0))
+            self.events.append(("owned", href, said))
+            return
+        self.events.append(("link", href, said))
 
     def handle_endtag(self, tag):
         if tag in ("a", "option") and self.link is not None:
@@ -131,9 +171,12 @@ class ArchiveReader(html.parser.HTMLParser):
                 if len(self.inside) > 2 or (len(self.inside) > 1 and not self.words_of_its_own()):
                     self.stop_holding()
                 return
-            self.events.append(("link", self.link, said))
+            self.give_link(self.link, said)
             self.link = None
             self.link_text = []
+            return
+        if self.heading and tag == self.heading and self.depth:
+            self.depth -= 1
             return
         if self.heading and tag == self.heading:
             said = re.sub(r'\s+', ' ', "".join(self.said)).strip()
@@ -146,8 +189,13 @@ class ArchiveReader(html.parser.HTMLParser):
                 #a heading that holds the link names that chapter and nothing else does, whatever else
                 #sits above it on the page. the heading is still given out on its own as well, so if this
                 #link turns out not to be a page of the comic it can still name the next one that is.
-                self.events.append(("owned", href, said) if said else ("link", href, text))
+                if said:
+                    self.events.append(("owned", href, said))
+                else:
+                    self.give_link(href, text)
             self.heading = None
+            self.depth = 0
+            self.named = False
             self.said = []
             self.said_alone = []
             self.inside = []
@@ -187,16 +235,49 @@ def pages_linked(events, base, known):
     #the comic's own pages linked on an archive page, in the order that page lists them, each counted
     #once. everything else linked there - the shop, the artist's other comics, the archive itself - is
     #not a page of this comic and is left out.
-    links, order = [], {}
+    links = []
+    shape = page_shape(known)
+
+    def fits(where):
+        return re.match(shape, same_page(where).partition('?')[0])
+
     for kind, first, second in events:
         if kind not in ("link", "owned"):
             continue
         where = next((one for one in link_targets(base, first) if looks_like_pages(one, known)), None)
-        if where is None or same_page(where) in order:
+        if where is None or (names_a_chapter(second) and not fits(where)):
+            #a chapter's name linking to the page that lists the chapter, in the same folder as the comic's
+            #pages but not shaped like one: Arch_002.php beside Vol_007.php. a walked comic never counts it,
+            #since the walk never goes there
             continue
         links.append(where)
-        order[same_page(where)] = len(order) + 1
-    return links, order
+    #with those gone, an archive whose pages are mostly one shape says what its pages look like, and the
+    #few left that are not - the bonus section's own page, the wallpapers' - are pages about the comic. an
+    #archive listing only where each chapter starts and ends has few pages to outnumber them by, so mostly
+    #is four in five. only a reading with no walk to go on uses this: a walk says which pages there are
+    shaped = [one for one in links if fits(one)]
+    if len(shaped) >= len(links) * 0.8:
+        links = shaped
+    kept, order = [], {}
+    for where in links:
+        if same_page(where) not in order:
+            kept.append(where)
+            order[same_page(where)] = len(order) + 1
+    return kept, order
+
+
+def beside_its_heading(events):
+    #a storyline's thumbnail links where its name does, and comes before the name. read as it stands it is
+    #the last page of the chapter before, and a chapter that reaches into the next one's first page. the
+    #name's own link says the same and says it with a name, so the picture's is let go
+    kept = []
+    for at, (kind, first, second) in enumerate(events):
+        if kind == "link":
+            after = next((event for event in events[at + 1:] if event[0] != "heading"), None)
+            if after is not None and after[0] in ("link", "owned") and same_page(after[1]) == same_page(first):
+                continue
+        kept.append((kind, first, second))
+    return kept
 
 
 def chapters_from_events(events, where, base=""):
@@ -204,7 +285,11 @@ def chapters_from_events(events, where, base=""):
     #and the summary underneath it - so the one that reads most like a title wins: a real heading tag
     #first, and the earliest of those.
     found, waiting, listed = [], [], 0
-    for kind, first, second in events:
+    #a section gathered from across the comic - fillers, omake, guest pages, listed apart under a heading of
+    #their own - is not a chapter. its pages were published in among the chapters, and stay where they were
+    #published, so a reader of the archives meets them exactly where a reader of the site does
+    gathered, seen = False, set()
+    for kind, first, second in beside_its_heading(events):
         if kind == "heading":
             waiting.append((second if second is not None else 1, len(waiting), first))
             continue
@@ -220,8 +305,18 @@ def chapters_from_events(events, where, base=""):
             #of every page under the archive's own banner. a heading built round this very link knows
             #better, so it renames that chapter rather than making a second one at the same page.
             already["label"], already["pages_said"] = heading_says(second)
+            waiting = []
             continue
         if owned or waiting or not found:
+            if at not in seen and any(min(chapter["pages_listed"]) < at < max(chapter["pages_listed"])
+                                      for chapter in found if chapter["pages_listed"]):
+                #it starts inside a chapter already read, at a page that chapter never listed, which no
+                #chapter of a comic does: the pages under it are from all over, and each stays inside
+                #whichever chapter it sits in. a page listed already is another matter - a dropdown of
+                #every page, then the chapters' starts, names each start a second time
+                gathered, waiting = True, []
+                continue
+            gathered = False
             #a heading that held this very link names it outright. otherwise the most heading-like wins,
             #and among equals the one nearest the link: a page's own banner sits far above the first
             #chapter's title, and a summary sits just under it
@@ -232,15 +327,28 @@ def chapters_from_events(events, where, base=""):
             found.append({"label": label or "Chapter {0}".format(len(found) + 1),
                           "start_page": at, "pages_listed": [], "pages_said": says})
             waiting = []
+        elif gathered:
+            continue
+        seen.add(at)
         found[-1]["pages_listed"].append(at)
         found[-1]["start_page"] = min(found[-1]["start_page"], at)
     return found, listed
 
 
+def first_of_each(pages):
+    #which page each address is. a page of several images is several lines with one address, and a chapter
+    #starting there starts at its first image: taking the last would leave the others in the chapter before
+    where = {}
+    for page in pages:
+        if page.get("url"):
+            where.setdefault(same_page(page["url"]), page["n"])
+    return where
+
+
 def chapters_from_archive(url, pages, browser=False, script=None):
     #the archive page says where each chapter starts; the walk says where every page sits. matching one
     #against the other needs no knowledge of the site beyond which links are pages of this comic.
-    where = {same_page(page["url"]): page["n"] for page in pages}
+    where = first_of_each(pages)
     reader = ArchiveReader()
     reader.feed(read_archive(url, browser, script))
     #plenty of archives link their pages relatively, so each is read against the archive's own address

@@ -47,7 +47,10 @@ def looks_like_pages(url, known):
     #the same first step of the path: /comic/... for one comic, index.php?pid=... for another. a link to
     #the archive itself, or to some other page of the site, is not a page of the comic.
     if theirs == first:
-        return True
+        #the first step on its own, when the comic's pages go further: /comic beside /comic/2004-02-22 is
+        #the comic's front page, which shows whichever page is newest and so is none of them in particular
+        bare = same_page(url).partition('/')[2]
+        return bare != first or bare == same_page(known).partition('/')[2]
     #or the same shape, for a comic that puts the chapter in the first step and so has no fixed one:
     #/c1/p1, /c2/p1, /c12.1/p1 are all the same kind of address, and archive.html is not.
     return bool(re.match(page_shape(known), same_page(url).partition('?')[0]))

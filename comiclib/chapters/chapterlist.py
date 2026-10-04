@@ -8,8 +8,8 @@ import requests
 
 from comiclib.chapters.addresses import chapters_from_list, chapters_from_urls, guess_by_url
 from comiclib.chapters.archive_page import (ArchiveReader, chapters_from_archive, chapters_from_events,
-                                            pages_linked, read_archive)
-from comiclib.chapters.index import joined_pages
+                                            first_of_each, pages_linked, read_archive)
+from comiclib.chapters.index import index_path, joined_pages, read_index
 from comiclib.chapters.links import page_at, same_page
 from comiclib.chapters.packing import pack
 from comiclib.metadata import METADATA_FILE as metadata_file, now_stamp as time_stamp, read as read_metadata
@@ -151,6 +151,16 @@ def compare_chapters(was, now):
     return "changed", moved
 
 
+def walked_pages(folder, args):
+    #the pages a walk of this comic recorded, in the order it read them, or nothing when it has not been
+    if not folder or not os.path.isdir(folder):
+        return []
+    cache = index_path(folder, getattr(args, "root", None), args)
+    if not os.path.exists(cache):
+        return []
+    return [{"n": line["n"], "url": line.get("url")} for line in read_index(cache) if line.get("n")]
+
+
 def try_archive(folder, args):
     #a look at an archive page on its own: what it would be read as, before a comic is walked for the
     #addresses that would let every heading be turned into a page number
@@ -171,11 +181,24 @@ def try_archive(folder, args):
     #a preview that worked things out its own way would not be a preview of anything
     archive_links, order = pages_linked(reader.events, args.archive, known)
     pretend = [{"n": at, "url": where} for at, where in enumerate(archive_links, 1)]
+    #a comic already walked has its real reading order on record, and that is the order a real run reads
+    #the archive against. only without it does the archive's own order have to stand in, and that cannot
+    #tell a list of fillers gathered at the bottom from a chapter
+    walked = walked_pages(folder, args)
+    if walked:
+        pretend, order = walked, first_of_each(walked)
     found, pages = chapters_from_events(reader.events, order, args.archive)
     found = settle_chapters(found, pretend) if found and pretend else []
 
     print("{0}".format(args.archive))
     print("  pages of this comic linked: {0}, looking like {1}".format(len(archive_links), known))
+    if walked:
+        print("  read against the {0} page(s) this comic's walk recorded, in its reading order".format(
+            len(walked)))
+    else:
+        print("  this comic has not been walked, so its pages are taken in the order this page lists them. "
+              "A list gathered from across the comic - fillers, extras - reads as a chapter here; once it "
+              "is walked, those pages stay in the chapters they were published in.")
     print("  chapters it would read: {0}".format(len(found)))
     for chapter in found[:40]:
         print("  {0:<4} {1:<46} {2:>4} page(s) listed, starts at {3}".format(

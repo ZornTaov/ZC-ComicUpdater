@@ -16,8 +16,8 @@ from comiclib.chapters.align import (align, anchor_kinds, by_written_order, desc
                                      gap_notes, longest_run, place_recovered, recovered_files, save_gaps,
                                      unique_pairs, verify)
 from comiclib.chapters.archive_page import (ArchiveReader, chapters_from_archive,  # noqa: F401
-                                            chapters_from_events, drawn_heading, heading_says,
-                                            pages_linked, read_archive)
+                                            chapters_from_events, drawn_heading, first_of_each,
+                                            heading_says, names_a_chapter, pages_linked, read_archive)
 from comiclib.chapters.chapterlist import (apply_fixes, chapter_record, chapters_every, compare_chapters,  # noqa: F401
                                            edit_fixes, list_fixes, plan, save_chapters, say_fixes,
                                            settle_chapters, show_chapters, try_archive)

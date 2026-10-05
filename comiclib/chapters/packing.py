@@ -12,7 +12,7 @@ from comiclib.chapters.align import place_recovered, recovered_files
 from comiclib.chapters.index import joined_pages
 from comiclib.metadata import METADATA_FILE as metadata_file, now_stamp as time_stamp, read as read_metadata
 from comiclib.metadata import write as write_metadata
-from comiclib.pages import PAGE_TYPES, listing as folder_pages, sizes as file_sizes
+from comiclib.pages import PAGE_TYPES, SET_ASIDE, listing as folder_pages, sizes as file_sizes
 from comiclib.standin import held_otherwise
 
 
@@ -238,16 +238,21 @@ def keep_extras(full, folder, keep_in):
     #a readme. the chapter archives are checked against the folder, so anything the folder never had would
     #go with the single archive. it is written out beside the chapter archives first, where a reader skips
     #it and it stays with its comic. False, with the archive left alone, when that cannot be done cleanly
-    on_disk = set(os.listdir(folder))
+    #what the reader took out of the comic and set aside - an older version of a page, a commentary picture -
+    #is kept already, in the folder's ".set aside", and is no more an extra than a page is
+    aside = os.path.join(folder, SET_ASIDE)
+    places = [folder] + ([aside] if os.path.isdir(aside) else [])
+    on_disk = {name for place in places for name in os.listdir(place)}
     #a page renamed since the archive was made - given back the site's own name - is in the folder under
     #another name, so a picture whose name is not here is only an extra if no page here has its bytes. the
     #size says which pages could be, and the bytes are compared only for those
     by_size = {}
-    for name in on_disk:
-        try:
-            by_size.setdefault(os.path.getsize(os.path.join(folder, name)), []).append(name)
-        except OSError:
-            continue
+    for place in places:
+        for name in os.listdir(place):
+            try:
+                by_size.setdefault(os.path.getsize(os.path.join(place, name)), []).append(os.path.join(place, name))
+            except OSError:
+                continue
 
     def renamed_page(zf, info):
         if not PAGE_TYPES.search(info.filename):
@@ -256,10 +261,11 @@ def keep_extras(full, folder, keep_in):
         if not candidates:
             return False
         held = zf.read(info)
-        for name in candidates:
-            with open(os.path.join(folder, name), "rb") as f:
-                if f.read() == held:
-                    return True
+        for path in candidates:
+            if os.path.isfile(path):
+                with open(path, "rb") as f:
+                    if f.read() == held:
+                        return True
         return False
 
     try:

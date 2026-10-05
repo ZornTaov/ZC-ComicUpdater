@@ -196,6 +196,23 @@ def test_pages_renamed_since_the_single_archive_was_made_are_not_taken_for_extra
         loose[:5])
 
 
+def test_what_was_set_aside_is_not_taken_for_an_extra(tiny):
+    #an older version of a page and a commentary picture, both in the single archive, both taken out of the
+    #comic and kept in its ".set aside" - kept already, so not written out again beside the chapter archives
+    aside = tiny.comic / ".set aside"
+    aside.mkdir()
+    (aside / "0003_old.png").write_bytes(b"an older version of page 3")
+    (aside / "0003c.png").write_bytes(b"a commentary picture")
+    with zipfile.ZipFile(str(tiny.single), "a") as zf:
+        zf.writestr("0003-before.png", b"an older version of page 3")
+        zf.writestr("0003c.png", b"a commentary picture")
+        zf.writestr("mirror_tiny.py", "the script")
+    done = tiny.pack("--replace")
+    assert done.returncode == 0, done.stdout[-400:]
+    loose = sorted(name for name in os.listdir(str(tiny.out)) if not name.endswith(".cbz"))
+    assert loose == ["mirror_tiny.py"], loose
+
+
 def test_a_single_archive_whose_extra_would_overwrite_a_file_is_kept(tiny):
     with zipfile.ZipFile(str(tiny.single), "a") as zf:
         zf.writestr("mirror_tiny.py", "the archive's copy")

@@ -80,6 +80,34 @@ def test_an_archive_with_pages_in_several_folders_is_refused_untouched(library):
     assert not (library / "Uncompressed" / "Mixed").exists()
 
 
+def monthly(library, name, layout):
+    #an archive kept the way the site kept its images: a folder a month, each page named for its date
+    (library / "CBZs" / name).mkdir()
+    with zipfile.ZipFile(str(library / "CBZs" / name / (name + ".cbz")), "w") as zf:
+        for entry in layout:
+            zf.writestr(entry, entry)
+    return "CBZs/{0}/{0}.cbz".format(name)
+
+
+def test_an_archive_kept_a_folder_a_month_is_flattened_flash_pages_and_all(library):
+    archive = monthly(library, "Dated", ["0004/000402.png", "0004/000401.png", "0005/000501.swf",
+                                         "0005/000502.gif", "readme.txt"])
+    done = adopt(library, archive, "--unpack-to", "Uncompressed/Dated", "--ended", "--root", ".", "--flatten")
+    assert done.returncode == 0, done.stdout[-500:]
+    folder = library / "Uncompressed" / "Dated"
+    assert sorted(p.name for p in folder.iterdir() if p.name != "mirror_metadata.json") == \
+        ["000401.png", "000402.png", "000501.swf", "000502.gif"], \
+        "every page from every month in one folder - the flash page too, which packing draws a stand-in for"
+
+
+def test_flattening_refuses_a_name_in_two_folders(library):
+    archive = monthly(library, "Clash", ["a/0001.png", "b/0001.png", "b/0002.png"])
+    done = adopt(library, archive, "--unpack-to", "Uncompressed/Clash", "--ended", "--root", ".", "--flatten")
+    assert done.returncode != 0
+    assert "more than one of its folders" in done.stdout, done.stdout[-400:]
+    assert not (library / "Uncompressed" / "Clash").exists()
+
+
 def test_a_dry_run_says_what_it_would_do_and_does_nothing(library, shelved):
     done = adopt(library, "CBZs/MyComic/MyComic.cbz", "--unpack-to", "Uncompressed/MyComic", "--ended",
                  "--root", ".", "--dry-run")

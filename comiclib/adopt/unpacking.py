@@ -11,6 +11,7 @@ import zipfile
 from comiclib.adopt.adopting import adopt_one
 from comiclib.adopt.scan import is_page, relative_output
 from comiclib.metadata import METADATA_FILE
+from comiclib.standin import flash_types, video_types
 
 #read and written a megabyte at a time, so a file of gigabytes never sits in memory
 CHUNK = 1 << 20
@@ -21,35 +22,55 @@ class Refused(Exception):
     pass
 
 
-def pages_folder(names):
-    #the one folder inside an archive that holds its pages, from the archive's own list of what it holds
+def a_page(name):
+    #a picture, or a page held some other way - flash from before flash went away, a recording of a page that
+    #moved. those are pages of the comic as much as any picture, and the packing gives each a stand-in a
+    #reader can show; left behind, the comic would read straight past them
+    return is_page(name) or bool(flash_types.search(name) or video_types.search(name))
+
+
+def pages_folder(names, flatten=False):
+    #the one folder inside an archive that holds its pages, from the archive's own list of what it holds -
+    #or, flattened, None for every folder in it
     unsafe = [name for name in names
               if name.startswith("/") or re.match(r"^[A-Za-z]:", name) or ".." in name.split("/")]
     if unsafe:
         raise Refused("it holds a path that would land outside its own folder, {0}".format(unsafe[0]))
-    pages = [name for name in names if is_page(name)]
+    pages = [name for name in names if a_page(name)]
     if not pages:
         raise Refused("there are no pages in it")
+    folders = sorted({posixpath.dirname(name) for name in pages})
+    if flatten:
+        #an archive kept the way the site kept its images, a folder a month, is one comic whose pages are
+        #named so they are told apart and put in order without the folders. a name in two of them is two
+        #pages that would land on one, which nothing could put right afterwards
+        bases = [posixpath.basename(name) for name in pages]
+        twice = sorted({base for base in bases if bases.count(base) > 1})
+        if twice:
+            raise Refused("{0} page name(s) are in more than one of its folders - {1} - so its pages cannot "
+                          "all go in one folder".format(len(twice), ", ".join(twice[:4])))
+        return None
     #a comic here is one folder of pages. pages spread over several - a comic and its extras, kept apart
     #by whoever made the archive - have no single order to be read in, which is for the reader to settle
-    folders = sorted({posixpath.dirname(name) for name in pages})
     if len(folders) > 1:
         raise Refused("its pages are in {0} different folders ({1}). Put them in one folder, or bring each "
-                      "in as a comic of its own".format(len(folders), ", ".join(f or "the top" for f in folders[:4])))
+                      "in as a comic of its own; or, where the folders only sort pages that are named apart "
+                      "already, flatten them".format(len(folders), ", ".join(f or "the top" for f in folders[:4])))
     return folders[0]
 
 
 def unpack(path, inner, staging, cancel=None):
-    #the pages and the settings, flat into staging. everything else in the archive stays behind
+    #the pages and the settings, flat into staging - from the one folder that holds them, or from every
+    #folder when inner is None. everything else in the archive stays behind
     os.makedirs(staging, exist_ok=True)
     done = 0
     with zipfile.ZipFile(path) as archive:
         for info in archive.infolist():
             name = info.filename.replace("\\", "/")
-            if info.is_dir() or posixpath.dirname(name) != inner:
+            if info.is_dir() or (inner is not None and posixpath.dirname(name) != inner):
                 continue
             base = posixpath.basename(name)
-            if not (is_page(base) or base == METADATA_FILE):
+            if not (a_page(base) or base == METADATA_FILE):
                 continue
             with archive.open(info) as source, open(os.path.join(staging, base), "wb") as out:
                 shutil.copyfileobj(source, out, CHUNK)
@@ -79,7 +100,7 @@ def unpack_and_adopt(args):
     try:
         with zipfile.ZipFile(archive) as opened:
             names = [info.filename.replace("\\", "/") for info in opened.infolist() if not info.is_dir()]
-        inner = pages_folder(names)
+        inner = pages_folder(names, getattr(args, "flatten", False))
     except (Refused, zipfile.BadZipFile, OSError) as error:
         return False, "cannot unpack {0}: {1}".format(args.path, error)
     if any(posixpath.basename(name) == METADATA_FILE for name in names):
@@ -88,8 +109,12 @@ def unpack_and_adopt(args):
                        "it came with".format(METADATA_FILE))
     if args.dry_run:
         #said the way adopt_one says a dry run, so whatever reads its answer takes it as one
-        print("  would unpack  : {0} page(s) into {1}".format(
-            len([name for name in names if posixpath.dirname(name) == inner and is_page(name)]), args.unpack_to))
+        taken = [name for name in names
+                 if (inner is None or posixpath.dirname(name) == inner) and a_page(posixpath.basename(name))]
+        held_otherwise = [name for name in taken if not is_page(name)]
+        print("  would unpack  : {0} page(s) into {1}{2}".format(
+            len(taken), args.unpack_to, ", {0} of them flash or video, packed as stand-ins".format(
+                len(held_otherwise)) if held_otherwise else ""))
         return False, "would adopt: {0}, with {1} as its archive".format(args.unpack_to, args.path)
 
     #unpacked beside where it goes and moved in whole, so an interrupted unpack leaves nothing that looks

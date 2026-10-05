@@ -54,6 +54,11 @@ def setup():
                         help="Build the archive when the cbz_path names one that is not there yet, rather than refusing. A name close to a real archive is still refused, since that is a typo. On by default.")
     params.add_argument("--unpack-to", default=None, metavar="FOLDER",
                         help="With a .cbz already in the library, unpack its pages into this folder (relative to --root, and empty or not there yet) and adopt the folder, keeping the .cbz as its archive. A comic kept only as an archive can be carried on, but not lined up against a walk or cut into chapters, which both work on loose pages.")
+    params.add_argument("--flatten", action='store_true', default=False,
+                        help="With --unpack-to, take the pages out of every folder in the archive into the one "
+                             "folder - for an archive kept the way the site kept its images, a folder a month, "
+                             "whose pages are named apart and in order already. Refused if a name is in two "
+                             "folders.")
     params.add_argument("-n", "--dry-run", action='store_true', default=False,
                         help="Show the metadata that would be written without writing it.")
     params.add_argument("--migrate", action='store_true',

@@ -165,8 +165,12 @@ def try_archive(folder, args):
     #a look at an archive page on its own: what it would be read as, before a comic is walked for the
     #addresses that would let every heading be turned into a page number
     metadata = read_metadata(folder) if folder and os.path.isdir(folder) else {}
+    #an ended comic adopted from an archive has no address in its settings, but a walk of it has one for
+    #every page
+    walked = walked_pages(folder, args)
     known = ((metadata.get("settings") or {}).get("url")
-             or (metadata.get("history") or {}).get("first_page_url") or args.like)
+             or (metadata.get("history") or {}).get("first_page_url") or args.like
+             or next((page["url"] for page in walked if page.get("url")), None))
     if not known:
         print("Nothing says what this comic's page addresses look like. Pass --like with one of its pages.")
         return 2
@@ -184,7 +188,6 @@ def try_archive(folder, args):
     #a comic already walked has its real reading order on record, and that is the order a real run reads
     #the archive against. only without it does the archive's own order have to stand in, and that cannot
     #tell a list of fillers gathered at the bottom from a chapter
-    walked = walked_pages(folder, args)
     if walked:
         pretend, order = walked, first_of_each(walked)
     found, pages = chapters_from_events(reader.events, order, args.archive)
@@ -244,8 +247,12 @@ def try_archive(folder, args):
         else:
             print("  Neither the headings nor the addresses say where chapters start here. A list of "
                   "chapter starts (--list) is the way in.")
-    print("  Nothing was saved. This only says how the page reads; page numbers need the comic walked "
-          "once (chapters.py index).")
+    if walked:
+        print("  Nothing was saved. To keep these: chapters.py chapters <folder> --archive {0}".format(
+            args.archive))
+    else:
+        print("  Nothing was saved. This only says how the page reads; page numbers need the comic walked "
+              "once (chapters.py index).")
     return 0
 
 

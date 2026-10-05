@@ -85,6 +85,26 @@ def test_fillers_listed_apart_stay_where_they_were_published(chapters):
         "each filler stays inside the book it was published in, so the archives read as the site does"
 
 
+def test_a_walked_comic_with_no_address_of_its_own_is_previewed_by_its_walk(chapters, library, monkeypatch,
+                                                                            capsys):
+    #an ended comic adopted from an archive keeps no address in its settings; its walk has one for every page
+    import argparse
+
+    from comiclib.chapters import chapterlist
+    from conftest import write_index, write_meta
+    folder = library / "Uncompressed" / "Boxed"
+    write_meta(folder, {"schema": 2, "settings": {"ended": True}})
+    write_index(chapters.index_path(str(folder), str(library), None),
+                [{"n": n, "url": "https://x.test/strip/{0}".format(n)} for n in range(1, 17)])
+    monkeypatch.setattr(chapterlist, "read_archive", lambda *given: BOXED)
+    asked = argparse.Namespace(archive="https://x.test/strip/archive", like=None, browser=False, script=None,
+                               root=str(library), cache=None)
+    assert chapterlist.try_archive(str(folder), asked) == 0
+    said = capsys.readouterr().out
+    assert "read against the 16 page(s) this comic's walk recorded" in said, said
+    assert "chapters it would read: 3" in said, "the books, and no chapter of fillers\n" + said
+
+
 def test_a_link_names_a_chapter_only_when_its_words_are_a_chapter_and_a_number(chapters):
     for named in ("Chapter 2: The Long Way Round", "Book #3", "Vol. 4", "Episode 12", "Arc 1 - Beginnings"):
         assert chapters.names_a_chapter(named), named

@@ -160,6 +160,28 @@ def test_replacing_gives_up_the_single_archive_once_everything_checks_out(tiny, 
     assert inside == pages, sorted(pages - inside)
 
 
+def test_what_the_single_archive_holds_besides_the_pages_is_kept(tiny):
+    #another scraper packed a copy of itself in with the pages, and the folder never had it
+    with zipfile.ZipFile(str(tiny.single), "a") as zf:
+        zf.writestr("Tiny/mirror_tiny.py", "print('the script that made this')")
+    done = tiny.pack("--replace")
+    assert done.returncode == 0, done.stdout[-400:]
+    assert not tiny.single.exists()
+    kept = tiny.out / "mirror_tiny.py"
+    assert kept.read_text() == "print('the script that made this')", "kept beside the chapter archives"
+    assert not [name for name in tiny.made() if name.endswith(".writing")]
+
+
+def test_a_single_archive_whose_extra_would_overwrite_a_file_is_kept(tiny):
+    with zipfile.ZipFile(str(tiny.single), "a") as zf:
+        zf.writestr("mirror_tiny.py", "the archive's copy")
+    (tiny.out / "mirror_tiny.py").write_text("one already on the shelf")
+    done = tiny.pack("--replace")
+    assert done.returncode != 0
+    assert tiny.single.exists(), "kept, since what it holds could not be kept another way"
+    assert (tiny.out / "mirror_tiny.py").read_text() == "one already on the shelf", "and nothing overwritten"
+
+
 def test_a_comic_with_no_archive_named_keeps_its_chapters_on_the_shelf(tmp_path, chapters):
     #adopted or uploaded, with no cbz_path: its chapters go where a scrape would have filed its one
     #archive, in the CBZs tree beside Uncompressed - not in a folder beside its loose pages

@@ -284,7 +284,7 @@ def chapters_from_events(events, where, base=""):
     #a chapter starts at the first page link after a heading. several headings can sit together - a title
     #and the summary underneath it - so the one that reads most like a title wins: a real heading tag
     #first, and the earliest of those.
-    found, waiting, listed = [], [], 0
+    found, waiting, listed = [], [], set()
     #a section gathered from across the comic - fillers, omake, guest pages, listed apart under a heading of
     #their own - is not a chapter. its pages were published in among the chapters, and stay where they were
     #published, so a reader of the archives meets them exactly where a reader of the site does
@@ -298,7 +298,9 @@ def chapters_from_events(events, where, base=""):
                    if same_page(one) in where), None)
         if at is None:
             continue
-        listed += 1
+        #each page once, however often it is linked: a storyline's name and its first row both lead to its
+        #first page, and counting both said an archive listed more pages than the comic has
+        listed.add(at)
         already = next((chapter for chapter in found if chapter["start_page"] == at), None)
         if owned and already is not None:
             #this page already starts a chapter, named by whatever mentioned it first - often a dropdown
@@ -332,7 +334,7 @@ def chapters_from_events(events, where, base=""):
         seen.add(at)
         found[-1]["pages_listed"].append(at)
         found[-1]["start_page"] = min(found[-1]["start_page"], at)
-    return found, listed
+    return found, len(listed)
 
 
 def first_of_each(pages):

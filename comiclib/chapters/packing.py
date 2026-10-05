@@ -1,6 +1,7 @@
 #one archive per chapter, written from the folder, and the single archive written afresh. every page goes
 #in exactly one chapter, and each archive is checked against the folder before anything is given up.
 import os
+import posixpath
 import re
 import shutil
 import zipfile
@@ -194,7 +195,7 @@ def pack(folder, args):
     write_metadata(folder, metadata)
 
     if args.replace:
-        return drop_single(folder, metadata, args)
+        return drop_single(folder, metadata, args, shelf)
     return 0
 
 
@@ -232,7 +233,37 @@ def verify_chapters(folder, shelf, parcels):
     return True
 
 
-def drop_single(folder, metadata, args):
+def keep_extras(full, folder, keep_in):
+    #a single archive another scraper made can hold more than the pages: a copy of the script that made it,
+    #a readme. the chapter archives are checked against the folder, so anything the folder never had would
+    #go with the single archive. it is written out beside the chapter archives first, where a reader skips
+    #it and it stays with its comic. False, with the archive left alone, when that cannot be done cleanly
+    on_disk = set(os.listdir(folder))
+    try:
+        with zipfile.ZipFile(full) as zf:
+            extras = [info for info in zf.infolist()
+                      if not info.is_dir() and posixpath.basename(info.filename) not in on_disk]
+            names = [posixpath.basename(info.filename) for info in extras]
+            clash = sorted({name for name in names
+                            if names.count(name) > 1 or os.path.exists(os.path.join(keep_in, name))})
+            if clash:
+                print("{0} holds {1} that the folder does not, and {2} would not be the only file of that "
+                      "name in {3}, so the archive was kept. Take what you want out of it by hand.".format(
+                          full, ", ".join(names[:5]), ", ".join(clash[:3]), keep_in))
+                return False
+            for info, name in zip(extras, names):
+                target = os.path.join(keep_in, name)
+                with zf.open(info) as source, open(target + ".writing", "wb") as out:
+                    shutil.copyfileobj(source, out)
+                os.replace(target + ".writing", target)
+                print("Kept {0} from it, which no page is: now {1}".format(info.filename, target))
+    except (OSError, zipfile.BadZipFile) as error:
+        print("Could not look inside {0} ({1}), so it was kept.".format(full, error))
+        return False
+    return True
+
+
+def drop_single(folder, metadata, args, shelf=None):
     cbz = (metadata.get("settings") or {}).get("cbz_path")
     if not cbz:
         return 0
@@ -240,6 +271,8 @@ def drop_single(folder, metadata, args):
                                                        cbz.replace('/', os.sep))
     if not os.path.exists(full):
         return 0
+    if not keep_extras(full, folder, shelf or os.path.dirname(full)):
+        return 1
     size = os.path.getsize(full)
     os.remove(full)
     print("Removed {0} ({1:.0f} MB); the chapter archives hold every page it held.".format(full, size / 1e6))

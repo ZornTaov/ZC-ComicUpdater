@@ -201,6 +201,12 @@ def setup():
         print("\nERROR: Could not open {0}: {1}".format(args.URL, error))
         quit_quietly(driver)
         sys.exit(EXIT_DRIVER)
+    try:
+        browser.load_or_retry(driver)
+    except MirrorError as error:
+        print("\nERROR: {0}".format(error))
+        quit_quietly(driver)
+        sys.exit(error.code)
 
     #configurable vars
     increment = args.increment
@@ -529,6 +535,9 @@ def next(driver,args):
                 continue
             if next_ele_get(driver,element):
                 next_xpath = element #the path that actually worked is the one worth trying first next time
+                #a page that did not load has no next link of its own, and would end the run as though it
+                #were the comic's last; it is tried again first, and stops the run if it never loads
+                browser.load_or_retry(driver)
                 return True
         #nothing in the list matched, or nothing that matched could be pressed, which on an ongoing comic
         #usually just means the last page

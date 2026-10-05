@@ -5,6 +5,7 @@ import json
 import os
 from datetime import datetime
 
+from comiclib.browser import load_or_retry
 from comiclib.chapters.index import read_index
 from comiclib.elements import next_ele_get, test_next_ele_get
 from comiclib.exits import USAGE as EXIT_USAGE, MirrorError
@@ -28,6 +29,7 @@ def go_to_first(driver, first_paths):
             continue
         was = driver.current_url
         if next_ele_get(driver, element) and driver.current_url != was:
+            load_or_retry(driver)
             print("Followed {0} back to {1}".format(element, driver.current_url))
             return True
     return False
@@ -52,9 +54,12 @@ def build_index(driver, args, page_images, next, still_on, first_paths=()):
         print("Carrying on at {0}, which the index does not hold; the pages between it and page {1} are "
               "left out.".format(args.URL, len(done)))
         driver.get(args.URL)
+        load_or_retry(driver)
     elif done:
         print("Carrying on from page {0} of the index ({1}).".format(len(done), done[-1]["url"]))
         driver.get(done[-1]["url"])
+        #a page that would not load has no next link either, and would call the index complete
+        load_or_retry(driver)
         if not next(driver, args):
             print("The page it stopped on has no next link, so the index is already complete.")
             return len(done)

@@ -4,21 +4,71 @@
 import os
 import shlex
 import sys
+from time import sleep
 
 import selenium.common.exceptions as se
 from selenium import webdriver
+from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.firefox.service import Service as FirefoxService
 
-from comiclib.exits import DRIVER as EXIT_DRIVER, USAGE as EXIT_USAGE, MirrorError
+from comiclib.exits import DRIVER as EXIT_DRIVER, TIMEOUT as EXIT_TIMEOUT, USAGE as EXIT_USAGE, MirrorError
 
-#how many pages one browser drives before a fresh one takes over. a headless chrome led through thousands
-#of pages in one tab gets slower with every page - a third of a second each at the start, four seconds each
-#by the two thousandth - and then stops loading them properly: an image that is not the comic, no next link,
-#and a run that takes the comic for finished halfway through. a fresh browser on the same pages is as quick
-#as the first one was. MIRROR_RENEW_EVERY sets it, and 0 keeps one browser for the whole run
+#how long to wait before each new try at a page the browser could not load - a connection that dropped or
+#timed out, a name that would not resolve, a site refusing for a while. MIRROR_RETRY_WAITS sets them, in
+#seconds and comma separated
+RETRY_WAITS = (5, 15, 45)
+
+
+def error_page(driver):
+    #whether the browser is showing its own page for a load that failed, rather than anything the site sent.
+    #chrome's has an image on it - the dinosaur game's - which an image path can match, and no next link,
+    #so read as a page of the comic it is the comic's last page: a walk of a comic that had thousands more
+    #stopped on one, twice
+    try:
+        if (driver.current_url or "").startswith(("chrome-error:", "about:neterror", "about:certerror")):
+            return True
+        return bool(driver.find_elements(By.CSS_SELECTOR, "#main-frame-error, body.neterror"))
+    except se.WebDriverException:
+        return False
+
+
+def retry_waits():
+    given = os.environ.get("MIRROR_RETRY_WAITS")
+    if not given:
+        return RETRY_WAITS
+    return tuple(float(bit) for bit in given.split(",") if bit.strip())
+
+
+def load_or_retry(driver):
+    #a page that did not load is tried again, a little longer apart each time, before anything is read from
+    #it. one that never does stops the run with the code for a page that would not load - never taken for
+    #the end of the comic, which would mark it caught up part way through
+    waits = retry_waits()
+    for at, wait in enumerate(waits, 1):
+        if not error_page(driver):
+            return
+        here = driver.current_url
+        print("{0} did not load: the browser is showing its own error page. Trying again in {1:g}s ({2} of "
+              "{3}).".format(here, wait, at, len(waits)), flush=True)
+        sleep(wait)
+        try:
+            driver.refresh()
+        except se.TimeoutException:
+            pass
+    if error_page(driver):
+        raise MirrorError("{0} would not load after {1} tries, so the run stopped there rather than take it for "
+                          "the comic's last page. The site may be down, or refusing for a while; the next run "
+                          "carries on from the page before it.".format(driver.current_url, len(waits) + 1),
+                          EXIT_TIMEOUT, "page would not load")
+
+#how many pages one browser drives before a fresh one takes over. a headless chrome led through thousands of
+#pages in one tab grows a little with each, and a long walk slowed as it went. that slowing turned out to be
+#mostly the site - the walks that stopped part way had met pages that would not load, which load_or_retry
+#now deals with - but a fresh browser costs two seconds, so it is kept as insurance against the rest.
+#MIRROR_RENEW_EVERY sets it, and 0 keeps one browser for the whole run
 RENEW_EVERY = 500
 
 
@@ -67,6 +117,7 @@ class Renewable:
             raise MirrorError("a fresh browser would not start after {0} pages".format(self.pages),
                               EXIT_DRIVER, "browser would not restart")
         self._driver.get(here)
+        load_or_retry(self._driver)
         kept = 0
         for cookie in cookies:
             try:

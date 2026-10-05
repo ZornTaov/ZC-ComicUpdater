@@ -196,6 +196,25 @@ def test_pages_renamed_since_the_single_archive_was_made_are_not_taken_for_extra
         loose[:5])
 
 
+def test_a_flash_page_renamed_since_is_not_taken_for_an_extra(tiny, chapters):
+    #page 5 is a flash page, held in the single archive under one name and in the folder, renamed with its
+    #number like every other page, under another
+    (tiny.comic / "0005_special.swf").write_bytes(b"FWS flash page")
+    alignment = chapters.index_path(str(tiny.comic)).replace(".jsonl", ".align.json")
+    with open(alignment) as f:
+        lined = json.load(f)
+    lined["pages"][4]["file"] = "0005_special.swf"
+    with open(alignment, "w") as f:
+        json.dump(lined, f)
+    with zipfile.ZipFile(str(tiny.single), "a") as zf:
+        zf.writestr("special.swf", b"FWS flash page")
+    tiny.pack()
+    done = tiny.pack("--replace")
+    assert done.returncode == 0, done.stdout[-400:]
+    loose = sorted(name for name in os.listdir(str(tiny.out)) if not name.endswith(".cbz"))
+    assert loose == [], "the flash page is a page, packed with its stand-in, not an extra: {0}".format(loose)
+
+
 def test_what_was_set_aside_is_not_taken_for_an_extra(tiny):
     #an older version of a page and a commentary picture, both in the single archive, both taken out of the
     #comic and kept in its ".set aside" - kept already, so not written out again beside the chapter archives

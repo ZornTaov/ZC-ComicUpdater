@@ -12,7 +12,7 @@ from comiclib.chapters.align import place_recovered, recovered_files
 from comiclib.chapters.index import joined_pages
 from comiclib.metadata import METADATA_FILE as metadata_file, now_stamp as time_stamp, read as read_metadata
 from comiclib.metadata import write as write_metadata
-from comiclib.pages import PAGE_TYPES, SET_ASIDE, listing as folder_pages, sizes as file_sizes
+from comiclib.pages import SET_ASIDE, listing as folder_pages, sizes as file_sizes
 from comiclib.standin import held_otherwise
 
 
@@ -255,8 +255,8 @@ def keep_extras(full, folder, keep_in):
                 continue
 
     def renamed_page(zf, info):
-        if not PAGE_TYPES.search(info.filename):
-            return False
+        #any kind of page: a page held as flash or video is renamed with the rest, and taking it for an
+        #extra would write a copy of it out beside the chapter archives
         candidates = by_size.get(info.file_size) or []
         if not candidates:
             return False

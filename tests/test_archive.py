@@ -204,9 +204,11 @@ def test_a_nested_archive_is_cut_by_its_books_when_asked(chapters):
 
 
 def test_a_link_names_a_chapter_only_when_its_words_are_a_chapter_and_a_number(chapters):
-    for named in ("Chapter 2: The Long Way Round", "Book #3", "Vol. 4", "Episode 12", "Arc 1 - Beginnings"):
+    for named in ("Chapter 2: The Long Way Round", "Book #3", "Vol. 4", "Episode 12", "Arc 1 - Beginnings",
+                  "Story 2"):
         assert chapters.names_a_chapter(named), named
-    for not_named in ("Chapters", "Chapter 3 Page 4", "Bonus Comics", "#12", "Partners", "Fillers"):
+    for not_named in ("Chapters", "Chapter 3 Page 4", "Bonus Comics", "#12", "Partners", "Fillers",
+                      "Storyboards", "#4: Filler - A Bedtime Story"):
         assert not chapters.names_a_chapter(not_named), not_named
 
 

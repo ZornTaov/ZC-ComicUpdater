@@ -56,6 +56,36 @@ def test_a_heading_that_holds_its_own_link_still_names_that_chapter(chapters):
     assert [c["start_page"] for c in found] == [5, 9], "starting at the page it links to"
 
 
+def test_a_comic_told_in_stories_listed_newest_first_is_cut_at_each_story(chapters):
+    #three long stories, each a picture captioned "Story N" that links to the story's first page, over its
+    #pages in columns, newest first. each page is titled for its storyline, which is not a chapter, and one
+    #of them has "Story" in its title
+    starts = [1, 6, 11]
+    titles = {n: "#{0}: Silliness - Page {0}".format(n) for n in range(1, 14)}
+    titles[4] = "#4: Filler - A Bedtime Story"
+    titles[6] = "#6: Story 2"
+    out = ['<html><body><center>']
+    for story, first in reversed(list(enumerate(starts, 1))):
+        last = (starts + [14])[story] - 1
+        out.append('<table><tr><td><a name="story{0}" href="{1}"><img src="images/Story{0}.png" alt="Story {0}" />'
+                   '</a></td></tr><tr><td>'.format(story, first))
+        for n in range(last, first - 1, -1):
+            out.append('<a href="{0}">{1}</a><br/>'.format(n, titles[n]))
+            if n == (first + last) // 2:
+                out.append('</td><td>')
+        out.append('</td></tr></table><br/>')
+    out.append('<a href="index.php"><img src="images/index.png" alt="Main Page" /></a></center></body></html>')
+    walk = [{"n": n, "url": "https://comic.example.com/{0}".format(n)} for n in range(1, 14)]
+    reader = chapters.ArchiveReader()
+    reader.feed("".join(out))
+    found, listed = chapters.chapters_from_events(reader.events, chapters.first_of_each(walk),
+                                                  "https://comic.example.com/archive-list.php")
+    assert listed == 13, "every page link is read as a page"
+    settled = [(c["label"], c["start_page"], c["pages"]) for c in chapters.settle_chapters(found, walk)]
+    assert settled == [("Story 1", 1, 5), ("Story 2", 6, 5), ("Story 3", 11, 3)], \
+        "one chapter per story, in reading order, each starting where its picture links"
+
+
 def test_pictures_that_are_not_headings_head_nothing(chapters):
     for name in ("banner.png", "partners.png", "bookmark.png", "logo.gif", "next.png"):
         assert chapters.drawn_heading({"src": name}) is None, name
@@ -63,7 +93,8 @@ def test_pictures_that_are_not_headings_head_nothing(chapters):
 
 def test_a_picture_named_for_a_chapter_reads_as_one(chapters):
     for name, want in (("chapter1.png", "Chapter 1"), ("chapter_12.png", "Chapter 12"),
-                       ("Arc-3.jpg", "Arc 3"), ("volume2.png", "Volume 2")):
+                       ("Arc-3.jpg", "Arc 3"), ("volume2.png", "Volume 2"), ("PaintStory3.png", None),
+                       ("story_3.png", "Story 3")):
         assert chapters.drawn_heading({"src": name}) == want, name
     assert chapters.drawn_heading({"src": "chapter1.png", "alt": "Chapter 1: The Start"}) == "Chapter 1: The Start", \
         "an alt is preferred to the filename"

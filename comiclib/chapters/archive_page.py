@@ -11,8 +11,9 @@ import requests
 from comiclib.chapters.index import MIRROR
 from comiclib.chapters.links import link_targets, looks_like_pages, page_shape, same_page
 
-#the words a site calls its chapters by
-chapter_words = r'(chapters?|chap|arcs?|volumes?|vol|books?|parts?|episodes?|seasons?)'
+#the words a site calls its chapters by. a comic told as a few long stories, each a run of short storylines,
+#heads them "Story 1", "Story 2" - and the storylines are only words in each page's title
+chapter_words = r'(chapters?|chap|arcs?|volumes?|vol|books?|parts?|episodes?|seasons?|stor(?:y|ies))'
 
 
 def names_a_chapter(text):

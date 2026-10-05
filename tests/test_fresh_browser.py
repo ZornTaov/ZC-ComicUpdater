@@ -75,7 +75,10 @@ def test_a_scrape_hands_over_to_a_fresh_browser_and_saves_every_page(tmp_path, s
 def test_a_fresh_browser_keeps_the_cookies_the_site_set(tmp_path, serve):
     site = serve(AgeCheck)
     index = tmp_path / "walk.jsonl"
-    done = run("mirror_base.py", "--index", index, site + "/p/1", cwd=tmp_path, env=EVERY)
+    #a fresh profile for each browser, as a real run has: a profile shared from the test pool would carry the
+    #cookie from one browser to the next by itself, and this would pass whether the hand-over kept it or not
+    done = run("mirror_base.py", "--index", index, site + "/p/1", cwd=tmp_path,
+               env=dict(EVERY, MIRROR_PROFILE_POOL=""))
     assert done.returncode == 0, done.stdout[-600:]
     assert walked(index) == [str(n) for n in range(1, PAGES + 1)], \
         "without the cookie the page after a hand-over has no comic and no next link"

@@ -35,7 +35,38 @@ PNG_240 = bytes.fromhex('89504e470d0a1a0a0000000d4948445200000100000001000103000
                         '44ae426082')
 
 
+def run_politely():
+    #the suite runs below normal priority, and everything it starts - the workers, every chrome and its
+    #driver, every script - inherits that. a run is dozens of browsers starting at once, and at normal
+    #priority they took enough of the machine that a video playing beside them hitched. this way anything
+    #else the machine is doing goes first, and the tests have what is left
+    try:
+        if os.name == "nt":
+            import ctypes
+            below_normal = 0x4000
+            ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), below_normal)
+        else:
+            os.nice(10)
+    except (OSError, AttributeError):
+        pass
+
+
+def share_profiles():
+    #every chrome the suite starts - a test's own, and every scrape and walk it runs as a script - reuses a
+    #profile from a pool rather than making one and deleting it. hundreds of fresh profiles were most of the
+    #disk work a run did. one pool for the whole run, set before the workers start so they all inherit it -
+    #each chrome claims a profile no other running one has, whichever worker started it - and kept between
+    #runs. a test that needs a browser with nothing in it from before - one about cookies - turns it off
+    if "MIRROR_PROFILE_POOL" in os.environ:
+        return
+    import tempfile
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
+    os.environ["MIRROR_PROFILE_POOL"] = os.path.join(tempfile.gettempdir(), "mirror-test-profiles", worker)
+
+
 def pytest_configure(config):
+    run_politely()
+    share_profiles()
     config.addinivalue_line("markers", "browser: drives a real browser, directly or through a scrape")
     config.addinivalue_line("markers", "slow: takes more than a few seconds")
 

@@ -3,6 +3,7 @@
 #settings, so they never end up pinned into one.
 import os
 import shlex
+import shutil
 import sys
 from time import sleep
 
@@ -20,6 +21,71 @@ from comiclib.exits import DRIVER as EXIT_DRIVER, TIMEOUT as EXIT_TIMEOUT, USAGE
 #timed out, a name that would not resolve, a site refusing for a while. MIRROR_RETRY_WAITS sets them, in
 #seconds and comma separated
 RETRY_WAITS = (5, 15, 45)
+
+#a chrome starts with a profile of its own, made in a temporary folder and thrown away when it quits. the test
+#suite starts hundreds, and making and deleting all those profiles was enough disk work to stall a video
+#playing on the same machine. MIRROR_PROFILE_POOL names a folder of profiles for chromes to reuse instead:
+#each claims one no other is using, for as long as it runs. nothing but the tests sets it - a library's own
+#scrapes keep a fresh profile each, so nothing one comic's site leaves behind reaches the next
+POOL_SIZE = 32
+
+
+def process_alive(pid):
+    #whether a process is still running, asked in a way that cannot harm it: on windows os.kill with any
+    #signal ends the process it is pointed at
+    if os.name == "nt":
+        import ctypes
+        query = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(query, False, pid)
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return code.value == 259
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def claim_profile(pool):
+    #a profile folder from the pool that no running chrome is using, and the claim that marks it as taken.
+    #the claim is a folder, which only one process can make, holding the process id of the one that made it,
+    #so a claim left by a process that has since died - killed part way through a run - is taken over
+    os.makedirs(pool, exist_ok=True)
+    for at in range(POOL_SIZE):
+        profile = os.path.join(pool, str(at))
+        claim = profile + ".claim"
+        try:
+            os.mkdir(claim)
+        except FileExistsError:
+            try:
+                with open(os.path.join(claim, "pid")) as f:
+                    holder = int(f.read().strip() or 0)
+            except (OSError, ValueError):
+                #made a moment ago and not written yet: someone else's, still starting
+                continue
+            if holder and process_alive(holder):
+                continue
+            shutil.rmtree(claim, ignore_errors=True)
+            try:
+                os.mkdir(claim)
+            except FileExistsError:
+                continue
+        with open(os.path.join(claim, "pid"), "w") as f:
+            f.write(str(os.getpid()))
+        return profile, claim
+    return None, None
+
+
+def release_profile(driver):
+    claim = getattr(driver, "profile_claim", None)
+    if claim:
+        shutil.rmtree(claim, ignore_errors=True)
 
 
 def error_page(driver):
@@ -94,6 +160,8 @@ def quit_quietly(driver):
         driver.quit()
     except Exception as error:
         print("WARNING: The browser did not shut down cleanly: {0}".format(type(error).__name__))
+    finally:
+        release_profile(driver)
 
 
 class Renewable:
@@ -167,13 +235,13 @@ def build_driver(args, browser_images=False, page_timeout=60.0):
             options.add_argument("--headless=new")
             #headless chromium falls over on the small /dev/shm found in containers and hardened services
             options.add_argument("--disable-dev-shm-usage")
-        prefs = {}
-        if not args.enable_javascript:
-            prefs['profile.managed_default_content_settings.javascript'] = 2
-        if not browser_images:
-            prefs['profile.managed_default_content_settings.images'] = 2
-        if prefs:
-            options.add_experimental_option("prefs", prefs)
+        #said either way, 1 for on and 2 for off. a profile remembers what the last browser on it was told, so a
+        #setting left out is not the default but whatever came before - a page check, which needs javascript,
+        #ran without it on a profile a scrape had turned it off in
+        options.add_experimental_option("prefs", {
+            'profile.managed_default_content_settings.javascript': 1 if args.enable_javascript else 2,
+            'profile.managed_default_content_settings.images': 1 if browser_images else 2,
+        })
 
     #a page is finished being useful as soon as its html is parsed, since only attributes are read from
     #it. waiting for the load event means waiting for every stylesheet, font and iframe as well, any one
@@ -186,6 +254,14 @@ def build_driver(args, browser_images=False, page_timeout=60.0):
     #chromium's own sandbox has no namespaces to work with
     for flag in shlex.split(os.environ.get("MIRROR_BROWSER_ARGS", "")):
         options.add_argument(flag)
+    claim = None
+    if os.environ.get("MIRROR_PROFILE_POOL") and not args.firefox:
+        profile, claim = claim_profile(os.environ["MIRROR_PROFILE_POOL"])
+        if profile:
+            #forward slashes, which chrome takes on every system, and no cache: one test's pages must never
+            #be served to the next from the profile they happen to share
+            options.add_argument("--user-data-dir=" + profile.replace("\\", "/"))
+            options.add_argument("--disk-cache-size=1")
 
     #machine specific paths come from the environment rather than arguments, so they stay out of the saved
     #commands in the metadata. needed wherever selenium cannot download a matching driver itself.
@@ -203,8 +279,12 @@ def build_driver(args, browser_images=False, page_timeout=60.0):
         else:
             driver = webdriver.Chrome(options=options, service=service) if service else webdriver.Chrome(options=options)
     except se.WebDriverException as error:
+        if claim:
+            shutil.rmtree(claim, ignore_errors=True)
         print("\nERROR: Could not start the webdriver: {0}".format(error))
         sys.exit(EXIT_DRIVER)
+    #let go of when the browser quits, by quit_quietly
+    driver.profile_claim = claim
 
     #without these a page that never finishes loading stalls the whole run. a comic that hangs holds up
     #every comic queued behind it, so the limit matters more to a batch than to a single scrape.

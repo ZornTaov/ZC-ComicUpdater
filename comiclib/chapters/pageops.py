@@ -206,7 +206,8 @@ def renumber(folder, args):
         for want in (twice + taken)[:10]:
             print("      {0}".format(want))
         return 2
-    print("{0}: {1} file(s) to number, {2} already numbered".format(folder, len(moves), already))
+    print("{0}: {1} file(s) to {2}, {3} already named so".format(
+        folder, len(moves), "number" if numbering else "rename", already))
     for name, want in moves[:4]:
         print("      {0}  ->  {1}".format(name[:44], want[:44]))
     if len(moves) > 4:

@@ -191,22 +191,22 @@ def setup():
     #traceback and python's own exit 1 - the same code as being interrupted, so a batch run reports a
     #stalled site as though someone had stopped it by hand.
     try:
-        driver.get(args.URL)
+        #a site refusing or dropping the connection is a page that would not load, tried again and then
+        #given the code for that - not a browser that failed
+        browser.open_page(driver, args.URL)
     except se.TimeoutException:
         print("\nERROR: {0} did not finish loading within {1:.0f}s. Raise MIRROR_PAGE_TIMEOUT if this "
               "site is simply slow.".format(args.URL, page_timeout))
         quit_quietly(driver)
         sys.exit(EXIT_TIMEOUT)
-    except se.WebDriverException as error:
-        print("\nERROR: Could not open {0}: {1}".format(args.URL, error))
-        quit_quietly(driver)
-        sys.exit(EXIT_DRIVER)
-    try:
-        browser.load_or_retry(driver)
     except MirrorError as error:
         print("\nERROR: {0}".format(error))
         quit_quietly(driver)
         sys.exit(error.code)
+    except se.WebDriverException as error:
+        print("\nERROR: Could not open {0}: {1}".format(args.URL, error))
+        quit_quietly(driver)
+        sys.exit(EXIT_DRIVER)
 
     #configurable vars
     increment = args.increment
@@ -308,6 +308,9 @@ def page_images(driver, args):
     #remembered for the pages that follow
     global image_xpath
     global last_page_url, last_page_srcs, seen_on_pages
+    #whatever way this page was reached, the browser's own error page is never read as one of the comic's:
+    #its picture would be saved or recorded as the page, and its missing next link taken for the comic's end
+    browser.load_or_retry(driver)
     if args.element_find_manual: #manual editing location
         #element = d.find_element(By.XPATH, '//*[@id="comic"]')
         element = driver.find_elements(By.TAG_NAME, 'img')

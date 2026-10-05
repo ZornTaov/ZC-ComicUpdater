@@ -42,6 +42,21 @@ def retry_waits():
     return tuple(float(bit) for bit in given.split(",") if bit.strip())
 
 
+def open_page(driver, url):
+    #going straight to an address. a load chrome cannot make at all - refused, reset - raises here, where
+    #the same failure reached by a click does not; either way the browser is left on its error page, and
+    #either way it is the same page that would not load, tried again the same way. a page that hangs, and
+    #a browser that has stopped answering, are still what they were
+    try:
+        driver.get(url)
+    except se.TimeoutException:
+        raise
+    except se.WebDriverException:
+        if not error_page(driver):
+            raise
+    load_or_retry(driver)
+
+
 def load_or_retry(driver):
     #a page that did not load is tried again, a little longer apart each time, before anything is read from
     #it. one that never does stops the run with the code for a page that would not load - never taken for
@@ -116,8 +131,7 @@ class Renewable:
             #read as being stopped by hand. said as what it is instead, so the run records why it stopped
             raise MirrorError("a fresh browser would not start after {0} pages".format(self.pages),
                               EXIT_DRIVER, "browser would not restart")
-        self._driver.get(here)
-        load_or_retry(self._driver)
+        open_page(self._driver, here)
         kept = 0
         for cookie in cookies:
             try:

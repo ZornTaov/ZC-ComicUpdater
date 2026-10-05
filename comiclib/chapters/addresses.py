@@ -172,8 +172,12 @@ def guess_by_url(links):
 
 
 def chapters_from_list(path, pages):
-    #a list of addresses, one for each chapter start, with an optional title after it
-    where = {same_page(page["url"]): page["n"] for page in pages}
+    #a list of addresses, one for each chapter start, with an optional title after it. a page of several
+    #images starts its chapter at the first of them, not the last
+    where = {}
+    for page in pages:
+        if page.get("url"):
+            where.setdefault(same_page(page["url"]), page["n"])
     found, unknown = [], []
     with open(path, 'r', encoding='utf-8-sig') as f:
         for line in f:

@@ -145,11 +145,12 @@ anything new.
 ## Testing
 
 The suite is `tests/`, run with pytest (`pip install -r requirements-dev.txt`, which the container never
-needs). `python -m pytest` runs all of it side by side (`pytest.ini` asks xdist for up to 4 workers), at
-below-normal priority that every browser and script it starts inherits (`run_politely` in `conftest.py`);
-`-m "not browser"` runs the offline half in seconds, and `-n 0` runs one test at a time for reading its
-output. Keep both: each worker drives its own Chrome, and at 16 workers, and still at 6, the suite made a
-video playing on the same machine hitch. Tests that need Chrome skip themselves on a machine without it.
+needs). `python -m pytest` runs all of it side by side (`pytest.ini` asks xdist for up to 8 workers), at
+below-normal priority that every browser and script it starts inherits (`run_politely` in `conftest.py`),
+with every Chrome reusing a profile from a pool (`share_profiles`, `MIRROR_PROFILE_POOL`) rather than making
+one. `-m "not browser"` runs the offline half in seconds, and `-n 0` runs one test at a time for reading its
+output. Keep the pool: a fresh profile per Chrome, hundreds a run, was disk work enough to make a video on the
+same machine hitch - it was the disk, not the cpu or the gpu. Tests that need Chrome skip themselves on a machine without it.
 
 Browser tests wait for what they are waiting for - `wait_until`, `open_page`, `checked` in the harness -
 never a fixed sleep: a pause long enough for the slowest machine was most of what the suite used to spend.

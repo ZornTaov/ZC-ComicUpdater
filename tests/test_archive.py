@@ -210,6 +210,16 @@ def test_a_link_names_a_chapter_only_when_its_words_are_a_chapter_and_a_number(c
         assert not chapters.names_a_chapter(not_named), not_named
 
 
+def test_a_list_of_chapter_starts_starts_each_at_the_first_image_of_its_page(chapters, tmp_path):
+    pages = [{"n": 1, "url": "https://x.test/p1"}, {"n": 2, "url": "https://x.test/p2"},
+             {"n": 3, "url": "https://x.test/p2"}, {"n": 4, "url": "https://x.test/p3"}]
+    listed = tmp_path / "starts.txt"
+    listed.write_text("# comments are skipped\nhttps://x.test/p1 | One\nhttps://x.test/p2 | Two\n", encoding="utf-8")
+    found = chapters.chapters_from_list(str(listed), pages)
+    assert [(c["label"], c["start_page"]) for c in found] == [("One", 1), ("Two", 2)], \
+        "a page of two images starts its chapter at the first of them"
+
+
 def test_a_chapter_starting_on_a_page_of_several_images_starts_at_the_first(chapters):
     pages = [{"n": 1, "url": "https://x.test/p1"}, {"n": 2, "url": "https://x.test/p2"},
              {"n": 3, "url": "https://x.test/p2"}, {"n": 4, "url": "https://x.test/p3"}]

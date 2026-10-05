@@ -177,6 +177,32 @@ def test_an_archive_that_lists_its_pages_never_fetches_anything(chapters):
     assert [c["label"] for c in chapters.settle_chapters(found, walk)] == ["Book #1", "Book #2", "Book #3"]
 
 
+#an archive that nests its storylines inside books: a book is a heading of its own, with no link, straight
+#above the first storyline in it - and the storylines' numbers start again in each book
+NESTED = ('<h1>Archive</h1><select>' + "".join('<option value="strip/{0}">Page {0}</option>'.format(n)
+                                               for n in range(1, 13)) + '</select>'
+          + '<div class="cc-storyline-contain"><div class="cc-storyline-header">Book 1 - The Start</div></div>'
+          + storyline("01 - Opening", [1, 2, 3]) + storyline("02 - Trouble", [4, 5])
+          + '<div class="cc-storyline-contain"><div class="cc-storyline-header">Book 2</div></div>'
+          + storyline("01 - Return", [6, 7, 8]) + storyline("02 - Ending", [9, 10, 11, 12]))
+
+
+def test_a_nested_archive_is_cut_by_its_books_when_asked(chapters):
+    walk = [{"n": n, "url": "https://x.test/strip/{0}".format(n)} for n in range(1, 13)]
+
+    def cut(outer):
+        reader = chapters.ArchiveReader()
+        reader.feed(NESTED)
+        found, _ = chapters.chapters_from_events(reader.events, chapters.first_of_each(walk),
+                                                 "https://x.test/strip/archive", outer=outer)
+        return [(c["label"], c["start_page"], c["pages"]) for c in chapters.settle_chapters(found, walk)]
+
+    assert cut(False) == [("01 - Opening", 1, 3), ("02 - Trouble", 4, 2), ("01 - Return", 6, 3),
+                          ("02 - Ending", 9, 4)], "every storyline, as before"
+    assert cut(True) == [("Book 1 - The Start", 1, 5), ("Book 2", 6, 7)], \
+        "one per book, named by the book, holding every storyline in it"
+
+
 def test_a_link_names_a_chapter_only_when_its_words_are_a_chapter_and_a_number(chapters):
     for named in ("Chapter 2: The Long Way Round", "Book #3", "Vol. 4", "Episode 12", "Arc 1 - Beginnings"):
         assert chapters.names_a_chapter(named), named

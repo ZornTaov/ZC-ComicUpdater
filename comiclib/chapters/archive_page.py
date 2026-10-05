@@ -341,6 +341,10 @@ def through_chapter_pages(events, where, base, fetch):
             if looks_like_pages(address, known):
                 paged = True
                 continue
+            #the comic's own front page - /comic beside /comic/some-page - shows the newest page, and
+            #reading it finds the same buttons
+            if there.partition('/')[2] == same_page(known).partition('/')[2].split('/')[0]:
+                continue
             others.setdefault(there, address)
         if len(others) == 1 and not paged:
             group["follow"] = next(iter(others.values()))
@@ -399,20 +403,28 @@ def through_chapter_pages(events, where, base, fetch):
     return out
 
 
-def chapters_from_events(events, where, base="", fetch=None):
+def chapters_from_events(events, where, base="", fetch=None, outer=False):
     #a chapter starts at the first page link after a heading. several headings can sit together - a title
     #and the summary underneath it - so the one that reads most like a title wins: a real heading tag
     #first, and the earliest of those. given a way to fetch a page, a heading leading only to a page of
-    #its own about the chapter has that page read for where the chapter starts
+    #its own about the chapter has that page read for where the chapter starts.
+    #outer is for an archive that nests its chapters inside larger ones - books, volumes, years - and is
+    #to be cut by those: a heading with another heading straight under it, before any link, is one of them,
+    #and a chapter starts only where one does, the chapters under it adding their pages to it
     if fetch is not None:
         events = through_chapter_pages(events, where, base, fetch)
+    events = beside_its_heading(events)
     found, waiting, listed = [], [], set()
+    #the outer heading waiting for the first page under it
+    parent = None
     #a section gathered from across the comic - fillers, omake, guest pages, listed apart under a heading of
     #their own - is not a chapter. its pages were published in among the chapters, and stay where they were
     #published, so a reader of the archives meets them exactly where a reader of the site does
     gathered, seen = False, set()
-    for kind, first, second in beside_its_heading(events):
+    for step, (kind, first, second) in enumerate(events):
         if kind == "heading":
+            if outer and step + 1 < len(events) and events[step + 1][0] == "heading":
+                parent = first
             waiting.append((second if second is not None else 1, len(waiting), first))
             continue
         owned = kind == "owned"
@@ -426,10 +438,19 @@ def chapters_from_events(events, where, base="", fetch=None):
         if owned and already is not None:
             #this page already starts a chapter, named by whatever mentioned it first - often a dropdown
             #of every page under the archive's own banner. a heading built round this very link knows
-            #better, so it renames that chapter rather than making a second one at the same page.
-            already["label"], already["pages_said"] = heading_says(second)
+            #better, so it renames that chapter rather than making a second one at the same page - or,
+            #cutting by the outer headings, the one this page is the first of does
+            if not outer:
+                already["label"], already["pages_said"] = heading_says(second)
+            elif parent is not None:
+                already["label"], already["pages_said"] = heading_says(parent)
+                parent = None
             waiting = []
             continue
+        if outer and found and parent is None and (owned or waiting):
+            #a chapter inside the outer one: its pages are the outer one's
+            waiting = []
+            owned = False
         if owned or waiting or not found:
             if at not in seen and any(min(chapter["pages_listed"]) < at < max(chapter["pages_listed"])
                                       for chapter in found if chapter["pages_listed"]):
@@ -446,6 +467,8 @@ def chapters_from_events(events, where, base="", fetch=None):
             label = (second if owned else
                      min(waiting, key=lambda held: (held[0], -held[1]))[2] if waiting
                      else "Chapter {0}".format(len(found) + 1))
+            if outer and parent is not None:
+                label, parent = parent, None
             label, says = heading_says(label)
             found.append({"label": label or "Chapter {0}".format(len(found) + 1),
                           "start_page": at, "pages_listed": [], "pages_said": says})
@@ -468,7 +491,7 @@ def first_of_each(pages):
     return where
 
 
-def chapters_from_archive(url, pages, browser=False, script=None):
+def chapters_from_archive(url, pages, browser=False, script=None, outer=False):
     #the archive page says where each chapter starts; the walk says where every page sits. matching one
     #against the other needs no knowledge of the site beyond which links are pages of this comic.
     where = first_of_each(pages)
@@ -476,4 +499,4 @@ def chapters_from_archive(url, pages, browser=False, script=None):
     reader.feed(read_archive(url, browser, script))
     #plenty of archives link their pages relatively, so each is read against the archive's own address
     return chapters_from_events(reader.events, where, url,
-                                fetch=lambda page: read_archive(page, browser, script))
+                                fetch=lambda page: read_archive(page, browser, script), outer=outer)

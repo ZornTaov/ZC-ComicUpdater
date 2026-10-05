@@ -9,10 +9,10 @@ import requests
 
 from comiclib.chapters.align import do_align
 from comiclib.chapters.index import alignment_path, index_path, joined_pages, one_page, read_index
-from comiclib.chapters.links import page_at
+from comiclib.chapters.links import page_at, same_page
 from comiclib.chapters.packing import repack
 from comiclib.metadata import now_stamp as time_stamp, read as read_metadata, write as write_metadata, write_json
-from comiclib.pages import numbered_name, page_number, saved_name, type_from_bytes
+from comiclib.pages import numbered_name, page_number, reading_order, saved_name, sort_key, type_from_bytes
 
 
 def refetch(folder, args):
@@ -149,15 +149,44 @@ def renumber(folder, args):
               "first, or pass --force if you are sure.")
         return 2
     held = set(os.listdir(folder))
+    original = getattr(args, "original", False)
+    filed = [page for page in saved["pages"] if page.get("file")]
+    named = {}
+    if original or getattr(args, "site_names", False):
+        named = {page["n"]: site_name(folder, page["src"], page["file"]) for page in filed if page.get("src")}
+    #a page keeps the very name the site gave it - the name that finds it again when searching for it -
+    #unless those names would not read in the comic's order, or two pages share one. then every page
+    #carries its number in front of it, which keeps both the name and the order
+    numbering = True
+    if original:
+        names = [named.get(page["n"]) for page in filed]
+        if not all(names):
+            print("{0} page(s) have no image of the site's to be named after, so every page is numbered.".format(
+                sum(1 for name in names if not name)))
+        elif len(set(names)) < len(names):
+            print("The site uses {0} for more than one page, so every page is numbered.".format(
+                sorted({name for name in names if names.count(name) > 1})[0]))
+        elif reading_order(folder, names) != names or sorted(names, key=sort_key) != names:
+            wrong = next(at for at, (one, other) in enumerate(zip(names, sorted(names, key=sort_key)))
+                         if one != other)
+            print("The site's names would not read in order - {0} would come before {1} - so every page "
+                  "is numbered.".format(sorted(names, key=sort_key)[wrong], names[wrong]))
+        else:
+            numbering = False
+            print("The site's own names read in the comic's order, so each page keeps its name as it is.")
     moves, already = [], 0
-    for page in saved["pages"]:
-        name = page.get("file")
-        if not name:
-            continue
-        if getattr(args, "site_names", False) and page.get("src"):
+    for page in filed:
+        name = page["file"]
+        if original and not numbering:
+            want = named[page["n"]]
+        elif page["n"] in named:
             #the number in front of the site's own name for the image, which is what a scrape with
             #--prefix writes: so a comic first saved by some other tool reads the same as what it gains next
-            want = "{0:04d}_{1}".format(page["n"], site_name(folder, page["src"], name))
+            want = "{0:04d}_{1}".format(page["n"], named[page["n"]])
+        elif re.match(r'^\d+\.\w+$', name):
+            #a page with no image of the site's, saved by another tool as a bare count: its number is all
+            #there is to say about it, and its own bytes what kind of picture it is
+            want = "{0:04d}{1}".format(page["n"], os.path.splitext(site_name(folder, name, name))[1])
         else:
             want = numbered_name(page["n"], name)
         if want == name:
@@ -211,9 +240,23 @@ def renumber(folder, args):
     metadata = read_metadata(folder)
     if metadata:
         settings = metadata.setdefault("settings", {})
-        if not settings.get("prefix"):
-            settings["prefix"] = True
-            print("  this comic now saves new pages with their number too (prefix is on).")
+        #a page set by hand is remembered by its file, which has just been renamed under it
+        for made in (metadata.get("history") or {}).get("hand_made") or []:
+            if made.get("file") in renamed:
+                made["file"] = renamed[made["file"]]
+        if numbering:
+            if not settings.get("prefix"):
+                settings["prefix"] = True
+                print("  this comic now saves new pages with their number too (prefix is on).")
+            #and numbers them on from the page it resumes on, which a run re-saves under the very name it
+            #has just been given. a count kept by another tool, from 0, would number every new page wrong
+            resumes = next((page["n"] for page in filed
+                            if settings.get("url") and same_page(page["url"]) == same_page(settings["url"])),
+                           filed[-1]["n"] if filed else None)
+            if resumes and settings.get("increment") != resumes:
+                print("  it resumes on page {0}, so new pages are numbered on from there (increment {1} -> "
+                      "{0}).".format(resumes, settings.get("increment")))
+                settings["increment"] = resumes
         write_metadata(folder, metadata)
     print("  the archive still holds the old names: chapters.py repack {0} --root <library>, or pack "
           "for a chaptered comic.".format(folder))

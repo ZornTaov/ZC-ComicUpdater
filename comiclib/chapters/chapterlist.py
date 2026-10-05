@@ -114,7 +114,7 @@ def chapter_record(chapter):
     return kept
 
 
-def save_chapters(folder, chapters, source, source_url=None, every=None):
+def save_chapters(folder, chapters, source, source_url=None, every=None, outer=False):
     metadata = read_metadata(folder)
     if not metadata:
         print("  no metadata here, so the chapters were not saved")
@@ -129,6 +129,9 @@ def save_chapters(folder, chapters, source, source_url=None, every=None):
     if every:
         #remembered so a later run cuts the pages the comic gains the same way, with no arguments
         metadata["chapters"]["every"] = every
+    if outer:
+        #and so is cutting a nested archive by its books rather than by every chapter inside them
+        metadata["chapters"]["outer"] = True
     #a correction is about this comic, not about one run of one rule, and where the archives are and when
     #they were written describes what is on disk, not this reading. neither is the reading's to throw away
     for kept in ("fixes", "packed", "folder"):
@@ -192,7 +195,8 @@ def try_archive(folder, args):
         pretend, order = walked, first_of_each(walked)
     #a chapter page is only worth reading against a walk: without one none of its links could be placed
     fetch = (lambda page: read_archive(page, args.browser, args.script)) if walked else None
-    found, pages = chapters_from_events(reader.events, order, args.archive, fetch=fetch)
+    found, pages = chapters_from_events(reader.events, order, args.archive, fetch=fetch,
+                                        outer=getattr(args, "outer", False))
     found = settle_chapters(found, pretend) if found and pretend else []
 
     print("{0}".format(args.archive))
@@ -270,6 +274,10 @@ def plan(folder, args):
         #the comic remembers where its chapters are listed, so keeping them current needs no arguments
         args.archive = known["source_url"]
         print("Reading the archive this comic remembers: {0}".format(args.archive))
+    outer = getattr(args, "outer", False) or bool(args.archive and args.archive == known.get("source_url")
+                                                  and known.get("outer"))
+    if outer and not getattr(args, "outer", False):
+        print("Cutting it by its outer headings - its books, not every chapter in them - as it remembers.")
     if (every is None and not args.archive and not args.list and not args.urls
             and known.get("source") == "every" and known.get("every")):
         every = known["every"]
@@ -282,7 +290,7 @@ def plan(folder, args):
     if every:
         found, source, source_url = chapters_every(pages, every), "every", None
     elif args.archive and not args.urls:
-        found, listed = chapters_from_archive(args.archive, pages, args.browser, args.script)
+        found, listed = chapters_from_archive(args.archive, pages, args.browser, args.script, outer=outer)
         source, source_url = "archive", args.archive
     elif args.list:
         found, source, source_url = chapters_from_list(args.list, pages), "list", None
@@ -330,7 +338,7 @@ def plan(folder, args):
         print("  nothing saved, because pages would move between archives that already exist. Look at it, "
               "then run it again with --force if that is what you want.")
         return 1
-    code = save_chapters(folder, chapters, source, source_url, every)
+    code = save_chapters(folder, chapters, source, source_url, every, outer and source == "archive")
     if not code and how != "same" and known.get("packed"):
         #nothing repacks itself: an archive holding the old boundary keeps holding it until pack is run
         print("  the chapter archives still hold the old boundaries. Run: chapters.py pack {0}".format(folder))

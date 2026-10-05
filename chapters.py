@@ -50,7 +50,8 @@ def setup():
                              "try: read an archive page and say what it would be read as, before walking "
                              "anything. "
                              "fix: put a chapter boundary right by hand. "
-                             "renumber: rename the files so each carries its page number. "
+                             "renumber: rename the files so each carries its page number, or with "
+                             "--original, the site's own name for it. "
                              "recovered: note a page the site has lost that you put back by hand. "
                              "insert: put in a page the comic's own links skip past. "
                              "pack: write one .cbz per chapter. "
@@ -69,6 +70,11 @@ def setup():
                         help="With renumber, name each file after the image the site serves for its page, "
                              "as a scrape with --prefix would - 0001_the-sites-name.jpg - rather than keeping "
                              "the name it has.")
+    params.add_argument("--original", action='store_true', default=False,
+                        help="With renumber, give each file the very name the site gives its image - the name "
+                             "that finds the page again in a search - and number them as well only if those "
+                             "names would not read in the comic's order, or two pages share one. For a comic "
+                             "another tool saved under names of its own.")
     params.add_argument("--first", action='store_true', default=False,
                         help="Follow the comic's first-page link before walking.")
     params.add_argument("--limit", type=int, default=0, help="Stop the walk after this many pages.")
@@ -91,6 +97,11 @@ def setup():
     params.add_argument("--list", default=None,
                         help="With chapters, a file of chapter start addresses, one per line, each "
                              "optionally followed by | and a title.")
+    params.add_argument("--outer", action='store_true', default=False,
+                        help="With chapters or try, for an archive that nests its chapters inside larger ones - "
+                             "books, volumes, years - cut by the larger ones: one archive per book, holding "
+                             "every chapter in it. Remembered, so later readings of the archive cut the same "
+                             "way.")
     params.add_argument("--every", type=int, default=None,
                         help="With chapters, cut the comic into parts of this many pages - 100 makes pages "
                              "1-100 one archive, 101-200 the next - for a comic with no chapters of its own "

@@ -12,6 +12,7 @@ from comiclib.adopt.adopting import (adopt_one, build_archive, build_metadata, m
                                      nearest_archive)
 from comiclib.adopt.report import (editable_columns, read_report, report_columns, row_to_args,  # noqa: F401
                                    truthy, write_report)
+from comiclib.adopt.unpacking import unpack_and_adopt
 from comiclib.adopt.scan import (comic_folder, comic_names, every_archive, inside, inspect,  # noqa: F401
                                  is_page, list_pages, loose_pages, matching_archive, numbered,
                                  one_comic_split_up, page_types, pages_in_archives, prefixed,
@@ -51,6 +52,8 @@ def setup():
                         help="The .cbz this comic belongs to, when it is not beside the folder. Written relative to --root.")
     params.add_argument("--make-cbz", action=argparse.BooleanOptionalAction, default=True,
                         help="Build the archive when the cbz_path names one that is not there yet, rather than refusing. A name close to a real archive is still refused, since that is a typo. On by default.")
+    params.add_argument("--unpack-to", default=None, metavar="FOLDER",
+                        help="With a .cbz already in the library, unpack its pages into this folder (relative to --root, and empty or not there yet) and adopt the folder, keeping the .cbz as its archive. A comic kept only as an archive can be carried on, but not lined up against a walk or cut into chapters, which both work on loose pages.")
     params.add_argument("-n", "--dry-run", action='store_true', default=False,
                         help="Show the metadata that would be written without writing it.")
     params.add_argument("--migrate", action='store_true',
@@ -136,7 +139,7 @@ def main():
     if not args.path:
         params.error("a comic folder or .cbz is required unless --scan, --report, --read-report or --migrate is used")
 
-    ok, message = adopt_one(args)
+    ok, message = unpack_and_adopt(args) if args.unpack_to else adopt_one(args)
     if ok:
         print("  wrote         : {0}".format(os.path.join(comic_folder(args.path), metadata_file)))
         return 0

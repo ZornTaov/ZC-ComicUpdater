@@ -193,6 +193,19 @@ A comic that exists only as a `.cbz` works too — make the folder, leave it emp
 `--cbz-path`. The page count and numbering are read out of the archive, and the folder fills up as
 new pages arrive.
 
+Kept that way, though, it can be carried on but not walked against or cut into chapters, which both
+work on the pages in its folder. `--unpack-to` takes the pages out of an archive already in the library
+and adopts the folder they land in, keeping the archive as the comic's own:
+
+```sh
+python adopt_comic.py "CBZs/MyComic/MyComic.cbz" --unpack-to "Uncompressed/MyComic" \
+    --root "D:/Comics" --ended
+```
+
+The folder has to be empty or not there yet, the archive's pages have to be in one folder inside it,
+and an address or `--ended` has to be given; each is checked before anything is written. The pages are
+unpacked beside the folder and moved into place once they are all out.
+
 ## Running unattended
 
 ```sh

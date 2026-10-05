@@ -15,6 +15,7 @@ from argparse import Namespace
 
 from comiclib.adopt.adopting import adopt_one
 from comiclib.adopt.scan import inspect as numbering, is_page
+from comiclib.adopt.unpacking import CHUNK, Refused, pages_folder, unpack  # noqa: F401
 from comiclib.metadata import METADATA_FILE, migrate, now_stamp, read as read_metadata, write as write_metadata
 from comiclib.web.adding import clean_folder, default_cbz, under_root
 
@@ -22,8 +23,6 @@ from comiclib.web.adding import clean_folder, default_cbz, under_root
 #comic half received, or one set aside for a newer copy, is never taken for a comic to update
 UPLOADS = ".uploads"
 REPLACED = ".replaced"
-#read and written a megabyte at a time, so a file of gigabytes never sits in memory
-CHUNK = 1 << 20
 #what a browser may call a zip or a cbz. a page on another site cannot send any of these without the
 #browser asking this server first, which it never agrees to - the same protection json gets
 KINDS = ("application/zip", "application/x-zip-compressed", "application/x-cbz",
@@ -31,11 +30,6 @@ KINDS = ("application/zip", "application/x-zip-compressed", "application/x-cbz",
 #room kept free beyond what is needed, so filling the disk is never the way an upload fails
 MARGIN = 200 * 1024 * 1024
 ADDRESS = re.compile(r"^https?://\S+$")
-
-
-class Refused(Exception):
-    #why an upload cannot go in, said so the reader knows what to change
-    pass
 
 
 def uploads_folder(root):
@@ -95,20 +89,8 @@ def look_inside(path):
     #it is a comic this tool has already adopted. nothing is unpacked
     with zipfile.ZipFile(path) as archive:
         names = [info.filename.replace("\\", "/") for info in archive.infolist() if not info.is_dir()]
-        unsafe = [name for name in names
-                  if name.startswith("/") or re.match(r"^[A-Za-z]:", name) or ".." in name.split("/")]
-        if unsafe:
-            raise Refused("it holds a path that would land outside its own folder, {0}".format(unsafe[0]))
+        inner = pages_folder(names)
         pages = [name for name in names if is_page(name)]
-        if not pages:
-            raise Refused("there are no pages in it")
-        #a comic here is one folder of pages. pages spread over several - a comic and its extras, kept apart
-        #by whoever made the archive - have no single order to be read in, which is for the reader to settle
-        folders = sorted({posixpath.dirname(name) for name in pages})
-        if len(folders) > 1:
-            raise Refused("its pages are in {0} different folders ({1}). Put them in one folder, or upload each "
-                          "as a comic of its own".format(len(folders), ", ".join(f or "the top" for f in folders[:4])))
-        inner = folders[0]
         kept = posixpath.join(inner, METADATA_FILE) if inner else METADATA_FILE
         metadata = None
         if kept in names:
@@ -279,28 +261,6 @@ def set_aside(full, root, stamp):
     target = os.path.join(aside, "{0} {1}".format(os.path.basename(full), stamp))
     os.replace(full, target)
     return os.path.relpath(target, root).replace(os.sep, "/")
-
-
-def unpack(path, inner, staging, cancel=None):
-    #the pages and the settings, flat into staging. everything else in the archive stays behind
-    os.makedirs(staging, exist_ok=True)
-    done = 0
-    with zipfile.ZipFile(path) as archive:
-        for info in archive.infolist():
-            name = info.filename.replace("\\", "/")
-            if info.is_dir() or posixpath.dirname(name) != inner:
-                continue
-            base = posixpath.basename(name)
-            if not (is_page(base) or base == METADATA_FILE):
-                continue
-            with archive.open(info) as source, open(os.path.join(staging, base), "wb") as out:
-                shutil.copyfileobj(source, out, CHUNK)
-            done += 1
-            if done % 500 == 0:
-                print("  unpacked {0} file(s)".format(done), flush=True)
-                if cancel is not None and cancel.is_set():
-                    raise Refused("stopped part way through unpacking; nothing was put in the library")
-    return done
 
 
 def place(chosen, args, every_pages, cancel=None):

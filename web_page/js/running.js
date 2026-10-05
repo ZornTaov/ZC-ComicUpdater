@@ -14,6 +14,64 @@ function comicLine(c) {
   </div>${c.tail && c.tail.length ? `<div class="tail">${esc(c.tail.join("\n"))}</div>` : ""}`;
 }
 
+function historyItem(j) {
+  //an event rather than a job - the updater restarting - has a time and nothing to count
+  if (j.kind === "restart") return `<div class="history-item">
+    <div class="muted">${esc(j.label)}</div><div class="line">${when(j.finished)}</div></div>`;
+  const counts = j.counts || {};
+  const parts = [];
+  if (j.gained) parts.push(`+${j.gained} pages`);
+  if (counts.failed) parts.push(`${counts.failed} failed`);
+  if (counts.stopped) parts.push(`${counts.stopped} stopped`);
+  if (j.error) parts.push(j.error);
+  //a job that is not about scraping says what it did instead: an upload put in the library
+  if (j.outcome) parts.push(j.outcome);
+  const notable = (j.comics || []).length;
+  //stopped to ask rather than walking on its own, so it says so, and the editor is where it is answered
+  if (j.decide) parts.push("stopped to ask what to do");
+  return `<div class="history-item">
+    <div><span class="${counts.failed || j.error || j.decide ? "s-failed" : ""}">${esc(j.label)}</span></div>
+    <div class="line">${when(j.finished)} · took ${clock(j.finished - j.started)}${parts.length ? " · " + esc(parts.join(", ")) : " · nothing new"}</div>
+    ${j.decide ? `<div class="line">${esc(j.decide.why)} <button type="button" class="link" data-open="${esc(j.decide.comic)}">Open its editor</button></div>` : ""}
+    ${notable ? `<details data-job="${esc(String(j.id))}"><summary>${notable} comic${notable === 1 ? "" : "s"}</summary>${j.comics.map(comicLine).join("")}</details>` : ""}
+  </div>`;
+}
+
+function quiet(j) {
+  //nothing worth a line of its own: no pages, nothing failed or stopped, nothing to answer or report
+  const counts = j.counts || {};
+  return !j.gained && !counts.failed && !counts.stopped && !j.error && !j.outcome && !j.decide &&
+    !(j.comics || []).length;
+}
+
+function quietRuns(history) {
+  //a week of Recent was mostly the updater restarting and the same page checked over and over while an
+  //element path was worked out. quiet entries of one kind in a row are drawn as one, newest first; anything
+  //that did something stays on its own, and a run of them is never merged across one that did
+  const groups = [];
+  for (const j of history) {
+    const last = groups[groups.length - 1];
+    if (last && quiet(j) && quiet(last[0]) && j.kind === last[0].kind) last.push(j);
+    else groups.push([j]);
+  }
+  return groups;
+}
+
+function historyGroup(group) {
+  const newest = group[0], oldest = group[group.length - 1];
+  const same = group.every((j) => j.label === newest.label);
+  const label = same ? newest.label : `${newest.label}, and ${group.length - 1} more like it`;
+  const each = group.map((j) => `<div class="line">${when(j.finished)}${same ? "" : " · " + esc(j.label)}${
+    j.kind === "restart" ? "" : ` · took ${clock(j.finished - j.started)}`}</div>`).join("");
+  //named by its oldest entry, which stays the same as newer ones join the run, so an opened run stays open
+  return `<div class="history-item">
+    <div class="${newest.kind === "restart" ? "muted" : ""}">${esc(label)}</div>
+    <div class="line">${group.length} times, ${when(oldest.finished)} to ${when(newest.finished)}${
+      newest.kind === "restart" ? "" : " · nothing new"}</div>
+    <details data-job="${esc("run-" + oldest.id)}"><summary>each one</summary>${each}</details>
+  </div>`;
+}
+
 function renderState(state) {
   $("root").textContent = state.root;
   $("next").textContent = state.next_run ? `next scheduled update ${when(state.next_run)}` : "no schedule";
@@ -39,28 +97,9 @@ function renderState(state) {
     state.waiting.map((j) => `<div class="queue-item"><span>${esc(j.label)}</span>
       <button class="small" data-drop="${j.id}">Remove</button></div>`).join("") : "";
 
-  const historyHtml = state.history.length ? state.history.map((j) => {
-    //an event rather than a job - the updater restarting - has a time and nothing to count
-    if (j.kind === "restart") return `<div class="history-item">
-      <div class="muted">${esc(j.label)}</div><div class="line">${when(j.finished)}</div></div>`;
-    const counts = j.counts || {};
-    const parts = [];
-    if (j.gained) parts.push(`+${j.gained} pages`);
-    if (counts.failed) parts.push(`${counts.failed} failed`);
-    if (counts.stopped) parts.push(`${counts.stopped} stopped`);
-    if (j.error) parts.push(j.error);
-    //a job that is not about scraping says what it did instead: an upload put in the library
-    if (j.outcome) parts.push(j.outcome);
-    const notable = (j.comics || []).length;
-    //stopped to ask rather than walking on its own, so it says so, and the editor is where it is answered
-    if (j.decide) parts.push("stopped to ask what to do");
-    return `<div class="history-item">
-      <div><span class="${counts.failed || j.error || j.decide ? "s-failed" : ""}">${esc(j.label)}</span></div>
-      <div class="line">${when(j.finished)} · took ${clock(j.finished - j.started)}${parts.length ? " · " + esc(parts.join(", ")) : " · nothing new"}</div>
-      ${j.decide ? `<div class="line">${esc(j.decide.why)} <button type="button" class="link" data-open="${esc(j.decide.comic)}">Open its editor</button></div>` : ""}
-      ${notable ? `<details data-job="${esc(String(j.id))}"><summary>${notable} comic${notable === 1 ? "" : "s"}</summary>${j.comics.map(comicLine).join("")}</details>` : ""}
-    </div>`;
-  }).join("") : `<div class="empty">Nothing has run in the last week.</div>`;
+  const historyHtml = state.history.length ? quietRuns(state.history).map((group) =>
+    group.length > 1 ? historyGroup(group) : historyItem(group[0])).join("") :
+    `<div class="empty">Nothing has run in the last week.</div>`;
   //written over on every poll, an opened run would close again two seconds later. it only changes when a
   //job finishes, and then the runs that were open stay open
   if (historyHtml !== lastHistoryHtml) {

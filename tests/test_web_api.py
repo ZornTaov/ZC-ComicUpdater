@@ -153,6 +153,32 @@ def test_a_run_opened_under_recent_stays_open(page, site, browser):
 
 
 @pytest.mark.browser
+def test_recent_draws_quiet_runs_in_a_row_as_one(page, browser):
+    #a week of Recent was mostly restarts and the same page checked over and over. quiet entries of one kind
+    #in a row are one line, but a check that failed, or a run with pages, stays apart and splits a run
+    open_page(browser, page.base.replace("http://", "http://me:{0}@".format(PASSWORD)) + "/")
+    draw = ("const done = arguments[arguments.length - 1];"
+            "fetch(api('/api/state?since=' + seq)).then((r) => r.json()).then((state) => {"
+            "  const at = (n) => state.now - 60 * n;"
+            "  const entry = (id, kind, label, more) => Object.assign({id, kind, label, started: at(id) - 5,"
+            "    finished: at(id), counts: {}}, more || {});"
+            "  state.history = ["
+            "    entry(1, 'restart', 'Restarted'), entry(2, 'restart', 'Restarted'), entry(3, 'restart', 'Restarted'),"
+            "    entry(4, 'check', 'Check https://example.com/2'), entry(5, 'check', 'Check https://example.com/1'),"
+            "    entry(6, 'check', 'Check https://example.com/1', {error: 'it broke'}),"
+            "    entry(7, 'check', 'Check https://example.com/1'),"
+            "    entry(8, 'update', 'Scheduled update', {gained: 3}), entry(9, 'restart', 'Restarted')];"
+            "  renderState(state);"
+            "  done([...document.querySelectorAll('#history .history-item')].map((d) => d.firstElementChild.textContent.trim()));"
+            "})")
+    drawn = browser.execute_async_script(draw)
+    assert drawn == ["Restarted", "Check https://example.com/2, and 1 more like it",
+                     "Check https://example.com/1", "Check https://example.com/1", "Scheduled update",
+                     "Restarted"], drawn
+    assert "3 times" in browser.find_element("id", "history").text
+
+
+@pytest.mark.browser
 @pytest.mark.slow
 def test_the_page_shows_running_jobs_without_console_errors(page, site, browser):
     #something to show: two slow comics being added while a group waits behind them

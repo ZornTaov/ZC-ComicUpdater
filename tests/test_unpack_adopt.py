@@ -83,5 +83,6 @@ def test_an_archive_with_pages_in_several_folders_is_refused_untouched(library):
 def test_a_dry_run_says_what_it_would_do_and_does_nothing(library, shelved):
     done = adopt(library, "CBZs/MyComic/MyComic.cbz", "--unpack-to", "Uncompressed/MyComic", "--ended",
                  "--root", ".", "--dry-run")
-    assert "would unpack {0} page(s)".format(PAGES) in done.stdout, done.stdout[-400:]
+    assert done.returncode == 0, "a dry run is not a failure\n" + done.stdout[-400:]
+    assert "{0} page(s) into Uncompressed/MyComic".format(PAGES) in done.stdout, done.stdout[-400:]
     assert not (library / "Uncompressed" / "MyComic").exists()

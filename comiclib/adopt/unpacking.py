@@ -87,8 +87,10 @@ def unpack_and_adopt(args):
         return False, ("it already carries a {0}; upload it through the web page, which keeps the settings "
                        "it came with".format(METADATA_FILE))
     if args.dry_run:
-        return False, "would unpack {0} page(s) into {1} and adopt them".format(
-            len([name for name in names if posixpath.dirname(name) == inner and is_page(name)]), args.unpack_to)
+        #said the way adopt_one says a dry run, so whatever reads its answer takes it as one
+        print("  would unpack  : {0} page(s) into {1}".format(
+            len([name for name in names if posixpath.dirname(name) == inner and is_page(name)]), args.unpack_to))
+        return False, "would adopt: {0}, with {1} as its archive".format(args.unpack_to, args.path)
 
     #unpacked beside where it goes and moved in whole, so an interrupted unpack leaves nothing that looks
     #like a comic. a dot in front keeps the library scan from taking it for one while it fills

@@ -12,7 +12,7 @@ from comiclib.chapters.align import place_recovered, recovered_files
 from comiclib.chapters.index import joined_pages
 from comiclib.metadata import METADATA_FILE as metadata_file, now_stamp as time_stamp, read as read_metadata
 from comiclib.metadata import write as write_metadata
-from comiclib.pages import listing as folder_pages, sizes as file_sizes
+from comiclib.pages import PAGE_TYPES, listing as folder_pages, sizes as file_sizes
 from comiclib.standin import held_otherwise
 
 
@@ -239,10 +239,34 @@ def keep_extras(full, folder, keep_in):
     #go with the single archive. it is written out beside the chapter archives first, where a reader skips
     #it and it stays with its comic. False, with the archive left alone, when that cannot be done cleanly
     on_disk = set(os.listdir(folder))
+    #a page renamed since the archive was made - given back the site's own name - is in the folder under
+    #another name, so a picture whose name is not here is only an extra if no page here has its bytes. the
+    #size says which pages could be, and the bytes are compared only for those
+    by_size = {}
+    for name in on_disk:
+        try:
+            by_size.setdefault(os.path.getsize(os.path.join(folder, name)), []).append(name)
+        except OSError:
+            continue
+
+    def renamed_page(zf, info):
+        if not PAGE_TYPES.search(info.filename):
+            return False
+        candidates = by_size.get(info.file_size) or []
+        if not candidates:
+            return False
+        held = zf.read(info)
+        for name in candidates:
+            with open(os.path.join(folder, name), "rb") as f:
+                if f.read() == held:
+                    return True
+        return False
+
     try:
         with zipfile.ZipFile(full) as zf:
             extras = [info for info in zf.infolist()
-                      if not info.is_dir() and posixpath.basename(info.filename) not in on_disk]
+                      if not info.is_dir() and posixpath.basename(info.filename) not in on_disk
+                      and not renamed_page(zf, info)]
             names = [posixpath.basename(info.filename) for info in extras]
             clash = sorted({name for name in names
                             if names.count(name) > 1 or os.path.exists(os.path.join(keep_in, name))})

@@ -290,7 +290,12 @@ def plan(folder, args):
     if every:
         found, source, source_url = chapters_every(pages, every), "every", None
     elif args.archive and not args.urls:
-        found, listed = chapters_from_archive(args.archive, pages, args.browser, args.script, outer=outer)
+        try:
+            found, listed = chapters_from_archive(args.archive, pages, args.browser, args.script, outer=outer)
+        except (requests.RequestException, OSError) as error:
+            print("Could not read {0}: {1}. A site that has been walked hard can refuse for a while; try "
+                  "again later.".format(args.archive, error))
+            return 1
         source, source_url = "archive", args.archive
     elif args.list:
         found, source, source_url = chapters_from_list(args.list, pages), "list", None

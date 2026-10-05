@@ -172,6 +172,30 @@ def test_what_the_single_archive_holds_besides_the_pages_is_kept(tiny):
     assert not [name for name in tiny.made() if name.endswith(".writing")]
 
 
+def test_pages_renamed_since_the_single_archive_was_made_are_not_taken_for_extras(tiny, chapters):
+    #every page given back the site's own name after the single archive was written: its entries are the
+    #same pages under the old names, and the chapter archives already hold them. renamed the way renumber
+    #renames, the alignment along with the files
+    for name in sorted(os.listdir(str(tiny.comic))):
+        if name.endswith(".png"):
+            os.rename(str(tiny.comic / name), str(tiny.comic / ("site-" + name)))
+    alignment = chapters.index_path(str(tiny.comic)).replace(".jsonl", ".align.json")
+    with open(alignment) as f:
+        lined = json.load(f)
+    for page in lined["pages"]:
+        page["file"] = "site-" + page["file"] if page["file"] else None
+    with open(alignment, "w") as f:
+        json.dump(lined, f)
+    with zipfile.ZipFile(str(tiny.single), "a") as zf:
+        zf.writestr("mirror_tiny.py", "the script")
+    tiny.pack()
+    done = tiny.pack("--replace")
+    assert done.returncode == 0, done.stdout[-400:]
+    loose = sorted(name for name in os.listdir(str(tiny.out)) if not name.endswith(".cbz"))
+    assert loose == ["mirror_tiny.py"], "only what no page is, not every page under its old name: {0}".format(
+        loose[:5])
+
+
 def test_a_single_archive_whose_extra_would_overwrite_a_file_is_kept(tiny):
     with zipfile.ZipFile(str(tiny.single), "a") as zf:
         zf.writestr("mirror_tiny.py", "the archive's copy")

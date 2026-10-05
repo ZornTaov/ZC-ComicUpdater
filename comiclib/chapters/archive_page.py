@@ -280,10 +280,91 @@ def beside_its_heading(events):
     return kept
 
 
-def chapters_from_events(events, where, base=""):
+def walked_at(where, base, href):
+    #which page of the walk a link is, or None for a link to anything else
+    return next((where[same_page(one)] for one in link_targets(base, href) if same_page(one) in where), None)
+
+
+def through_chapter_pages(events, where, base, fetch):
+    #an archive that lists its chapters but none of their pages: each heading links only to a page of the
+    #site's own listing that chapter's pages. that page is read for them, and the chapter starts at the
+    #earliest of them in reading order - so a sidebar link to the newest page, on every page of the site,
+    #never decides anything. a chapter page can run to several pages of its own, but the earliest are on
+    #the first, whichever way round it lists them, unless it lists newest first across several
+    site = same_page(base).partition('/')[0]
+    groups, current = [], None
+    for at, (kind, first, second) in enumerate(events):
+        if kind == "heading":
+            current = {"heading": at, "name": first, "links": []}
+            groups.append(current)
+        elif current is not None:
+            current["links"].append((first, second))
+
+    def target(href):
+        return same_page(link_targets(base, href)[0]) if href else ""
+
+    #a chapter's thumbnail links where its name does but comes before it, at the foot of the heading above.
+    #a link at the end of one heading's lot that the next heading links to as well belongs to the next
+    for this, after in zip(groups, groups[1:]):
+        theirs = {target(href) for href, _ in after["links"]}
+        while this["links"] and target(this["links"][-1][0]) in theirs:
+            after["links"].insert(0, this["links"].pop())
+    for group in groups:
+        group["follow"] = None
+        if any(walked_at(where, base, href) is not None for href, _ in group["links"]):
+            continue
+        #the one place on this site the heading leads, other than its front page or this archive. a
+        #heading over several - the site's menu, a list of posts - is not a chapter's, and is left alone
+        #compared as same_page has them, but fetched as written: a path can care about its case
+        others = {}
+        for href, _ in group["links"]:
+            if not href or href.startswith(("#", "javascript:", "mailto:")):
+                continue
+            target = link_targets(base, href)[0]
+            there = same_page(target)
+            if there.partition('/')[0] != site or not there.partition('/')[2] or there == same_page(base):
+                continue
+            others.setdefault(there, target)
+        if len(others) == 1:
+            group["follow"] = next(iter(others.values()))
+    wanted = [group for group in groups if group["follow"]]
+    if not wanted:
+        return events
+    print("  reading {0} chapter page(s) for where each chapter starts ...".format(len(wanted)), flush=True)
+    starts = {}
+    for at, group in enumerate(wanted, 1):
+        url = group["follow"]
+        try:
+            reader = ArchiveReader()
+            reader.feed(fetch(url))
+        except Exception as error:
+            print("    could not read {0}: {1}".format(url, error))
+            continue
+        found = [(walked_at(where, url, href), href) for kind, href, _ in reader.events
+                 if kind in ("link", "owned")]
+        found = [(n, href) for n, href in found if n is not None]
+        if found:
+            n, href = min(found)
+            starts[group["heading"]] = link_targets(url, href)[0]
+        if at % 10 == 0:
+            print("    read {0} of {1}".format(at, len(wanted)), flush=True)
+    #given out just after its heading, as a link the heading owns: named by the heading it sits under,
+    #whatever grander heading - the archive's own title - is waiting above it
+    out = []
+    for at, event in enumerate(events):
+        out.append(event)
+        if at in starts:
+            out.append(("owned", starts[at], event[1]))
+    return out
+
+
+def chapters_from_events(events, where, base="", fetch=None):
     #a chapter starts at the first page link after a heading. several headings can sit together - a title
     #and the summary underneath it - so the one that reads most like a title wins: a real heading tag
-    #first, and the earliest of those.
+    #first, and the earliest of those. given a way to fetch a page, a heading leading only to a page of
+    #its own about the chapter has that page read for where the chapter starts
+    if fetch is not None:
+        events = through_chapter_pages(events, where, base, fetch)
     found, waiting, listed = [], [], set()
     #a section gathered from across the comic - fillers, omake, guest pages, listed apart under a heading of
     #their own - is not a chapter. its pages were published in among the chapters, and stay where they were
@@ -294,8 +375,7 @@ def chapters_from_events(events, where, base=""):
             waiting.append((second if second is not None else 1, len(waiting), first))
             continue
         owned = kind == "owned"
-        at = next((where[same_page(one)] for one in link_targets(base, first)
-                   if same_page(one) in where), None)
+        at = walked_at(where, base, first)
         if at is None:
             continue
         #each page once, however often it is linked: a storyline's name and its first row both lead to its
@@ -354,4 +434,5 @@ def chapters_from_archive(url, pages, browser=False, script=None):
     reader = ArchiveReader()
     reader.feed(read_archive(url, browser, script))
     #plenty of archives link their pages relatively, so each is read against the archive's own address
-    return chapters_from_events(reader.events, where, url)
+    return chapters_from_events(reader.events, where, url,
+                                fetch=lambda page: read_archive(page, browser, script))

@@ -190,7 +190,9 @@ def try_archive(folder, args):
     #tell a list of fillers gathered at the bottom from a chapter
     if walked:
         pretend, order = walked, first_of_each(walked)
-    found, pages = chapters_from_events(reader.events, order, args.archive)
+    #a chapter page is only worth reading against a walk: without one none of its links could be placed
+    fetch = (lambda page: read_archive(page, args.browser, args.script)) if walked else None
+    found, pages = chapters_from_events(reader.events, order, args.archive, fetch=fetch)
     found = settle_chapters(found, pretend) if found and pretend else []
 
     print("{0}".format(args.archive))

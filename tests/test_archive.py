@@ -105,6 +105,69 @@ def test_a_walked_comic_with_no_address_of_its_own_is_previewed_by_its_walk(chap
     assert "chapters it would read: 3" in said, "the books, and no chapter of fillers\n" + said
 
 
+#a site whose archive lists only its chapters, each heading leading to a page of the site's own that lists
+#that chapter's pages, oldest first, with the newest page of the comic in a sidebar on every page
+SITE = "https://x.test"
+LISTED_ELSEWHERE = {"A": range(1, 6), "B": range(6, 11), "D": range(16, 21)}
+
+
+def chapter_box(slug, name):
+    return ('<a href="/chapter/{0}/"><img src="/t/{0}.jpg"></a><div class="chapter-title">{1}</div>'
+            '<a href="/">Site.com</a><a href="/chapter/{0}/">READ THIS CHAPTER</a>'.format(slug, name))
+
+
+CHAPTER_LIST = ('<h1>Some Comic</h1><a href="/about/">About</a><a href="/chapter/extras/">Extras</a>'
+                '<a href="/store/">Store</a><h2>Archives</h2><h2>Web Comics</h2>'
+                + chapter_box("a", "A") + chapter_box("b", "B")
+                #one chapter linking straight to its first page, as some on such a site do
+                + '<a href="/comic/e11/"><img src="/t/c.jpg"></a><div class="chapter-title">C</div>'
+                  '<a href="/comic/e11/">READ THIS CHAPTER</a>'
+                + chapter_box("d", "D")
+                + '<h2>Books</h2><a href="/2020/01/one/">One</a><a href="/2020/02/two/">Two</a>')
+
+
+def chapter_page(url):
+    slug = url.rstrip("/").rsplit("/", 1)[-1]
+    held = LISTED_ELSEWHERE.get(slug.upper())
+    if held is None:
+        raise AssertionError("fetched {0}, which no chapter heading leads to".format(url))
+    return ("".join('<a href="/comic/e{0}/">Episode {0}</a>'.format(n) for n in held)
+            + '<div class="sidebar"><a href="/comic/e20/">The newest page</a></div>')
+
+
+def test_a_heading_leading_to_a_page_of_its_chapter_has_that_page_read(chapters):
+    walk = [{"n": n, "url": "{0}/comic/e{1}/".format(SITE, n)} for n in range(1, 21)]
+    reader = chapters.ArchiveReader()
+    reader.feed(CHAPTER_LIST)
+    fetched = []
+
+    def fetch(url):
+        fetched.append(url)
+        return chapter_page(url)
+
+    found, _ = chapters.chapters_from_events(reader.events, chapters.first_of_each(walk), SITE + "/archives/",
+                                             fetch=fetch)
+    found = chapters.settle_chapters(found, walk)
+    assert [(c["label"], c["start_page"]) for c in found] == [("A", 1), ("B", 6), ("C", 11), ("D", 16)], \
+        "each named by its own heading - not the archive's title above the first - and started where its " \
+        "own page says, not at the newest page in the sidebar"
+    assert sorted(fetched) == [SITE + "/chapter/{0}/".format(slug) for slug in ("a", "b", "d")], \
+        "only the chapters' own pages: not the menu, not the posts, not one a heading already links into"
+
+
+def test_an_archive_that_lists_its_pages_never_fetches_anything(chapters):
+    walk = [{"n": n, "url": "https://x.test/strip/{0}".format(n)} for n in range(1, 17)]
+    reader = chapters.ArchiveReader()
+    reader.feed(BOXED)
+
+    def fetch(url):
+        raise AssertionError("fetched {0} for an archive that lists every page".format(url))
+
+    found, _ = chapters.chapters_from_events(reader.events, chapters.first_of_each(walk),
+                                             "https://x.test/strip/archive", fetch=fetch)
+    assert [c["label"] for c in chapters.settle_chapters(found, walk)] == ["Book #1", "Book #2", "Book #3"]
+
+
 def test_a_link_names_a_chapter_only_when_its_words_are_a_chapter_and_a_number(chapters):
     for named in ("Chapter 2: The Long Way Round", "Book #3", "Vol. 4", "Episode 12", "Arc 1 - Beginnings"):
         assert chapters.names_a_chapter(named), named

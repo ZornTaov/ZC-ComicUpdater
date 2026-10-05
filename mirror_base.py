@@ -182,7 +182,9 @@ def setup():
         browser_images = True
         args.enable_javascript = True
 
-    driver = build_driver(args)
+    #renewed every so many pages, since one browser led through thousands of them slows to a crawl and then
+    #stops loading them properly
+    driver = browser.Renewable(lambda: build_driver(args))
 
     #the first page is fetched before the main loop begins, which puts it outside the error handling
     #that wraps the loop. left unguarded, a site that will not load ends the run with an unhandled
@@ -641,6 +643,7 @@ def main():
             #asked rather than counted, because an address holding several pages uses several numbers
             increment = increment + 1 if scrape_state["last_increment"] is None \
                 else scrape_state["last_increment"] + 1
+            driver.moved_on()
         if scrape_state["ran_out"]:
             #the loop ended because the page the next link led to holds no comic at all
             print("The next link led to {0}, which has no page of the comic on it, so this is as far as the "

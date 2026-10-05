@@ -77,6 +77,8 @@ def build_index(driver, args, page_images, next, still_on, first_paths=()):
         counts[line.get("url")] = counts.get(line.get("url"), 0) + 1
     most_here = max(counts.values()) if counts else 0
     started = datetime.now()
+    #where the last progress line was, in pages and seconds
+    stretch = (at, 0.0)
     with open(path, 'a', encoding='utf-8') as out:
         while True:
             here = driver.current_url
@@ -102,8 +104,13 @@ def build_index(driver, args, page_images, next, still_on, first_paths=()):
                 print("No comic image on page {0} ({1}); it is in the index as a page with no image.".format(at, here))
             if at % 25 == 0:
                 gone = (datetime.now() - started).total_seconds()
-                print("indexed {0} pages ({1:.0f}s, {2:.1f} a second), at {3}".format(
-                    at, gone, (at - len(done)) / gone if gone else 0, here))
+                #the rate since the start hides a walk that has slowed - two thousand quick pages and a
+                #hundred slow ones still average out quick - so the latest stretch is given as well
+                lately = gone - stretch[1]
+                print("indexed {0} pages ({1:.0f}s, {2:.1f} a second, the last {3} at {4:.1f}), at {5}".format(
+                    at, gone, (at - len(done)) / gone if gone else 0, at - stretch[0],
+                    (at - stretch[0]) / lately if lately else 0, here))
+                stretch = (at, gone)
             if args.index_limit and at - len(done) >= args.index_limit:
                 print("Stopping at {0} pages, as asked.".format(args.index_limit))
                 break
@@ -113,5 +120,8 @@ def build_index(driver, args, page_images, next, still_on, first_paths=()):
             if still_on(driver, here):
                 print("The next link stays on the same page, so this is the latest page.")
                 break
+            #a browser the scrape set up to be renewed every so many pages; one handed in plain is kept
+            if hasattr(driver, "moved_on"):
+                driver.moved_on()
     print("Index holds {0} pages, written to {1}".format(at, path))
     return at

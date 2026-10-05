@@ -12,7 +12,14 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.firefox.service import Service as FirefoxService
 
-from comiclib.exits import DRIVER as EXIT_DRIVER, USAGE as EXIT_USAGE
+from comiclib.exits import DRIVER as EXIT_DRIVER, USAGE as EXIT_USAGE, MirrorError
+
+#how many pages one browser drives before a fresh one takes over. a headless chrome led through thousands
+#of pages in one tab gets slower with every page - a third of a second each at the start, four seconds each
+#by the two thousandth - and then stops loading them properly: an image that is not the comic, no next link,
+#and a run that takes the comic for finished halfway through. a fresh browser on the same pages is as quick
+#as the first one was. MIRROR_RENEW_EVERY sets it, and 0 keeps one browser for the whole run
+RENEW_EVERY = 500
 
 
 def quit_quietly(driver):
@@ -22,6 +29,55 @@ def quit_quietly(driver):
         driver.quit()
     except Exception as error:
         print("WARNING: The browser did not shut down cleanly: {0}".format(type(error).__name__))
+
+
+class Renewable:
+    #a browser that can be swapped for a fresh one part way through a run. everything else holds this and
+    #calls it as it would the browser itself, so whatever was handed it - the walk, the page helpers, the
+    #quit at the very end - goes on reaching whichever browser is current
+    def __init__(self, build, every=None):
+        self._build = build
+        self._driver = build()
+        self.every = every if every is not None else int(os.environ.get("MIRROR_RENEW_EVERY", RENEW_EVERY))
+        self.pages = 0
+
+    def __getattr__(self, name):
+        return getattr(self._driver, name)
+
+    def moved_on(self):
+        #a page reached by pressing next. every so many, the browser is replaced before the page is read
+        self.pages += 1
+        if self.every and self.pages % self.every == 0:
+            self.renew()
+
+    def renew(self):
+        #the new browser opens the page the old one was on, carrying its cookies: a site that asked once
+        #whether the reader is old enough, or which theme they wanted, would otherwise ask again
+        here = self._driver.current_url
+        try:
+            cookies = self._driver.get_cookies()
+        except se.WebDriverException:
+            cookies = []
+        quit_quietly(self._driver)
+        try:
+            self._driver = self._build()
+        except SystemExit:
+            #build_driver ends the program when no browser will start, which in the middle of a run would
+            #read as being stopped by hand. said as what it is instead, so the run records why it stopped
+            raise MirrorError("a fresh browser would not start after {0} pages".format(self.pages),
+                              EXIT_DRIVER, "browser would not restart")
+        self._driver.get(here)
+        kept = 0
+        for cookie in cookies:
+            try:
+                self._driver.add_cookie(cookie)
+                kept += 1
+            except se.WebDriverException:
+                pass
+        if kept:
+            #cookies only count for pages loaded after they are set
+            self._driver.get(here)
+        print("A fresh browser after {0} pages, carrying on at {1}.".format(self.pages, here), flush=True)
 
 
 def build_driver(args, browser_images=False, page_timeout=60.0):

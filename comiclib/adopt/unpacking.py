@@ -102,7 +102,7 @@ def unpack_and_adopt(args):
     if os.path.isdir(target):
         os.rmdir(target)
     os.replace(staging, target)
-    print("  unpacked {0} file(s)".format(count), flush=True)
+    print("  {0} file(s) out and in place".format(count), flush=True)
 
     args.path = target
     args.cbz_path = relative_output(archive, args.root)

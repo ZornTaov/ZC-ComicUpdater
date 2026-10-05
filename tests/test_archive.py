@@ -108,7 +108,8 @@ def test_a_walked_comic_with_no_address_of_its_own_is_previewed_by_its_walk(chap
 #a site whose archive lists only its chapters, each heading leading to a page of the site's own that lists
 #that chapter's pages, oldest first, with the newest page of the comic in a sidebar on every page
 SITE = "https://x.test"
-LISTED_ELSEWHERE = {"A": range(1, 6), "B": range(6, 11), "D": range(16, 21)}
+#S is a page of specials published in among the chapters, not a chapter of its own
+LISTED_ELSEWHERE = {"A": range(1, 6), "B": range(6, 11), "D": range(16, 21), "S": (3, 8, 13)}
 
 
 def chapter_box(slug, name):
@@ -123,7 +124,12 @@ CHAPTER_LIST = ('<h1>Some Comic</h1><a href="/about/">About</a><a href="/chapter
                 + '<a href="/comic/e11/"><img src="/t/c.jpg"></a><div class="chapter-title">C</div>'
                   '<a href="/comic/e11/">READ THIS CHAPTER</a>'
                 + chapter_box("d", "D")
-                + '<h2>Books</h2><a href="/2020/01/one/">One</a><a href="/2020/02/two/">Two</a>')
+                #a story told off the main run of next links, linked straight to its own page, which a walk
+                #never reaches - reading it would find only its buttons, the first-page one among them
+                + '<a href="/comic/side-story/"><img src="/t/x.jpg"></a><div class="chapter-title">Side</div>'
+                  '<a href="/comic/side-story/">READ THIS CHAPTER</a>'
+                + '<h2>Specials</h2>' + chapter_box("s", "S")
+                + '<h2>Books</h2><a href="/2020/01/one/">One</a><a href="/2020/02/two/">Two</a><a href="#">x</a>')
 
 
 def chapter_page(url):
@@ -136,7 +142,9 @@ def chapter_page(url):
 
 
 def test_a_heading_leading_to_a_page_of_its_chapter_has_that_page_read(chapters):
-    walk = [{"n": n, "url": "{0}/comic/e{1}/".format(SITE, n)} for n in range(1, 21)]
+    #the walk ended by stepping onto the site's front page, which every "home" link and "#" leads to
+    walk = [{"n": n, "url": "{0}/comic/e{1}/".format(SITE, n)} for n in range(1, 21)] + [
+        {"n": 21, "url": SITE + "/"}]
     reader = chapters.ArchiveReader()
     reader.feed(CHAPTER_LIST)
     fetched = []
@@ -151,8 +159,9 @@ def test_a_heading_leading_to_a_page_of_its_chapter_has_that_page_read(chapters)
     assert [(c["label"], c["start_page"]) for c in found] == [("A", 1), ("B", 6), ("C", 11), ("D", 16)], \
         "each named by its own heading - not the archive's title above the first - and started where its " \
         "own page says, not at the newest page in the sidebar"
-    assert sorted(fetched) == [SITE + "/chapter/{0}/".format(slug) for slug in ("a", "b", "d")], \
-        "only the chapters' own pages: not the menu, not the posts, not one a heading already links into"
+    assert sorted(fetched) == [SITE + "/chapter/{0}/".format(slug) for slug in ("a", "b", "d", "s")], \
+        "only the chapters' own pages: not the menu, not the posts, not one a heading already links into, " \
+        "and not a page of the comic the walk never reached"
 
 
 def test_an_archive_that_lists_its_pages_never_fetches_anything(chapters):

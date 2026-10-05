@@ -282,7 +282,16 @@ def beside_its_heading(events):
 
 def walked_at(where, base, href):
     #which page of the walk a link is, or None for a link to anything else
-    return next((where[same_page(one)] for one in link_targets(base, href) if same_page(one) in where), None)
+    if not href or href.startswith(("#", "javascript:", "mailto:")):
+        return None
+    for one in link_targets(base, href):
+        key = same_page(one)
+        #a site's front page shows whichever page is newest, so it is never a page of its own - even when a
+        #walk ended by stepping onto it - and every "home" link beside a heading would otherwise say that
+        #heading lists a page
+        if key.partition('/')[2] and key in where:
+            return where[key]
+    return None
 
 
 def through_chapter_pages(events, where, base, fetch):
@@ -309,29 +318,37 @@ def through_chapter_pages(events, where, base, fetch):
         theirs = {target(href) for href, _ in after["links"]}
         while this["links"] and target(this["links"][-1][0]) in theirs:
             after["links"].insert(0, this["links"].pop())
+    #any page the walk went to, to tell an address shaped like the comic's pages from one that is not
+    known = min(where, key=where.get) if where else ""
     for group in groups:
         group["follow"] = None
         if any(walked_at(where, base, href) is not None for href, _ in group["links"]):
             continue
         #the one place on this site the heading leads, other than its front page or this archive. a
-        #heading over several - the site's menu, a list of posts - is not a chapter's, and is left alone
+        #heading over several - the site's menu, a list of posts - is not a chapter's, and is left alone.
         #compared as same_page has them, but fetched as written: a path can care about its case
-        others = {}
+        others, paged = {}, False
         for href, _ in group["links"]:
             if not href or href.startswith(("#", "javascript:", "mailto:")):
                 continue
-            target = link_targets(base, href)[0]
-            there = same_page(target)
+            address = link_targets(base, href)[0]
+            there = same_page(address)
             if there.partition('/')[0] != site or not there.partition('/')[2] or there == same_page(base):
                 continue
-            others.setdefault(there, target)
-        if len(others) == 1:
+            #shaped like a page of the comic but never walked: a story told off the main run of next
+            #links. it is not a list of anything, and reading it would find only its own buttons - the
+            #first-page one among them, which would start the chapter at page 1
+            if looks_like_pages(address, known):
+                paged = True
+                continue
+            others.setdefault(there, address)
+        if len(others) == 1 and not paged:
             group["follow"] = next(iter(others.values()))
     wanted = [group for group in groups if group["follow"]]
     if not wanted:
         return events
     print("  reading {0} chapter page(s) for where each chapter starts ...".format(len(wanted)), flush=True)
-    starts = {}
+    lists = {}
     for at, group in enumerate(wanted, 1):
         url = group["follow"]
         try:
@@ -340,14 +357,38 @@ def through_chapter_pages(events, where, base, fetch):
         except Exception as error:
             print("    could not read {0}: {1}".format(url, error))
             continue
-        found = [(walked_at(where, url, href), href) for kind, href, _ in reader.events
-                 if kind in ("link", "owned")]
-        found = [(n, href) for n, href in found if n is not None]
+        found = {}
+        for kind, href, _ in reader.events:
+            n = walked_at(where, url, href) if kind in ("link", "owned") else None
+            if n is not None:
+                found.setdefault(n, link_targets(url, href)[0])
         if found:
-            n, href = min(found)
-            starts[group["heading"]] = link_targets(url, href)[0]
+            lists[group["heading"]] = found
         if at % 10 == 0:
             print("    read {0} of {1}".format(at, len(wanted)), flush=True)
+    #what every chapter page links - the newest page in a sidebar, the first in a header - is the site's
+    #and says nothing about any one chapter
+    common = set.intersection(*(set(found) for found in lists.values())) if len(lists) > 2 else set()
+    own = {heading: sorted(set(found) - common) for heading, found in lists.items()}
+    own = {heading: pages for heading, pages in own.items() if pages}
+    #a page whose pages reach across other chapters' is not a chapter's at all but a list gathered from
+    #across the comic - specials, one-shots - each of which stays where it was published. a chapter's pages
+    #can have one of those inside them too, so the list reaching across the most is let go first, and then
+    #the rest counted again, until no chapter's pages reach across another's
+    gathered = set()
+    while True:
+        left = {heading: pages for heading, pages in own.items() if heading not in gathered}
+        across = {heading: sum(1 for other, theirs in left.items() if other != heading
+                               for n in theirs if pages[0] < n < pages[-1])
+                  for heading, pages in left.items()}
+        worst = max(across, key=across.get, default=None)
+        if worst is None or not across[worst]:
+            break
+        gathered.add(worst)
+    for heading in sorted(gathered):
+        print("    {0} lists pages from across the comic, so it is not a chapter".format(
+            events[heading][1][:50]))
+    starts = {heading: lists[heading][pages[0]] for heading, pages in own.items() if heading not in gathered}
     #given out just after its heading, as a link the heading owns: named by the heading it sits under,
     #whatever grander heading - the archive's own title - is waiting above it
     out = []

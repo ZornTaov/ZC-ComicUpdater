@@ -5,6 +5,8 @@ import hashlib
 import hmac
 import io
 import os
+import posixpath
+import re
 import threading
 import time
 
@@ -14,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from comicreader.config import Config
 from comicreader.library import Library
-from comicreader.sources import Busy, original
+from comicreader.sources import VIDEO_MEDIA, Busy, original
 from comicreader.store import Store
 
 #a page asked for with the version of the archive it came from never changes, so the browser keeps it as
@@ -76,7 +78,9 @@ def create_app(config=None, scan_in_background=True):
                 "position": library.position(stream, progress), "seen": progress["seen"] if progress else 0,
                 "chapters": stream["chapters"],
                 #kept short: a comic of thousands of pages is one request, opened every time it is read
-                "pages": [[page["v"], page["w"], page["h"], 1 if page["standin"] else 0] for page in stream["pages"]],
+                #the fifth is what a page held inside the archive as something other than a picture is
+                "pages": [[page["v"], page["w"], page["h"], 1 if page["standin"] else 0, page.get("media")]
+                          for page in stream["pages"]],
                 "settings": store.settings("comic:" + comic_id)}
 
     def page_of(comic_id, n):
@@ -99,7 +103,7 @@ def create_app(config=None, scan_in_background=True):
         if request.headers.get("if-none-match") == tag:
             return Response(status_code=304, headers={"ETag": tag})
         try:
-            body, media = library.sources.page(source, each["entry"])
+            body, media = library.sources.page(source, each)
         except (Busy, OSError, KeyError) as error:
             #the archive is being added to this moment; the page asks again shortly
             raise HTTPException(503, "could not read the page just now ({0}); try again".format(error))
@@ -111,6 +115,14 @@ def create_app(config=None, scan_in_background=True):
         #what a page standing in for a video, a flash page or a link is standing in for, so tapping it can
         #open the real thing
         comic, each, _ = page_of(comic_id, n)
+        name = posixpath.basename(each["entry"])
+        url = "/api/comics/{0}/pages/{1}/original".format(comic_id, n)
+        #the thing itself, inside an archive someone else made
+        if each.get("media") == "link":
+            return {"kind": "link", "address": each["address"], "title": each.get("called"), "name": name}
+        if each.get("media"):
+            return {"kind": each["media"], "name": name, "url": url}
+        #or kept in the comic's folder, behind a stand-in the scraper drew
         found = original(comic["folder"], each["entry"]) if each["standin"] or comic["folder"] else None
         if not found:
             return {"kind": None}
@@ -120,8 +132,12 @@ def create_app(config=None, scan_in_background=True):
                 "url": "/api/comics/{0}/pages/{1}/original".format(comic_id, n)}
 
     @app.get("/api/comics/{comic_id}/pages/{n}/original")
-    def original_file(comic_id: str, n: int):
-        comic, each, _ = page_of(comic_id, n)
+    def original_file(comic_id: str, n: int, request: Request):
+        comic, each, source = page_of(comic_id, n)
+        if each.get("media") in ("video", "flash") and source["kind"] == "archive":
+            extension = os.path.splitext(each["entry"])[1].lower()
+            return ranged(request, each["size"], lambda start, end: library.sources.read_range(
+                source, each["entry"], start, end), VIDEO_MEDIA.get(extension, "application/octet-stream"))
         found = original(comic["folder"], each["entry"])
         if not found or found["kind"] == "link":
             raise HTTPException(404, "no original kept for that page")
@@ -134,7 +150,7 @@ def create_app(config=None, scan_in_background=True):
         cached = os.path.join(config.data, "covers", "{0}-{1}.jpg".format(comic_id, each["v"]))
         if not os.path.isfile(cached):
             try:
-                body, _ = library.sources.page(source, each["entry"])
+                body, _ = library.sources.page(source, each)
                 made = thumbnail(body)
             except Exception as error:  # noqa: BLE001 - a picture Pillow cannot open is a missing cover
                 raise HTTPException(404, "no cover: {0}".format(error))
@@ -186,6 +202,29 @@ def create_app(config=None, scan_in_background=True):
     if scan_in_background:
         threading.Thread(target=keep_scanning, args=(library, config.scan_minutes), daemon=True).start()
     return app
+
+
+#the most of a video sent for one request: a player asks again for the next piece as it plays
+PIECE = 4 << 20
+RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
+
+
+def ranged(request, size, read, media_type):
+    #a file inside an archive, sent a piece at a time as a video player asks for it. a player that asks for
+    #the whole of it is sent it whole
+    asked = RANGE.match(request.headers.get("range", "").strip())
+    if not asked or (asked.group(1) == "" and asked.group(2) == ""):
+        return Response(read(0, size - 1) if size else b"", media_type=media_type, headers={"Accept-Ranges": "bytes"})
+    if asked.group(1) == "":
+        start, end = max(size - int(asked.group(2)), 0), size - 1
+    else:
+        start = int(asked.group(1))
+        end = int(asked.group(2)) if asked.group(2) else size - 1
+    end = min(end, size - 1, start + PIECE - 1)
+    if start >= size or start > end:
+        return Response(status_code=416, headers={"Content-Range": "bytes */{0}".format(size)})
+    return Response(read(start, end), status_code=206, media_type=media_type,
+                    headers={"Accept-Ranges": "bytes", "Content-Range": "bytes {0}-{1}/{2}".format(start, end, size)})
 
 
 def keep_scanning(library, minutes):

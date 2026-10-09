@@ -62,7 +62,7 @@ def test_a_comic_kept_only_as_loose_pages_is_read_from_its_folder(library, make_
     assert comic["kind"] == "folder"
     assert [page["standin"] for page in stream["pages"]] == [False, False, False, True]
     body, media = app.state.library.sources.page(app.state.library.sources.cached(comic["sources"][0]),
-                                                 stream["pages"][3]["entry"])
+                                                 stream["pages"][3])
     assert media == "image/png" and body.startswith(b"\x89PNG"), "the stand-in, drawn as the archive would hold it"
 
 

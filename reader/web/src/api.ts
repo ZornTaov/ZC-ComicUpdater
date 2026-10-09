@@ -30,6 +30,8 @@ export interface Page {
   w: number | null;
   h: number | null;
   standin: boolean;
+  // a page held inside the archive as something other than a picture
+  media: "video" | "flash" | "link" | null;
 }
 
 export interface Chapter {
@@ -71,10 +73,10 @@ export const api = {
   library: () => call<{ scanned: number | null; comics: ComicSummary[] }>("/api/library"),
   scan: () => call<{ scanned: number | null }>("/api/scan", { method: "POST" }),
   async comic(id: string): Promise<Comic> {
-    // pages come as [version, width, height, stand-in] to keep a comic of thousands of pages one small answer
-    const raw = await call<Omit<Comic, "pages"> & { pages: [string, number | null, number | null, number][] }>(
+    // pages come as [version, width, height, stand-in, media] to keep a comic of thousands of pages one small answer
+    const raw = await call<Omit<Comic, "pages"> & { pages: [string, number | null, number | null, number, Page["media"]][] }>(
       `/api/comics/${id}`);
-    return { ...raw, pages: raw.pages.map(([v, w, h, s]) => ({ v, w, h, standin: s === 1 })) };
+    return { ...raw, pages: raw.pages.map(([v, w, h, s, media]) => ({ v, w, h, standin: s === 1, media: media ?? null })) };
   },
   pageUrl: (id: string, n: number, v: string) => `/api/comics/${id}/pages/${n}?v=${v}`,
   coverUrl: (id: string, v: string | null) => `/api/comics/${id}/cover${v ? `?v=${v}` : ""}`,

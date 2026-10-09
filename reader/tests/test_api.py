@@ -40,8 +40,8 @@ def test_a_page_named_with_its_version_is_kept_for_good(library, client):
     single(library)
     api, _ = client()
     comic = api.get("/api/comics/{0}".format(first(api)["id"])).json()
-    version, width, height, standin = comic["pages"][2]
-    assert (width, height, standin) == (40, 60, 0)
+    version, width, height, standin, media = comic["pages"][2]
+    assert (width, height, standin, media) == (40, 60, 0, None)
     page = api.get("/api/comics/{0}/pages/2?v={1}".format(comic["id"], version))
     assert page.status_code == 200 and page.headers["content-type"] == "image/png"
     assert "immutable" in page.headers["cache-control"]

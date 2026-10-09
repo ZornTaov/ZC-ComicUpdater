@@ -192,12 +192,23 @@ def address_in(path):
     #nothing else: it is short, and most of what it says is the address. a readme is longer than that,
     #whatever addresses it happens to mention.
     try:
-        if os.path.getsize(path) > 1024:
+        if os.path.getsize(path) > NOTE_LIMIT:
             return None, None
         with open(path, encoding="utf-8", errors="replace") as f:
-            text = f.read(1024).strip()
+            text = f.read(NOTE_LIMIT)
     except OSError:
         return None, None
+    return note_address(text)
+
+
+#a note about one page says almost nothing but the address
+NOTE_LIMIT = 1024
+
+
+def note_address(text):
+    #the address a note holds, and what it calls it, from the note's text - read from the folder, or out of
+    #an archive someone else made, by the same rule
+    text = (text or "").strip()
     found = a_web_address.search(text)
     if not found:
         return None, None
@@ -210,22 +221,34 @@ def held_otherwise(folder, name):
     #whether this file is a page of the comic kept in some form a reader cannot show, and what a stand-in
     #for it should say. the page is not lost - it is right there in the folder - so the stand-in's job is
     #to say so, and where.
-    if video_types.search(name):
-        return ["This page is a video.", "", "It is in the comic's folder as", name]
-    if flash_types.search(name):
-        return ["This page was Flash.", "", "It is in the comic's folder as", name]
+    if video_types.search(name) or flash_types.search(name):
+        return lines_for(name)
     #a note about a page is named like a page - 0102.txt, beside 0101.png - which is what tells it from
     #a comic's readme. a readme can mention all the addresses it likes; it is still not page 102, and a
     #ratio of address to prose could never have told the two apart reliably: a note can be a long video
     #title and one line of address.
-    if link_types.search(name) and named_for_a_page.match(name):
+    if is_note_name(name):
         address, called = address_in(os.path.join(folder, name))
         if address:
-            #the name the note gives it is worth showing: "My Comic's trailer" says more about the page
-            #than the address does
-            return (["This page is a video."] + (wrapped(called) if called else [])
-                    + ["", address, "", "noted in the comic's folder as", name])
+            return lines_for(name, address, called)
     return None
+
+
+def is_note_name(name):
+    #a note that could be about a page: a link file, named like a page
+    return bool(link_types.search(name) and named_for_a_page.match(os.path.basename(name)))
+
+
+def lines_for(name, address=None, called=None, where="the comic's folder"):
+    #what a stand-in says for a page held as `name`: a video or flash file, or a note holding `address`
+    if video_types.search(name):
+        return ["This page is a video.", "", "It is in {0} as".format(where), name]
+    if flash_types.search(name):
+        return ["This page was Flash.", "", "It is in {0} as".format(where), name]
+    #the name the note gives it is worth showing: "My Comic's trailer" says more about the page than the
+    #address does
+    return (["This page is a video."] + (wrapped(called) if called else [])
+            + ["", address, "", "noted in {0} as".format(where), name])
 
 
 def wrapped(text, width=46):

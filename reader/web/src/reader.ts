@@ -6,6 +6,7 @@ import { attachGestures } from "./gestures";
 import { chapterOf, keyAction, tapAction, viewOf, views, wanted } from "./layout";
 import { clean, merged, type Settings } from "./settings";
 import { el, esc } from "./dom";
+import { embedFor } from "./media";
 
 const CACHE = 24;
 
@@ -119,7 +120,10 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
           if (!entry.isIntersecting) continue;
           const holder = entry.target as HTMLElement;
           const n = Number(holder.dataset.n);
-          if (!holder.firstChild) holder.append(image(n));
+          if (!holder.firstChild) {
+            holder.append(image(n));
+            if (comic.pages[n].standin) embedPage(n);
+          }
         }
       }, { root: strip, rootMargin: "200% 0px" });
       comic.pages.forEach((info, n) => {
@@ -223,25 +227,44 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     toastTimer = window.setTimeout(() => toast.classList.add("hidden"), 1400);
   }
 
-  // stand-ins: a page saying where a video or a flash page went gets a button that opens the real thing
+  // stand-ins: a page that is a video, a flash file or a link to a video is shown as the real thing in the
+  // page's place - asked about once, then swapped in for the stand-in picture while it is on screen
+  const asked = new Map<number, Promise<StandIn | null>>();
+  function standInOf(n: number): Promise<StandIn | null> {
+    if (!asked.has(n)) asked.set(n, api.standIn(comic.id, n).catch(() => null));
+    return asked.get(n)!;
+  }
+
+  // the real thing in place of page n's picture; what could not be shown that way is handed back
+  async function embedPage(n: number): Promise<StandIn | null> {
+    const found = await standInOf(n);
+    if (!found?.kind) return null;
+    const picture = images.get(n);
+    const embed = await embedFor(found);
+    if (embed && picture?.isConnected) {
+      picture.replaceWith(embed.element);
+      embed.start();
+      return null;
+    }
+    return embed ? null : found;
+  }
+
   async function showStandIn(pages: number[]) {
-    const n = pages.find((at) => comic.pages[at].standin);
-    standinButton.hidden = n === undefined;
-    if (n === undefined) return;
-    standinButton.textContent = "Open this page";
-    standinButton.onclick = async (event) => {
-      event.stopPropagation();
-      let found: StandIn;
-      try {
-        found = await api.standIn(comic.id, n);
-      } catch {
-        return notify("Could not ask about this page");
-      }
-      if (found.kind === "video" && found.url) playVideo(found.url);
-      else if (found.kind === "link" && found.address) window.open(found.address, "_blank", "noopener");
-      else if (found.kind === "flash" && found.url) window.open(found.url, "_blank", "noopener");
-      else notify("The original is not in the comic's folder any more");
-    };
+    standinButton.hidden = true;
+    for (const n of pages.filter((at) => comic.pages[at].standin)) {
+      const left = await embedPage(n);
+      if (!left || !shown[view]?.includes(n)) continue;
+      // a link to somewhere that cannot be embedded, or flash where Ruffle could not be fetched: a button
+      // opens it instead
+      standinButton.hidden = false;
+      standinButton.textContent = left.kind === "link" ? "Open link" : left.kind === "video" ? "Play video" : "Open flash file";
+      standinButton.onclick = (event) => {
+        event.stopPropagation();
+        if (left.kind === "video" && left.url) playVideo(left.url);
+        else if (left.kind === "link" && left.address) window.open(left.address, "_blank", "noopener");
+        else if (left.url) window.open(left.url, "_blank", "noopener");
+      };
+    }
   }
 
   function playVideo(url: string) {

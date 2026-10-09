@@ -7,6 +7,7 @@
 #size or time has changed, read again if it changed while being read, and anything that fails leaves the
 #last good reading in place, to be tried again once the file has settled.
 import collections
+import functools
 import json
 import os
 import posixpath
@@ -14,10 +15,11 @@ import threading
 import xml.etree.ElementTree as ET
 import zipfile
 
-from comiclib import cbz, comicinfo
+from comiclib import comicinfo
 from comiclib.metadata import METADATA_FILE
 from comiclib.pages import PAGE_TYPES, listing, page_key, reading_order
-from comiclib.standin import address_in, flash_types, held_otherwise, link_types, stand_in, video_types
+from comiclib.standin import (NOTE_LIMIT, address_in, flash_types, held_otherwise, is_note_name, lines_for,
+                              link_types, note_address, stand_in, video_types)
 
 MEDIA = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
          ".webp": "image/webp", ".bmp": "image/bmp", ".avif": "image/avif"}
@@ -28,7 +30,20 @@ VIDEO_MEDIA = {".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", 
 
 
 #what a reading of a source holds. a reading kept from an older reader, holding less, is read again once
-FORMAT = 2
+FORMAT = 3
+
+
+@functools.lru_cache(maxsize=64)
+def drawn(lines):
+    #a stand-in is drawn a dot at a time, which takes a moment; the same page asked for again is not redrawn
+    return stand_in(list(lines))
+
+
+def media_standin(page):
+    #the picture shown for a page inside an archive that is not one, saying what it is - the scraper's own
+    #stand-in, with the archive in place of the folder
+    return drawn(tuple(lines_for(posixpath.basename(page["entry"]), page.get("address"), page.get("called"),
+                                 where="this archive")))
 
 
 class Busy(Exception):
@@ -66,15 +81,47 @@ def about_from(text):
     return about
 
 
+def media_kind(name):
+    #a page that is not a picture: a recording, a flash file, or a note naming where a video is
+    if video_types.search(name):
+        return "video"
+    if flash_types.search(name):
+        return "flash"
+    if is_note_name(name):
+        return "link"
+    return None
+
+
+def in_order(names, prefix):
+    #the pages a reader turns through, as the scraper orders them: directly under the archive's one folder,
+    #or - pages spread over folders of someone else's making - every page by its path
+    here = {name[len(prefix):]: name for name in names if name.startswith(prefix) and "/" not in name[len(prefix):]}
+    if here:
+        return [here[name] for name in reading_order(None, list(here))]
+    return reading_order(None, list(names))
+
+
 def read_archive(path):
+    #an archive made by anyone. one the scraper packed holds a drawn stand-in where a page is a video or
+    #flash; one packed by hand, or by another tool, can hold the video, the flash file or the note itself,
+    #and those are pages too - in their place, shown as what they are rather than skipped as gaps
     before = stamp(path)
     with zipfile.ZipFile(path) as zf:
         infos = {info.filename: info for info in zf.infolist() if not info.is_dir()}
         prefix = top_folder(list(infos))
-        order = cbz.page_order(list(infos), prefix)
-        if not order:
-            #pages spread over folders of someone else's making: every picture, by its path
-            order = reading_order(None, [name for name in infos if PAGE_TYPES.search(name)])
+        notes = {}
+        for name, info in infos.items():
+            #a note is a page only if it is named like one and says almost nothing but an address - the same
+            #rule the scraper uses, so a comic's readme is never taken for page 102
+            if media_kind(name) == "link" and info.file_size <= NOTE_LIMIT:
+                address, called = note_address(zf.read(name).decode("utf-8", errors="replace"))
+                if address:
+                    notes[name] = (address, called)
+        media = {name: media_kind(name) for name in infos
+                 if media_kind(name) in ("video", "flash") or name in notes}
+        order = in_order([name for name in infos if PAGE_TYPES.search(name) or name in media], prefix)
+        #the pictures alone, in the order a ComicInfo the scraper wrote describes them
+        pictures = [name for name in order if name not in media]
         #at the top, where the schema puts it; an archive made by another tool sometimes has it under its
         #folder, or spelled in another case
         named = comicinfo.NAME if comicinfo.NAME in infos else next(
@@ -93,11 +140,20 @@ def read_archive(path):
         raise Busy(path)
     said = comicinfo.pages_said(info_text) if info_text else []
     #believed only where it describes these very pages, as the scraper itself does
-    if len(said) != len(order) or any(each["size"] != infos[entry].file_size for each, entry in zip(said, order)):
-        said = [None] * len(order)
+    if len(said) != len(pictures) or any(each["size"] != infos[entry].file_size for each, entry in zip(said, pictures)):
+        said = []
+    described = dict(zip(pictures, said))
     pages = []
-    for entry, each in zip(order, said):
-        each = each or {}
+    for entry in order:
+        if entry in media:
+            #keyed as the stand-in the scraper would give it, so a place kept in a comic read before it was
+            #adopted is still the same page after
+            address, called = notes.get(entry, (None, None))
+            pages.append({"entry": entry, "key": page_key(os.path.splitext(posixpath.basename(entry))[0] + ".png"),
+                          "size": infos[entry].file_size, "w": None, "h": None, "standin": True,
+                          "media": media[entry], "address": address, "called": called})
+            continue
+        each = described.get(entry) or {}
         pages.append({"entry": entry, "key": page_key(posixpath.basename(entry)), "size": infos[entry].file_size,
                       "w": each.get("width"), "h": each.get("height"), "standin": bool(each.get("standin"))})
     return {"kind": "archive", "path": path, "stamp": before, "pages": pages, "format": FORMAT,
@@ -149,25 +205,41 @@ class Sources:
     def cached(self, path):
         return self.known.get(path)
 
-    def page(self, source, entry):
-        #the bytes of one page, and what kind of picture it is
+    def page(self, source, page):
+        #the bytes of one page, and what kind of picture it is. a page that is not a picture is its stand-in
+        entry = page["entry"]
+        if page.get("media"):
+            return media_standin(page), "image/png"
         if source["kind"] == "folder":
             lines = held_otherwise(source["path"], entry)
             if lines:
-                return stand_in(lines), "image/png"
+                return drawn(tuple(lines)), "image/png"
             with open(os.path.join(source["path"], entry), "rb") as f:
                 return f.read(), MEDIA.get(os.path.splitext(entry)[1].lower(), "application/octet-stream")
-        handle = (source["path"], tuple(source["stamp"]))
         with self.lock:
-            zf = self.open.pop(handle, None)
-            if zf is None:
-                zf = zipfile.ZipFile(source["path"])
-            self.open[handle] = zf
-            while len(self.open) > 8:
-                _, oldest = self.open.popitem(last=False)
-                oldest.close()
-            body = zf.read(entry)
+            body = self.archive(source).read(entry)
         return body, MEDIA.get(os.path.splitext(entry)[1].lower(), "application/octet-stream")
+
+    def archive(self, source):
+        #held open, so turning pages does not read a zip's whole directory for every one. call under the lock
+        handle = (source["path"], tuple(source["stamp"]))
+        zf = self.open.pop(handle, None)
+        if zf is None:
+            zf = zipfile.ZipFile(source["path"])
+        self.open[handle] = zf
+        while len(self.open) > 8:
+            _, oldest = self.open.popitem(last=False)
+            oldest.close()
+        return zf
+
+    def read_range(self, source, entry, start, end):
+        #part of an entry, for a video being played out of an archive: a player asks for the piece it is
+        #about to show, and seeking in a stored entry reads only that piece
+        with self.lock:
+            zf = self.archive(source)
+            with zf.open(entry) as f:
+                f.seek(start)
+                return f.read(end - start + 1)
 
 
 def original(folder, entry):

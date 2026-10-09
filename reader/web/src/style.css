@@ -116,7 +116,7 @@ button {
    known (--ratio, --natural from the comic's ComicInfo) */
 .strip { position: absolute; inset: 0; overflow: auto; touch-action: pan-x pan-y; padding: 0 var(--pad); }
 .strip-page { margin: 0 auto; min-height: 40vh; }
-.strip-page:has(img) { min-height: 0; }
+.strip-page:has(img, .embed) { min-height: 0; }
 .strip-page img { display: block; width: 100%; height: auto; }
 .strip.fit-width .strip-page { width: 100%; }
 .strip.fit-screen .strip-page { width: min(100%, calc(100dvh * var(--ratio, 0.7))); }
@@ -125,6 +125,17 @@ button {
 .strip.fit-height .strip-page, .strip.fit-original .strip-page { max-width: none; }
 .sheet .value { margin-left: auto; color: #bbb; font-variant-numeric: tabular-nums; }
 
+/* a page shown as the real thing: as big as the fit allows, but never so wide that the sides stop being
+   somewhere to tap to turn the page - a video or a flash player takes every tap that lands on it */
+.reader { --embed-room: min(var(--room), 76vw); }
+.embed { display: block; background: #000; border: 0; }
+.spread .embed-video { max-width: var(--embed-room); max-height: 100dvh; }
+.spread .embed-wide { width: min(var(--embed-room), calc(100dvh * 16 / 9)); aspect-ratio: 16 / 9; }
+.spread .embed-flash { width: min(var(--embed-room), calc(100dvh * var(--aspect, 1.3333))); aspect-ratio: var(--aspect, 4 / 3); }
+.embed-flash > * { width: 100%; height: 100%; }
+.strip-page .embed { width: 100%; }
+.strip-page .embed-wide { aspect-ratio: 16 / 9; }
+.strip-page .embed-flash { aspect-ratio: var(--aspect, 4 / 3); }
 .standin-open {
   position: absolute; left: 50%; bottom: 72px; transform: translateX(-50%);
   background: var(--accent); color: #111; border: 0; font-weight: 600; padding: 12px 20px;

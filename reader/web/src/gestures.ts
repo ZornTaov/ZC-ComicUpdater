@@ -27,6 +27,9 @@ export function attachGestures(target: HTMLElement, on: GestureHandlers): () => 
   let pendingTap: number | undefined;
 
   const down = (event: PointerEvent) => {
+    // a video's controls, or flash being played, take their own taps; capturing them here would turn the
+    // page under a finger pressing play
+    if ((event.target as Element).closest?.(".embed")) return;
     target.setPointerCapture(event.pointerId);
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY,
                                     at: performance.now() });

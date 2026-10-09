@@ -3,7 +3,7 @@ import type { Page } from "./api";
 import { chapterOf, keyAction, tapAction, viewOf, views, wanted } from "./layout";
 import { clean, merged } from "./settings";
 
-const page = (w: number | null = 800, h: number | null = 1200, standin = false): Page => ({ v: "1", w, h, standin });
+const page = (w: number | null = 800, h: number | null = 1200, standin = false): Page => ({ v: "1", w, h, standin, media: null });
 
 describe("views", () => {
   it("shows one page at a time unless asked for two", () => {

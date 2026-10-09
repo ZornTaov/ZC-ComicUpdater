@@ -87,6 +87,20 @@ button {
 }
 .badge.new { background: var(--accent); color: #111; font-weight: 600; }
 .badge.done { background: rgba(60, 60, 60, .8); }
+/* the ⋯ on a comic, and what it opens: always shown, since a phone has no hover to reveal it */
+.card-menu {
+  position: absolute; left: 6px; top: 6px; z-index: 2;
+  width: 28px; height: 28px; padding: 0; border: 0; border-radius: 14px;
+  background: rgba(0, 0, 0, .62); color: #fff; font-size: 18px; line-height: 28px;
+}
+.card-pop {
+  position: absolute; z-index: 20; min-width: 180px;
+  display: flex; flex-direction: column; padding: 4px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+}
+.card-pop button { border: 0; background: none; text-align: left; padding: 9px 12px; border-radius: 6px; }
+.card-pop button:hover { background: var(--line); }
 .bar { height: 3px; background: var(--line); border-radius: 2px; margin-top: 4px; overflow: hidden; }
 .bar div { height: 100%; background: var(--accent); }
 .name { font-size: 13px; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

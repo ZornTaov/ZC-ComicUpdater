@@ -110,6 +110,72 @@ def test_each_comic_says_where_it_is_shelved_and_what_its_comicinfo_calls_it(lib
     assert by_name["Alone"]["place"] == "", "a folder holding only its own comic is that comic"
 
 
+def test_a_comic_whose_archive_was_moved_since_its_metadata_was_written_is_still_one_comic(library, make_app):
+    #metadata in the first way it was ever written - archive_path, not settings - naming where the archive
+    #was before the shelf was sorted into a folder per author
+    folder = library / "Uncompressed" / "TheirComic"
+    folder.mkdir(parents=True)
+    for n in range(1, 4):
+        (folder / "{0:04d}.png".format(n)).write_bytes(png(4, 4))
+    (folder / "mirror_metadata.json").write_text(json.dumps({"archive_path": "CBZs/TheirComic.cbz",
+                                                             "resume_argv": ["https://example.com/3"]}))
+    moved = library / "CBZs" / "SomeAuthor" / "TheirComic.cbz"
+    moved.parent.mkdir(parents=True)
+    with zipfile.ZipFile(str(moved), "w") as zf:
+        for n in range(1, 4):
+            zf.writestr("{0:04d}.png".format(n), png(4, 4))
+    app = make_app()
+    comic = only(app)
+    assert (comic["kind"], comic["sources"], comic["folder"]) == ("archive", [str(moved)], str(folder))
+
+
+def test_two_archives_of_one_name_are_not_guessed_between(library, make_app):
+    folder = comic_folder(library, "TheirComic", 2, settings={"cbz_path": "CBZs/TheirComic.cbz"})
+    for author in ("One", "Two"):
+        path = library / "CBZs" / author / "TheirComic.cbz"
+        path.parent.mkdir(parents=True)
+        with zipfile.ZipFile(str(path), "w") as zf:
+            zf.writestr("01.png", png(4, 4))
+    app = make_app()
+    kinds = sorted(comic["kind"] for comic in app.state.library.comics.values())
+    assert kinds == ["archive", "archive", "folder"], "read from its own pages, the two others listed as they are"
+    assert next(c for c in app.state.library.comics.values() if c["kind"] == "folder")["folder"] == str(folder)
+
+
+def test_a_chaptered_comic_with_its_old_single_archive_still_shelved_is_one_comic(library, make_app):
+    folder = chaptered(library, "MyComic", [2, 4])
+    cbz.write(str(library / "CBZs" / "MyComic.cbz"), str(folder), page_names(folder))
+    metadata = json.loads((folder / "mirror_metadata.json").read_text())
+    metadata["settings"]["cbz_path"] = "CBZs/MyComic.cbz"
+    (folder / "mirror_metadata.json").write_text(json.dumps(metadata))
+    app = make_app()
+    assert only(app)["kind"] == "chapters"
+
+
+def test_a_stand_in_packed_before_comicinfo_is_known_by_what_the_folder_keeps(library, make_app):
+    #an archive the scraper packed before ComicInfo marked stand-ins: the drawn page is a png like any other,
+    #and only the note beside the pages says what it is
+    folder = comic_folder(library, "MyComic", 2, extra={"0003.txt": b"Trailer https://youtu.be/abcdefghijk"})
+    archive = library / "CBZs" / "MyComic.cbz"
+    with zipfile.ZipFile(str(archive), "w") as zf:
+        for name in ("0001_page1.png", "0002_page2.png"):
+            zf.write(str(folder / name), name)
+        zf.writestr("0003.png", png(4, 4))
+    app = make_app()
+    stream = app.state.library.stream(only(app))
+    assert [page["standin"] for page in stream["pages"]] == [False, False, True]
+
+
+def test_a_series_is_what_comicinfo_says_never_a_shared_name(library, make_app):
+    #a comic's loose pages and an unrelated archive that happens to share its name are not a series
+    comic_folder(library, "Same Name", 2, settings={"cbz": False})
+    with zipfile.ZipFile(str(library / "CBZs" / "Same Name.cbz"), "w") as zf:
+        zf.writestr("01.png", png(4, 4))
+    app = make_app()
+    summaries = [app.state.library.summary(comic, None) for comic in app.state.library.comics.values()]
+    assert [summary["series"] for summary in summaries] == [None, None]
+
+
 def test_a_comic_that_grows_shows_its_new_pages_when_opened(library, make_app):
     folder = comic_folder(library, "MyComic", 3)
     archive = library / "CBZs" / "MyComic.cbz"

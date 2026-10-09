@@ -3,15 +3,17 @@
 #issue - which is the whole of what a reader built around issues gets wrong about a webcomic.
 import hashlib
 import os
+import posixpath
 import re
 import threading
 import time
 
 from comiclib import cbz
-from comiclib.metadata import METADATA_FILE, read as read_metadata
+from comiclib.metadata import METADATA_FILE, migrate, read as read_metadata
 from comiclib.pages import sort_key
+from comiclib.standin import held_otherwise
 
-from comicreader.sources import Busy, Sources
+from comicreader.sources import ORIGINALS, Busy, Sources
 
 #how packing names a chapter's archive: "<Comic> - c007 - <label>.cbz"
 CHAPTER = re.compile(r"^(?P<series>.+?) - c(?P<number>\d+)(?: - (?P<label>.*))?\.cbz$", re.I)
@@ -79,9 +81,12 @@ def gather(library, skip):
     by_folder = {}
     for path in archives:
         by_folder.setdefault(os.path.dirname(path), []).append(path)
-    claimed, found = set(), []
+    claimed, found, unmatched = set(), [], []
     for folder in comics:
         metadata = read_metadata(folder)
+        #a comic adopted long ago keeps the first way the metadata was written, its archive as archive_path;
+        #read the way the scraper reads it, so the reader finds the same archive the scraper adds to
+        metadata = migrate(metadata) or metadata
         settings = metadata.get("settings") or {}
         name = os.path.basename(folder)
         shelf = inside(library, (metadata.get("chapters") or {}).get("folder"))
@@ -91,14 +96,34 @@ def gather(library, skip):
         single = os.path.normpath(inside(library, settings.get("cbz_path")) or cbz.default_path(folder))
         if chapters:
             kind, sources = "chapters", chapters
+            #the single archive it had before it was cut into chapters, if still on the shelf, is the same
+            #comic: not another one to list beside it
+            if os.path.isfile(single):
+                claimed.add(single)
         elif settings.get("cbz") is not False and os.path.isfile(single):
             kind, sources = "archive", [single]
         if kind != "folder":
             claimed.update(sources)
         where = {"chapters": shelf, "archive": os.path.dirname(single)}.get(kind, os.path.dirname(folder))
-        found.append({"id": ident(os.path.relpath(folder, library)), "title": name, "author": None, "kind": kind,
-                      "sources": sources, "folder": folder, "ended": bool(settings.get("ended")),
-                      "place": listed_in(library, where, name)})
+        comic = {"id": ident(os.path.relpath(folder, library)), "title": name, "author": None, "kind": kind,
+                 "sources": sources, "folder": folder, "ended": bool(settings.get("ended")),
+                 "place": listed_in(library, where, name)}
+        found.append(comic)
+        if kind == "folder" and settings.get("cbz") is not False:
+            unmatched.append(comic)
+    #a comic whose metadata names an archive that is not there - the shelf sorted into folders by author
+    #since it was written - is read from the one archive elsewhere with its own name, if there is exactly
+    #one. two would be a guess, and it is read from its loose pages instead
+    elsewhere = {}
+    for path in archives:
+        if path not in claimed and not CHAPTER.match(os.path.basename(path)):
+            elsewhere.setdefault(os.path.splitext(os.path.basename(path))[0].lower(), []).append(path)
+    for comic in unmatched:
+        named_so = elsewhere.get(comic["title"].lower(), [])
+        if len(named_so) == 1:
+            comic.update(kind="archive", sources=named_so,
+                         place=listed_in(library, os.path.dirname(named_so[0]), comic["title"]))
+            claimed.add(named_so[0])
     #archives no comic folder claims: a shelf of archives from somewhere else, or a comic whose loose
     #pages are gone. chapter archives of one series beside each other are read as one comic
     groups = {}
@@ -129,6 +154,7 @@ class Library:
         self.store = store
         self.sources = Sources(store)
         self.comics = {}
+        self.kept_otherwise = {}
         self.scanned = None
         self.scanning = threading.Lock()
 
@@ -161,6 +187,9 @@ class Library:
         #new pages without waiting for a scan
         kind = "folder" if comic["kind"] == "folder" else "archive"
         pages, chapters, versions, metadata, first = [], [], [], None, None
+        #an archive the scraper packed before ComicInfo said which pages are stand-ins: the comic's folder
+        #still holds what each stands for, under the same name
+        originals = self.originals(comic["folder"]) if comic.get("folder") and kind == "archive" else set()
         for at, path in enumerate(comic["sources"]):
             try:
                 source = self.sources.get(path, kind) if fresh else (self.sources.cached(path)
@@ -191,11 +220,37 @@ class Library:
                 #a comic's flash pages puts them among its pictures - so the version names the page itself
                 #too, and an address is only ever one picture
                 own = hashlib.sha1("{0}\0{1}".format(version, page["entry"]).encode("utf-8")).hexdigest()[:12]
-                pages.append(dict(page, source=at, v=own))
+                page = dict(page, source=at, v=own)
+                if originals and not page["standin"] and page["entry"].lower().endswith(".png") and \
+                        os.path.splitext(posixpath.basename(page["entry"]))[0].lower() in originals:
+                    page["standin"] = True
+                pages.append(page)
         ended = comic["ended"]
         if ended is None:
             ended = bool(((metadata or {}).get("settings") or {}).get("ended"))
         return {"pages": pages, "chapters": chapters, "ended": ended, "versions": versions, "about": first or {}}
+
+    def originals(self, folder):
+        #what a comic's folder keeps as a page no reader can show - a video, a flash file, a note naming where
+        #a video is - by the name the stand-in drawn for it has, without its extension. looked at again only
+        #when the folder has changed
+        try:
+            changed = os.stat(folder).st_mtime_ns
+        except OSError:
+            return set()
+        kept = self.kept_otherwise.get(folder)
+        if kept and kept[0] == changed:
+            return kept[1]
+        names = set()
+        try:
+            with os.scandir(folder) as entries:
+                for entry in entries:
+                    if os.path.splitext(entry.name)[1].lower() in ORIGINALS and held_otherwise(folder, entry.name):
+                        names.add(os.path.splitext(entry.name)[0].lower())
+        except OSError:
+            return set()
+        self.kept_otherwise[folder] = (changed, names)
+        return names
 
     def position(self, stream, progress):
         #where the reader is up to in a comic as it stands now. the page itself is what was remembered, not
@@ -222,7 +277,9 @@ class Library:
         single = comic["kind"] == "archive"
         return {"id": comic["id"], "name": comic["title"],
                 "title": (about.get("title") if single else None) or comic["title"],
-                "series": (about.get("series") if single else None) or (comic["title"] if not single else None),
+                #a series is what a ComicInfo says one is - the issues of one comic, each its own archive - never
+                #a guess from names, which made two different comics that happen to share one into a series
+                "series": about.get("series") if single else None,
                 "number": about.get("number") if single else None, "volume": about.get("volume") if single else None,
                 "year": about.get("year"), "author": about.get("writer") or about.get("penciller") or comic.get("author"),
                 "place": comic.get("place", ""), "kind": comic["kind"], "pages": total,

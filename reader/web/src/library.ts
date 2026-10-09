@@ -59,7 +59,8 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     const folder = away && comic.place ? comic.place.split("/").pop()! : "";
     const under = [issue || folder || comic.author, `${comic.pages} pages`].filter(Boolean).join(" · ");
     return `<a class="card" href="#/read/${comic.id}" data-id="${comic.id}" title="${esc(comic.name)}">
-      <div class="cover"><img loading="lazy" alt="" src="${api.coverUrl(comic.id, comic.cover)}">${badge}</div>
+      <div class="cover"><img loading="lazy" alt="" src="${api.coverUrl(comic.id, comic.cover)}">${badge}
+        <button class="card-menu" type="button" aria-label="More for ${esc(comic.title)}" data-menu="${comic.id}">⋯</button></div>
       <div class="bar"><div style="width:${read}%"></div></div>
       <div class="name">${esc(comic.title)}</div>
       <div class="meta">${esc(under)}</div>
@@ -125,7 +126,55 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
                 here.comics.map((comic) => card(comic, browse !== "folder")).join(""), here.comics.length);
   }
 
+  // what can be done to a comic besides reading it on: from the start, or marked read or unread. done from
+  // here rather than inside the reader, which keeps saving its place as it is read
+  let popup: HTMLElement | null = null;
+  function closeMenu() {
+    popup?.remove();
+    popup = null;
+  }
+
+  function openMenu(button: HTMLElement, comic: ComicSummary) {
+    closeMenu();
+    popup = el("div", "card-pop");
+    const choices: [string, () => Promise<unknown> | void][] = [
+      ["Read from the start", () => open(comic.id, 0)],
+      ["Mark as read", () => api.saveProgress(comic.id, Math.max(comic.pages - 1, 0))],
+    ];
+    if (comic.position !== null) choices.push(["Mark as unread", () => api.forgetProgress(comic.id)]);
+    for (const [label, act] of choices) {
+      const choice = el("button");
+      choice.textContent = label;
+      choice.onclick = async (event) => {
+        event.stopPropagation();
+        closeMenu();
+        await act();
+        if (label !== "Read from the start") {
+          comics = cached = (await api.library()).comics;
+          draw();
+        }
+      };
+      popup.append(choice);
+    }
+    const box = button.getBoundingClientRect();
+    popup.style.left = `${Math.min(box.left + window.scrollX, window.innerWidth - 200)}px`;
+    popup.style.top = `${box.bottom + window.scrollY + 4}px`;
+    document.body.append(popup);
+  }
+
+  const escape = (event: KeyboardEvent) => { if (event.key === "Escape") closeMenu(); };
+  document.addEventListener("click", closeMenu);
+  window.addEventListener("keydown", escape);
+
   main.addEventListener("click", (event) => {
+    const more = (event.target as HTMLElement).closest<HTMLElement>(".card-menu");
+    if (more) {
+      event.preventDefault();
+      event.stopPropagation();
+      const comic = comics.find((each) => each.id === more.dataset.menu);
+      if (comic) openMenu(more, comic);
+      return;
+    }
     const link = (event.target as HTMLElement).closest<HTMLAnchorElement>("a.card[data-id]");
     if (!link) return;
     event.preventDefault();
@@ -151,14 +200,20 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     }
   };
 
+  const done = () => {
+    closeMenu();
+    document.removeEventListener("click", closeMenu);
+    window.removeEventListener("keydown", escape);
+  };
+
   // the last answer is drawn at once, so going into a folder is instant, and replaced when the fresh one comes
   if (cached) draw();
   try {
     comics = cached = (await api.library()).comics;
   } catch (error) {
     if (!cached) main.innerHTML = `<p class="empty">Could not reach the reader: ${esc(String(error))}</p>`;
-    return () => undefined;
+    return done;
   }
   draw();
-  return () => undefined;
+  return done;
 }

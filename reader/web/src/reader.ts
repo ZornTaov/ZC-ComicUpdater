@@ -25,6 +25,8 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
   let zoom = { scale: 1, x: 0, y: 0 };
   let saveTimer: number | undefined;
   let lastSaved = "";
+  // false once the comic has been marked unread from inside it
+  let keepingPlace = true;
   // how far down its page the reader was, for the first time a scrolled comic is shown
   let startPart = startAt === null ? comic.part || 0 : 0;
 
@@ -162,6 +164,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
   // closing: the window going away, or hidden - a save sent as the page is torn down is kept alive by the
   // browser until it is done
   function save(closing = false) {
+    if (!keepingPlace) return;
     const at = page();
     const part = settings.mode === "webtoon" && scrolling ? scrolling.partOf(at) : 0;
     const said = `${at}:${part.toFixed(3)}`;
@@ -437,11 +440,14 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
       render();
       openSheet();
     };
-    sheet.querySelector<HTMLButtonElement>('[data-act="restart"]')!.onclick = () => {
-      api.forgetProgress(comic.id).then(() => notify("Marked as unread")).catch(() => undefined);
-      lastSaved = "";
+    // marked unread, the comic is closed: the place stops being kept first, or leaving it - or the next
+    // scroll - would save it straight back
+    sheet.querySelector<HTMLButtonElement>('[data-act="restart"]')!.onclick = async () => {
+      keepingPlace = false;
       window.clearTimeout(saveTimer);
       saveTimer = undefined;
+      await api.forgetProgress(comic.id).catch(() => undefined);
+      leave();
     };
     sheet.querySelector<HTMLButtonElement>('[data-act="close"]')!.onclick = () => sheet.classList.add("hidden");
     sheet.addEventListener("pointerdown", (event) => event.stopPropagation());

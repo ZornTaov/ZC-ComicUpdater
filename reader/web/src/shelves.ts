@@ -84,14 +84,16 @@ export function shelf(comics: ComicSummary[], browse: Browse, path: string): She
     return { within, groups: byName(groups), comics: within.filter((c) => c.place === path).sort(compareComics) };
   }
 
-  // series and authors: a group of one is just a comic, so it sits among the comics rather than behind a tile
-  const keyOf = browse === "series" ? (c: ComicSummary) => c.series ?? c.title : (c: ComicSummary) => c.author ?? UNKNOWN;
+  // series and authors: a group of one is just a comic, so it sits among the comics rather than behind a tile.
+  // a series is only what a ComicInfo calls one - the issues of one comic, each its own archive - so a comic
+  // with none is simply a comic, never grouped with another that happens to share its name
+  const keyOf = browse === "series" ? (c: ComicSummary) => c.series : (c: ComicSummary) => c.author ?? UNKNOWN;
   if (path) {
     const within = comics.filter((c) => keyOf(c) === path);
     return { within, groups: [], comics: within.sort(compareComics) };
   }
   const groups: Group[] = [];
-  const loose: ComicSummary[] = [];
+  const loose: ComicSummary[] = comics.filter((c) => keyOf(c) === null);
   for (const [key, list] of groupedBy(comics, keyOf)) {
     if (list.length > 1) groups.push({ key, label: key === UNKNOWN ? "Unknown author" : key, comics: list });
     else loose.push(...list);

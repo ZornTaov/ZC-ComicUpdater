@@ -86,6 +86,12 @@ describe("series and authors", () => {
     expect(titles(shelf(library, "series", "MyComic").comics)).toEqual(["First", "Second"]);
   });
 
+  it("never makes a series of comics that only share a name", () => {
+    const twins = [comic({ title: "Same Name", place: "Uncompressed" }), comic({ title: "Same Name", place: "CBZs" })];
+    const top = shelf(twins, "series", "");
+    expect([top.groups.length, top.comics.length]).toEqual([0, 2]);
+  });
+
   it("groups by author, with no author its own group only when there are several", () => {
     const top = shelf(library, "author", "");
     expect(top.groups.map((group) => group.label)).toEqual(["Someone"]);

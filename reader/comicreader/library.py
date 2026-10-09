@@ -73,23 +73,33 @@ def listed_in(library, where, name):
 FIRST_NUMBER = re.compile(r"^(?P<before>\D*?)(?P<number>\d+)(?P<after>.*)$")
 
 
+#what a run's shared words end with before the number - "(Part 3", "Ch.07", "Vol 2" - which is no part of
+#the series' name
+RUN_WORDS = re.compile(r"[\s\-_.:#\[(]*(?:part|pt|chapter|ch|volume|vol|issue|episode|ep|book|no)?[\s\-_.:#\[(]*$", re.I)
+
+
 def numbered_runs(paths):
     #archives of one folder that are the parts of one series, told only by their names: three or more that
     #read the same up to their first number, each a different number, and those numbers near enough
     #consecutive - no more spread out than half as many again as there are, so a missing part or two is
     #fine. a folder of different comics that happen to share a word, or carry a year, is not one. answers
-    #each archive in a run with its number
+    #each archive in a run with its number and what the run is called: its own shared words where it shares
+    #the folder with other comics, or None where it is the whole folder, which then names it
     by_start = {}
     for path in paths:
         found = FIRST_NUMBER.match(os.path.splitext(os.path.basename(path))[0])
         if found:
-            by_start.setdefault(found.group("before").strip().lower(), []).append((int(found.group("number")), path))
+            by_start.setdefault(found.group("before").strip().lower(), []).append(
+                (int(found.group("number")), path, found.group("before")))
     runs = {}
     for members in by_start.values():
-        numbers = sorted(number for number, _ in members)
+        numbers = sorted(number for number, _, _ in members)
         if len(members) >= 3 and len(set(numbers)) == len(numbers) and \
                 numbers[-1] - numbers[0] + 1 <= len(numbers) * 1.5:
-            runs.update((path, number) for number, path in members)
+            #two runs in one folder - two serials by one author - are two series, each by its own name
+            words = RUN_WORDS.sub("", members[0][2]).strip()
+            name = None if len(members) == len(paths) or sum(c.isalpha() for c in words) < 3 else words
+            runs.update((path, (number, name)) for number, path, _ in members)
     return runs
 
 
@@ -201,11 +211,12 @@ def gather(library, skip):
                      "kind": "archive", "sources": members, "folder": None, "ended": None,
                      "place": listed_in(library, os.path.dirname(where), title)}
             if where in runs:
-                series = os.path.basename(os.path.dirname(where))
-                comic.update(series=series, number=str(runs[where]))
+                number, name = runs[where]
+                series = name or os.path.basename(os.path.dirname(where))
+                comic.update(series=series, number=str(number))
                 #a part named only by its number - 001.cbz - is called by its series and number
                 if stem.strip().isdigit():
-                    comic["title"] = "{0} {1}".format(series, runs[where])
+                    comic["title"] = "{0} {1}".format(series, number)
             found.append(comic)
     return found
 

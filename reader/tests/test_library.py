@@ -234,6 +234,16 @@ def test_a_folder_of_archives_numbered_one_after_another_is_a_series(library, ma
     assert found["Ch.03"]["series"] == "Chaptered"
 
 
+def test_two_serials_in_an_authors_folder_are_two_series_by_their_own_names(library, make_app):
+    shelved(library, "SomeAuthor", ["The Long Tale (Part 1) [x]", "The Long Tale (Part 2) [x]", "The Long Tale (Part 3) [y]",
+                                    "Another Story Ch.1", "Another Story Ch.2", "Another Story Ch.3",
+                                    "A One Shot", "Something Else"])
+    found = summaries(make_app())
+    assert found["The Long Tale (Part 2) [x]"]["series"] == "The Long Tale"
+    assert found["Another Story Ch.3"]["series"] == "Another Story"
+    assert found["A One Shot"]["series"] is None
+
+
 def test_a_folder_of_different_comics_is_not_a_series(library, make_app):
     #side stories sharing a folder, one with a 2 on its name; too few to be a run; numbers too far apart
     shelved(library, "Side Stories", ["AbelsStory", "AbelsStory2", "Matilda", "PerfectDate"])

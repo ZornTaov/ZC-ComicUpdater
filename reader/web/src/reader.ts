@@ -24,7 +24,9 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
   const images = new Map<number, HTMLImageElement>();
   let zoom = { scale: 1, x: 0, y: 0 };
   let saveTimer: number | undefined;
-  let lastSaved = -1;
+  let lastSaved = "";
+  // how far down its page the reader was, for the first time a scrolled comic is shown
+  let startPart = startAt === null ? comic.part || 0 : 0;
 
   root.innerHTML = "";
   const reader = el("div", "reader");
@@ -134,10 +136,13 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
           updateMenu();
           remember();
         },
+        moved: remember,
       });
     }
-    scrolling.look(settings.fit, settings.padding);
-    scrolling.jumpTo(page());
+    scrolling.look(settings.fit, settings.padding, settings.gap);
+    // opened again exactly where it was left: the same page, the same way down it
+    scrolling.jumpTo(page(), startPart);
+    startPart = 0;
     updateMenu();
   }
 
@@ -147,16 +152,22 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     scrolling = null;
   }
 
+  // the place is saved as the reader goes, at most every 0.8s however fast they scroll - not only once they
+  // stop, which a window closed mid-scroll never gets to
   function remember() {
-    window.clearTimeout(saveTimer);
-    saveTimer = window.setTimeout(save, 600);
+    if (saveTimer !== undefined) return;
+    saveTimer = window.setTimeout(() => { saveTimer = undefined; save(); }, 800);
   }
 
-  function save() {
+  // closing: the window going away, or hidden - a save sent as the page is torn down is kept alive by the
+  // browser until it is done
+  function save(closing = false) {
     const at = page();
-    if (at === lastSaved) return;
-    lastSaved = at;
-    api.saveProgress(comic.id, at).catch(() => { lastSaved = -1; });
+    const part = settings.mode === "webtoon" && scrolling ? scrolling.partOf(at) : 0;
+    const said = `${at}:${part.toFixed(3)}`;
+    if (said === lastSaved) return;
+    lastSaved = said;
+    api.saveProgress(comic.id, at, part, closing).catch(() => { lastSaved = ""; });
   }
 
   // a page taller than the screen is read down before it is turned, as a reader of a printed page reads
@@ -298,7 +309,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
           <button data-act="more">More…</button>
         </div>
       </footer>`;
-    menu.querySelector<HTMLButtonElement>('[data-act="back"]')!.onclick = () => { save(); leave(); };
+    menu.querySelector<HTMLButtonElement>('[data-act="back"]')!.onclick = () => { save(true); leave(); };
     const chapterSelect = menu.querySelector<HTMLSelectElement>('[data-act="chapter"]');
     if (chapterSelect) chapterSelect.onchange = () => { go(comic.chapters[Number(chapterSelect.value)].start); };
     const slider = menu.querySelector<HTMLInputElement>('[data-act="slider"]')!;
@@ -370,6 +381,8 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
       <label class="row">Background <input type="color" data-set="background"></label>
       <label class="row">Side padding <span class="value" data-show="padding"></span>
         <input type="range" min="0" max="40" step="1" data-set="padding"></label>
+      <label class="row">Space above and below pages <span class="value" data-show="gap"></span>
+        <input type="range" min="0" max="120" step="2" data-set="gap"></label>
       <label class="row">Tap zone width <input type="range" min="0.15" max="0.45" step="0.01" data-set="zone"></label>
       <label class="row"><input type="checkbox" data-set="swapZones"> Left side goes forward</label>
       <label class="row"><input type="checkbox" data-set="coverAlone"> First page alone in two-page view</label>
@@ -392,9 +405,19 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     padding.oninput = () => {
       paddingShown.textContent = `${padding.value}%`;
       reader.style.setProperty("--pad", `${padding.value}vw`);
-      scrolling?.look(settings.fit, Number(padding.value));
+      scrolling?.look(settings.fit, Number(padding.value), settings.gap);
     };
     padding.onchange = () => change({ padding: Number(padding.value) });
+    // space between pages when scrolling, so short strips do not run together: in pixels, shown as dragged
+    const gap = input<HTMLInputElement>("gap");
+    const gapShown = sheet.querySelector<HTMLElement>('[data-show="gap"]')!;
+    gap.value = String(settings.gap);
+    gapShown.textContent = `${settings.gap}px`;
+    gap.oninput = () => {
+      gapShown.textContent = `${gap.value}px`;
+      scrolling?.look(settings.fit, settings.padding, Number(gap.value));
+    };
+    gap.onchange = () => change({ gap: Number(gap.value) });
     input<HTMLInputElement>("zone").value = String(settings.zone);
     input<HTMLInputElement>("zone").onchange = (event) => change({ zone: Number((event.target as HTMLInputElement).value) });
     input<HTMLInputElement>("swapZones").checked = settings.swapZones;
@@ -416,8 +439,9 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     };
     sheet.querySelector<HTMLButtonElement>('[data-act="restart"]')!.onclick = () => {
       api.forgetProgress(comic.id).then(() => notify("Marked as unread")).catch(() => undefined);
-      lastSaved = -1;
+      lastSaved = "";
       window.clearTimeout(saveTimer);
+      saveTimer = undefined;
     };
     sheet.querySelector<HTMLButtonElement>('[data-act="close"]')!.onclick = () => sheet.classList.add("hidden");
     sheet.addEventListener("pointerdown", (event) => event.stopPropagation());
@@ -472,6 +496,8 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
   }
 
   strip.addEventListener("click", (event) => {
+    // a click on a video or a flash movie is its own - a flash comic's own next button among them
+    if ((event.target as Element).closest?.(".embed")) return;
     const action = tapAction(event.clientX, strip.clientWidth, settings);
     if (action === "menu") toggleMenu();
     else turn(action === "forward");
@@ -479,6 +505,8 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
 
   const keys = (event: KeyboardEvent) => {
     if ((event.target as HTMLElement).closest("input, select, textarea")) return;
+    // a flash movie played with the keyboard keeps its keys while it has them
+    if ((event.target as Element).closest?.(".embed") || document.activeElement?.closest(".embed")) return;
     if (event.key === "f") return toggleFullscreen();
     const action = keyAction(event.key, event.shiftKey, settings.direction);
     if (!action) return;
@@ -503,8 +531,11 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
   };
   stage.addEventListener("wheel", wheel, { passive: false });
 
-  const hidden = () => { if (document.visibilityState === "hidden") save(); };
+  // the window closed, or the app switched away from on a phone: the place as it is this moment
+  const hidden = () => { if (document.visibilityState === "hidden") save(true); };
+  const closing = () => save(true);
   document.addEventListener("visibilitychange", hidden);
+  window.addEventListener("pagehide", closing);
 
   buildMenu();
   render();
@@ -513,11 +544,13 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
   }
 
   return () => {
-    save();
+    window.clearTimeout(saveTimer);
+    save(true);
     detach();
     clearStrip();
     window.removeEventListener("keydown", keys);
     document.removeEventListener("visibilitychange", hidden);
+    window.removeEventListener("pagehide", closing);
     stage.removeEventListener("wheel", wheel);
   };
 }

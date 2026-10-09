@@ -45,6 +45,8 @@ export interface Comic {
   kind: string;
   ended: boolean;
   position: number;
+  // how far down that page the reader was, as a share of it, for a comic read by scrolling
+  part: number;
   seen: number;
   chapters: Chapter[];
   pages: Page[];
@@ -65,8 +67,9 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-function put<T>(path: string, body: unknown): Promise<T> {
-  return call<T>(path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+// keepalive lets a save started as the window closes finish after the page is gone
+function put<T>(path: string, body: unknown, keepalive = false): Promise<T> {
+  return call<T>(path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), keepalive });
 }
 
 export const api = {
@@ -81,7 +84,8 @@ export const api = {
   pageUrl: (id: string, n: number, v: string) => `/api/comics/${id}/pages/${n}?v=${v}`,
   coverUrl: (id: string, v: string | null) => `/api/comics/${id}/cover${v ? `?v=${v}` : ""}`,
   standIn: (id: string, n: number) => call<StandIn>(`/api/comics/${id}/pages/${n}/standin`),
-  saveProgress: (id: string, position: number) => put(`/api/comics/${id}/progress`, { position }),
+  saveProgress: (id: string, position: number, part = 0, closing = false) =>
+    put(`/api/comics/${id}/progress`, { position, part }, closing),
   forgetProgress: (id: string) => call(`/api/comics/${id}/progress`, { method: "DELETE" }),
   settings: () => call<Partial<Settings>>("/api/settings"),
   saveSettings: (settings: Partial<Settings>) => put<Partial<Settings>>("/api/settings", settings),

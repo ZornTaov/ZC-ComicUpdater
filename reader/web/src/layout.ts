@@ -97,8 +97,10 @@ export interface Placed {
 
 // where every page of a scrolled comic sits, worked out from the sizes the server measured rather than read
 // back from the page: the four fits as the paged view has them, in `room` pixels across and `screen` tall.
-// a page the server could not measure is given 40% of a screen until its picture says otherwise
-export function placeStrip(pages: { w: number | null; h: number | null }[], fit: Fit, room: number, screen: number): Placed {
+// a page the server could not measure is given 40% of a screen until its picture says otherwise. `gap` is
+// left empty above and below every page
+export function placeStrip(pages: { w: number | null; h: number | null }[], fit: Fit, room: number, screen: number,
+                           gap = 0): Placed {
   const count = pages.length;
   const placed: Placed = { tops: new Float64Array(count), heights: new Float64Array(count),
                            widths: new Float64Array(count), total: 0, widest: 0 };
@@ -123,11 +125,12 @@ export function placeStrip(pages: { w: number | null; h: number | null }[], fit:
       width = w;
       height = h;
     }
+    y += gap;
     placed.tops[n] = y;
     placed.heights[n] = height;
     placed.widths[n] = width;
     placed.widest = Math.max(placed.widest, width);
-    y += height;
+    y += height + gap;
   }
   placed.total = y;
   return placed;

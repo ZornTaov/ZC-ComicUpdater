@@ -17,6 +17,8 @@ export interface StripHooks {
   play(n: number, holder: HTMLElement, wanted: () => boolean): void;
   // the page being read has changed
   reading(n: number): void;
+  // the strip has moved at all, even within one page: the place kept is how far down the page too
+  moved(): void;
 }
 
 // pages are put in within two screens of what is shown, and taken out beyond four: the gap between the two
@@ -42,6 +44,7 @@ export class Strip {
   private watcher: ResizeObserver;
   private fit: Fit = "width";
   private padding = 0;
+  private gap = 0;
 
   constructor(private scroller: HTMLElement, private pages: Page[], private hooks: StripHooks) {
     this.content = document.createElement("div");
@@ -53,9 +56,10 @@ export class Strip {
     this.watcher.observe(scroller);
   }
 
-  look(fit: Fit, padding: number) {
+  look(fit: Fit, padding: number, gap: number) {
     this.fit = fit;
     this.padding = padding;
+    this.gap = gap;
     this.layout();
   }
 
@@ -66,7 +70,7 @@ export class Strip {
     const across = this.scroller.clientWidth;
     if (!screen || !across) return;
     const room = Math.max(120, across - 2 * window.innerWidth * this.padding / 100);
-    this.placed = placeStrip(this.pages, this.fit, room, screen);
+    this.placed = placeStrip(this.pages, this.fit, room, screen, this.gap);
     this.content.style.height = `${this.placed.total}px`;
     this.content.style.width = `${Math.max(across, this.placed.widest)}px`;
     const { n, part } = this.anchor;
@@ -75,11 +79,18 @@ export class Strip {
     this.update();
   }
 
-  jumpTo(n: number) {
+  // to page n, `part` of the way down it - where the reader left it, to the pixel
+  jumpTo(n: number, part = 0) {
     this.placedOnPage = true;
-    this.anchor = { n, part: 0 };
-    this.scroller.scrollTop = this.placed.tops[n] ?? 0;
+    this.anchor = { n, part };
+    this.scroller.scrollTop = (this.placed.tops[n] ?? 0) + part * (this.placed.heights[n] ?? 0);
     this.update();
+  }
+
+  // how far down page n the screen is, as a share of the page: the place kept, beside the page itself
+  partOf(n: number): number {
+    const height = this.placed.heights[n];
+    return height ? (this.scroller.scrollTop - this.placed.tops[n]) / height : 0;
   }
 
   destroy() {
@@ -124,6 +135,7 @@ export class Strip {
       this.current = reading;
       this.hooks.reading(reading);
     }
+    this.hooks.moved();
 
     const from = pageAt(tops, top - REACH * screen);
     const to = pageAt(tops, top + (1 + REACH) * screen);

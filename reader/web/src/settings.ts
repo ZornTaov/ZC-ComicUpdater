@@ -20,6 +20,9 @@ export interface Settings {
   // space left empty either side of the page, as a share of the screen's width: on a wide monitor a page
   // fitted to the width is otherwise far too big to read
   padding: number;
+  // space above and below every page when scrolling, in pixels: comics of short strips otherwise run
+  // together, and a two-row strip cannot be told from two one-row ones
+  gap: number;
 }
 
 export const defaults: Settings = {
@@ -33,6 +36,7 @@ export const defaults: Settings = {
   ahead: 4,
   behind: 2,
   padding: 0,
+  gap: 0,
 };
 
 export function merged(global: Partial<Settings>, comic: Partial<Settings>): Settings {
@@ -52,5 +56,6 @@ export function clean(given: Partial<Settings>): Partial<Settings> {
   if (typeof given.ahead === "number") out.ahead = Math.min(12, Math.max(1, Math.round(given.ahead)));
   if (typeof given.behind === "number") out.behind = Math.min(6, Math.max(0, Math.round(given.behind)));
   if (typeof given.padding === "number" && Number.isFinite(given.padding)) out.padding = Math.min(40, Math.max(0, Math.round(given.padding)));
+  if (typeof given.gap === "number" && Number.isFinite(given.gap)) out.gap = Math.min(120, Math.max(0, Math.round(given.gap)));
   return out;
 }

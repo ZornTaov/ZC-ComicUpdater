@@ -91,6 +91,10 @@ describe("pages made ready", () => {
     const screen = placeStrip(pages, "screen", 400, 300);
     expect([...screen.widths].slice(0, 2)).toEqual([400, 200]);
     expect([...screen.heights].slice(0, 2)).toEqual([100, 300]);
+    // space above and below every page
+    const spaced = placeStrip(pages, "width", 400, 1000, 10);
+    expect([...spaced.tops]).toEqual([10, 130, 750]);
+    expect(spaced.total).toBe(1160);
     const original = placeStrip(pages, "original", 400, 1000);
     expect([...original.widths].slice(0, 2)).toEqual([800, 800]);
     expect(original.widest).toBe(800);

@@ -29,30 +29,37 @@ class Store:
                 scope TEXT PRIMARY KEY,
                 data TEXT NOT NULL);
         """)
+        #how far down its page the reader was, for a comic read by scrolling: added after the table was
+        #first made, so a data folder from before gains it here
+        columns = [row[1] for row in self.db.execute("PRAGMA table_info(progress)")]
+        if "part" not in columns:
+            self.db.execute("ALTER TABLE progress ADD COLUMN part REAL NOT NULL DEFAULT 0")
         self.db.commit()
 
     def progress(self, series):
         with self.lock:
-            row = self.db.execute("SELECT key, position, seen, updated FROM progress WHERE series = ?",
+            row = self.db.execute("SELECT key, position, seen, updated, part FROM progress WHERE series = ?",
                                   (series,)).fetchone()
         if row is None:
             return None
-        return {"key": row[0], "position": row[1], "seen": row[2], "updated": row[3]}
+        return {"key": row[0], "position": row[1], "seen": row[2], "updated": row[3], "part": row[4]}
 
     def every_progress(self):
         with self.lock:
-            rows = self.db.execute("SELECT series, key, position, seen, updated FROM progress").fetchall()
-        return {row[0]: {"key": row[1], "position": row[2], "seen": row[3], "updated": row[4]} for row in rows}
+            rows = self.db.execute("SELECT series, key, position, seen, updated, part FROM progress").fetchall()
+        return {row[0]: {"key": row[1], "position": row[2], "seen": row[3], "updated": row[4], "part": row[5]}
+                for row in rows}
 
-    def save_progress(self, series, key, position, seen):
+    def save_progress(self, series, key, position, seen, part=0.0):
         #seen is how many pages the comic had when it was read, so "new since you last read" is the pages
-        #it has gained since, whatever page the reader stopped on
+        #it has gained since, whatever page the reader stopped on. part is how far down that page the screen
+        #was, as a share of the page, so a comic scrolled through opens again exactly where it was left
         stamp = time.time()
         with self.lock:
-            self.db.execute("INSERT INTO progress (series, key, position, seen, updated) VALUES (?, ?, ?, ?, ?) "
+            self.db.execute("INSERT INTO progress (series, key, position, seen, updated, part) VALUES (?, ?, ?, ?, ?, ?) "
                             "ON CONFLICT(series) DO UPDATE SET key = excluded.key, position = excluded.position, "
-                            "seen = MAX(progress.seen, excluded.seen), updated = excluded.updated",
-                            (series, key, position, seen, stamp))
+                            "seen = MAX(progress.seen, excluded.seen), updated = excluded.updated, part = excluded.part",
+                            (series, key, position, seen, stamp, part))
             self.db.commit()
         return self.progress(series)
 

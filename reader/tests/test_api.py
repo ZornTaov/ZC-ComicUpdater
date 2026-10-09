@@ -36,6 +36,35 @@ def test_the_library_says_what_is_unread_and_new(library, client):
     assert (comic["pages"], comic["unread"], comic["new"], comic["position"]) == (7, 2, 2, 4)
 
 
+def test_how_far_down_a_page_is_kept_with_the_place(library, client, tmp_path):
+    single(library)
+    api, _ = client()
+    comic_id = first(api)["id"]
+    api.put("/api/comics/{0}/progress".format(comic_id), json={"position": 2, "part": 0.375})
+    details = api.get("/api/comics/{0}".format(comic_id)).json()
+    assert (details["position"], details["part"]) == (2, 0.375)
+    #nothing wild is kept
+    api.put("/api/comics/{0}/progress".format(comic_id), json={"position": 2, "part": "nonsense"})
+    assert api.get("/api/comics/{0}".format(comic_id)).json()["part"] == 0
+
+
+def test_a_data_folder_from_before_gains_the_new_column(tmp_path):
+    #progress kept by a reader from before "part" was a column is still read, and can be added to
+    import sqlite3
+
+    from comicreader.store import Store
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(str(path))
+    old.execute("CREATE TABLE progress (series TEXT PRIMARY KEY, key TEXT, position INTEGER NOT NULL, "
+                "seen INTEGER NOT NULL, updated REAL NOT NULL)")
+    old.execute("INSERT INTO progress VALUES ('abc', 'page.png', 7, 10, 1.0)")
+    old.commit()
+    old.close()
+    store = Store(str(path))
+    assert store.progress("abc")["position"] == 7 and store.progress("abc")["part"] == 0
+    assert store.save_progress("abc", "page.png", 8, 10, 0.5)["part"] == 0.5
+
+
 def test_a_page_named_with_its_version_is_kept_for_good(library, client):
     single(library)
     api, _ = client()

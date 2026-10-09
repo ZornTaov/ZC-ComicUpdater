@@ -81,6 +81,7 @@ def create_app(config=None, scan_in_background=True):
         progress = store.progress(comic_id)
         return {"id": comic_id, "title": comic["title"], "kind": comic["kind"], "ended": stream["ended"],
                 "position": library.position(stream, progress), "seen": progress["seen"] if progress else 0,
+                "part": progress["part"] if progress else 0,
                 "chapters": stream["chapters"],
                 #kept short: a comic of thousands of pages is one request, opened every time it is read
                 #the fifth is what a page held inside the archive as something other than a picture is
@@ -173,7 +174,13 @@ def create_app(config=None, scan_in_background=True):
         if not stream["pages"]:
             raise HTTPException(409, "the comic has no pages to be up to")
         at = max(0, min(int(body.get("position", 0)), len(stream["pages"]) - 1))
-        saved = store.save_progress(comic_id, stream["pages"][at]["key"], at, len(stream["pages"]))
+        try:
+            #how far down the page, as a share of it; a little before its top or well past its end is fine - the
+            #last pages of a comic can never reach the top of the screen - but nothing wilder is kept
+            part = max(-50.0, min(50.0, float(body.get("part") or 0)))
+        except (TypeError, ValueError):
+            part = 0.0
+        saved = store.save_progress(comic_id, stream["pages"][at]["key"], at, len(stream["pages"]), part)
         return dict(saved, position=at)
 
     @app.delete("/api/comics/{comic_id}/progress")

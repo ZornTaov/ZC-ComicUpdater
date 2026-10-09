@@ -1,0 +1,41 @@
+# The reader, beside the scraper. Build the image first, from the repo root:
+#
+#     docker build -f reader/Dockerfile -t comic-reader:0.1 .
+#
+# The places on your machine come from the environment (a .env file beside this one, or Container
+# Station's environment settings), so nothing here is anyone's own setup:
+#
+#     LIBRARY=/path/to/the/library        the folder holding CBZs/ and Uncompressed/
+#     READER_DATA_DIR=/path/to/reader-data  an empty folder the reader keeps its progress and covers in
+#     READER_PASSWORD=change-me             optional; without one anyone who can reach the port can read
+services:
+  reader:
+    image: comic-reader:0.1
+    container_name: comic-reader
+    restart: unless-stopped
+
+    # the library's owner, as the scraper runs: the reader only reads the library, but its data folder
+    # has to be its own to write
+    user: "${READER_USER:-1001:100}"
+
+    environment:
+      TZ: ${TZ:-UTC}
+      READER_PASSWORD: ${READER_PASSWORD:-}
+      # how often the library is looked over for new pages, in minutes. a comic being read is always
+      # looked at as it is opened, whatever this says
+      READER_SCAN_MINUTES: ${READER_SCAN_MINUTES:-15}
+
+    # the reader, at http://<host>:8082/
+    ports:
+      - "${READER_PORT:-8082}:8082"
+
+    volumes:
+      # read-only: the reader never writes to the library, and this makes sure it cannot
+      - ${LIBRARY:?set LIBRARY to the library root}:/library:ro
+      - ${READER_DATA_DIR:?set READER_DATA_DIR to a folder for the reader's own data}:/data
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -45,4 +45,28 @@
 
 !Dockerfile
 !docker-compose.yml
+
+# the reader, a program of its own with its own image and its own test suite. the same two lines per
+# folder; node_modules and the built dist/ are never named, so they stay out
+!reader/
+!reader/Dockerfile
+!reader/docker-compose.yml
+!reader/pytest.ini
+!reader/requirements.txt
+!reader/requirements-dev.txt
+!reader/comicreader/
+!reader/comicreader/*.py
+!reader/tests/
+!reader/tests/*.py
+!reader/web/
+!reader/web/index.html
+!reader/web/package.json
+!reader/web/package-lock.json
+!reader/web/tsconfig.json
+!reader/web/vite.config.ts
+!reader/web/public/
+!reader/web/public/*
+!reader/web/src/
+!reader/web/src/*.ts
+!reader/web/src/*.css
 !comics.example.csv

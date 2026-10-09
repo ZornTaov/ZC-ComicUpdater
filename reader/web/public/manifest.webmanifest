@@ -1,0 +1,9 @@
+{
+  "name": "Comic Reader",
+  "short_name": "Comics",
+  "start_url": "/",
+  "display": "fullscreen",
+  "background_color": "#111111",
+  "theme_color": "#111111",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

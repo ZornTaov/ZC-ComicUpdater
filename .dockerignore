@@ -11,3 +11,11 @@
 !web_page
 !comiclib
 comiclib/**/__pycache__
+# the reader's image (reader/Dockerfile), built from here so it can take comiclib. its web page is built
+# inside the image, so neither a local build nor node_modules is sent
+!reader/requirements.txt
+!reader/comicreader
+!reader/web
+reader/**/__pycache__
+reader/web/node_modules
+reader/web/dist

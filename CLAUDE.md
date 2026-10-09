@@ -21,6 +21,7 @@ archives, and keep them up to date unattended.
 | `update_comics.py` | ~190 | The long-running process: its arguments, the schedule loop, and starting the web page. The work is `comiclib` `config`, `library`, `batch` and `schedule` |
 | `adopt_comic.py` | ~120 | Takes a folder of pages someone else scraped and makes it a comic this tool can update. The work is `comiclib/adopt/`: `scan`, `report`, `adopting` |
 | `comiclib/` | ~760 | What more than one script needs to agree on, below |
+| `reader/` | ~1500 | A separate program: a PerfectViewer-style web reader for the library, in its own image. See "The reader" below |
 
 `comiclib` is where anything two scripts both need goes, so the answer cannot drift between them:
 
@@ -66,6 +67,22 @@ script can then use what a later one declares. `index.html` loads them in order,
 file needs a `<script>` tag there, and a new folder needs its two lines in `.gitignore`.
 `tests/test_web_status.py` runs the Result column's expression out of `js/library.js` by text, so moving
 that expression means moving the test's markers with it.
+
+### The reader
+
+`reader/` is its own program with its own image, dependencies and tests, sharing only `comiclib` -
+imported, never copied, so it cannot disagree with the scraper about which page comes next.
+`comicreader/` is a FastAPI server (`sources`: an archive or loose folder as a page list, kept from its
+last good reading while the scraper appends to it; `library`: every comic as one stream of pages across
+its chapter archives, and where the reader is up to by `page_key`, not by number; `store`: sqlite in its
+data folder; `app`: the routes). `web/` is TypeScript built by Vite inside the image (the scraper's
+`web_page/` stays build-free); the arithmetic - spreads, taps, keys, shelves - is in `layout.ts` and
+`shelves.ts` so Vitest can test it without a browser. It mounts the library **read-only**.
+
+Its suite runs apart: `cd reader && python -m pytest` (offline, a couple of seconds; `reader/pytest.ini`
+makes it its own root) and `npm test` in `reader/web`. `tests/test_contract.py` there checks what it
+relies on comiclib for, so **run it after any comiclib change**. Build with
+`docker build -f reader/Dockerfile -t comic-reader:0.1 .` from the repo root.
 
 Dependencies are **selenium and requests** today (`requirements.txt`). Adding one is allowed when it is
 genuinely needed, but it means rebuilding the container, which is a real cost to the person running this -

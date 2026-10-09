@@ -1,0 +1,209 @@
+#the reader's server: the library as json, each page as its own bytes, and where each comic was read up to.
+#the web page in web/ is everything else.
+import base64
+import hashlib
+import hmac
+import io
+import os
+import threading
+import time
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+
+from comicreader.config import Config
+from comicreader.library import Library
+from comicreader.sources import Busy, original
+from comicreader.store import Store
+
+#a page asked for with the version of the archive it came from never changes, so the browser keeps it as
+#long as it likes: turning back to a page is then instant, with no request at all
+FOREVER = "private, max-age=31536000, immutable"
+THUMB = (360, 540)
+
+
+def create_app(config=None, scan_in_background=True):
+    config = config or Config.from_env()
+    store = Store(os.path.join(config.data, "reader.db"))
+    library = Library(config, store)
+    app = FastAPI(title="Comic reader", docs_url=None, redoc_url=None)
+    app.state.library = library
+    app.state.store = store
+    app.state.config = config
+
+    @app.middleware("http")
+    async def password(request: Request, call_next):
+        #the same as the scraper's web page: basic auth, any user name, one password. the manifest and icon
+        #stay open, since a phone fetches them for the home screen without asking first
+        if config.password and request.url.path not in ("/manifest.webmanifest", "/icon.svg"):
+            given = request.headers.get("authorization", "")
+            ok = False
+            if given.startswith("Basic "):
+                try:
+                    _, _, secret = base64.b64decode(given[6:]).decode("utf-8").partition(":")
+                    ok = hmac.compare_digest(secret, config.password)
+                except (ValueError, UnicodeDecodeError):
+                    ok = False
+            if not ok:
+                return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="reader"'})
+        return await call_next(request)
+
+    def comic_or_404(comic_id):
+        comic = library.comics.get(comic_id)
+        if comic is None:
+            raise HTTPException(404, "no comic {0}; the library may not have been scanned yet".format(comic_id))
+        return comic
+
+    @app.get("/api/library")
+    def everything():
+        progress = store.every_progress()
+        return {"scanned": library.scanned,
+                "comics": sorted((library.summary(comic, progress.get(comic["id"])) for comic in library.comics.values()),
+                                 key=lambda each: each["title"].lower())}
+
+    @app.post("/api/scan")
+    def scan():
+        started = library.scan()
+        return {"scanned": library.scanned, "started": started}
+
+    @app.get("/api/comics/{comic_id}")
+    def comic_details(comic_id: str):
+        comic = comic_or_404(comic_id)
+        stream = library.stream(comic, fresh=True)
+        progress = store.progress(comic_id)
+        return {"id": comic_id, "title": comic["title"], "kind": comic["kind"], "ended": stream["ended"],
+                "position": library.position(stream, progress), "seen": progress["seen"] if progress else 0,
+                "chapters": stream["chapters"],
+                #kept short: a comic of thousands of pages is one request, opened every time it is read
+                "pages": [[page["v"], page["w"], page["h"], 1 if page["standin"] else 0] for page in stream["pages"]],
+                "settings": store.settings("comic:" + comic_id)}
+
+    def page_of(comic_id, n):
+        comic = comic_or_404(comic_id)
+        stream = library.stream(comic)
+        if not 0 <= n < len(stream["pages"]):
+            stream = library.stream(comic, fresh=True)
+            if not 0 <= n < len(stream["pages"]):
+                raise HTTPException(404, "{0} has {1} pages".format(comic["title"], len(stream["pages"])))
+        page = stream["pages"][n]
+        source = library.sources.cached(comic["sources"][page["source"]])
+        if source is None:
+            raise HTTPException(503, "that archive has not been read yet; try again")
+        return comic, page, source
+
+    @app.get("/api/comics/{comic_id}/pages/{n}")
+    def page(comic_id: str, n: int, request: Request, v: str = ""):
+        comic, each, source = page_of(comic_id, n)
+        tag = '"{0}-{1}"'.format(each["v"], hashlib.sha1(each["entry"].encode("utf-8")).hexdigest()[:10])
+        if request.headers.get("if-none-match") == tag:
+            return Response(status_code=304, headers={"ETag": tag})
+        try:
+            body, media = library.sources.page(source, each["entry"])
+        except (Busy, OSError, KeyError) as error:
+            #the archive is being added to this moment; the page asks again shortly
+            raise HTTPException(503, "could not read the page just now ({0}); try again".format(error))
+        return Response(body, media_type=media,
+                        headers={"ETag": tag, "Cache-Control": FOREVER if v == each["v"] else "no-cache"})
+
+    @app.get("/api/comics/{comic_id}/pages/{n}/standin")
+    def standin(comic_id: str, n: int):
+        #what a page standing in for a video, a flash page or a link is standing in for, so tapping it can
+        #open the real thing
+        comic, each, _ = page_of(comic_id, n)
+        found = original(comic["folder"], each["entry"]) if each["standin"] or comic["folder"] else None
+        if not found:
+            return {"kind": None}
+        if found["kind"] == "link":
+            return {"kind": "link", "address": found["address"], "title": found["title"], "name": found["name"]}
+        return {"kind": found["kind"], "name": found["name"],
+                "url": "/api/comics/{0}/pages/{1}/original".format(comic_id, n)}
+
+    @app.get("/api/comics/{comic_id}/pages/{n}/original")
+    def original_file(comic_id: str, n: int):
+        comic, each, _ = page_of(comic_id, n)
+        found = original(comic["folder"], each["entry"])
+        if not found or found["kind"] == "link":
+            raise HTTPException(404, "no original kept for that page")
+        #a file response answers range requests, which a video needs to seek
+        return FileResponse(found["path"], media_type=found["media"], filename=found["name"])
+
+    @app.get("/api/comics/{comic_id}/cover")
+    def cover(comic_id: str, v: str = ""):
+        comic, each, source = page_of(comic_id, 0)
+        cached = os.path.join(config.data, "covers", "{0}-{1}.jpg".format(comic_id, each["v"]))
+        if not os.path.isfile(cached):
+            try:
+                body, _ = library.sources.page(source, each["entry"])
+                made = thumbnail(body)
+            except Exception as error:  # noqa: BLE001 - a picture Pillow cannot open is a missing cover
+                raise HTTPException(404, "no cover: {0}".format(error))
+            os.makedirs(os.path.dirname(cached), exist_ok=True)
+            with open(cached + ".writing", "wb") as f:
+                f.write(made)
+            os.replace(cached + ".writing", cached)
+        return FileResponse(cached, media_type="image/jpeg", headers={"Cache-Control": FOREVER if v else "no-cache"})
+
+    @app.put("/api/comics/{comic_id}/progress")
+    async def save_progress(comic_id: str, request: Request):
+        comic = comic_or_404(comic_id)
+        body = await request.json()
+        stream = library.stream(comic)
+        if not stream["pages"]:
+            raise HTTPException(409, "the comic has no pages to be up to")
+        at = max(0, min(int(body.get("position", 0)), len(stream["pages"]) - 1))
+        saved = store.save_progress(comic_id, stream["pages"][at]["key"], at, len(stream["pages"]))
+        return dict(saved, position=at)
+
+    @app.delete("/api/comics/{comic_id}/progress")
+    def forget_progress(comic_id: str):
+        comic_or_404(comic_id)
+        store.forget_progress(comic_id)
+        return {"ok": True}
+
+    @app.get("/api/settings")
+    def global_settings():
+        return store.settings("global")
+
+    @app.put("/api/settings")
+    async def save_global_settings(request: Request):
+        store.save_settings("global", await request.json())
+        return store.settings("global")
+
+    @app.put("/api/comics/{comic_id}/settings")
+    async def save_comic_settings(comic_id: str, request: Request):
+        comic_or_404(comic_id)
+        store.save_settings("comic:" + comic_id, await request.json())
+        return store.settings("comic:" + comic_id)
+
+    @app.get("/api/health")
+    def health():
+        return JSONResponse({"comics": len(library.comics), "scanned": library.scanned})
+
+    if os.path.isdir(config.web):
+        app.mount("/", StaticFiles(directory=config.web, html=True), name="web")
+
+    if scan_in_background:
+        threading.Thread(target=keep_scanning, args=(library, config.scan_minutes), daemon=True).start()
+    return app
+
+
+def keep_scanning(library, minutes):
+    while True:
+        try:
+            library.scan()
+        except Exception as error:  # noqa: BLE001 - one bad scan must not stop the next
+            print("scan failed: {0}".format(error), flush=True)
+        time.sleep(max(minutes, 1) * 60)
+
+
+def thumbnail(body):
+    #a cover for the library shelf: the first page, small. Pillow, since a cover has to be scaled well and
+    #this is the reader's own image, not the scraper's
+    from PIL import Image
+    with Image.open(io.BytesIO(body)) as picture:
+        picture = picture.convert("RGB")
+        picture.thumbnail(THUMB)
+        out = io.BytesIO()
+        picture.save(out, "JPEG", quality=82)
+    return out.getvalue()

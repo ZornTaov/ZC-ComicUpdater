@@ -186,7 +186,12 @@ class Library:
             version = "{0:x}{1:x}".format(*source["stamp"])[-12:]
             versions.append(version)
             for page in source["pages"]:
-                pages.append(dict(page, source=at, v=version))
+                #a page is fetched as /pages/<number>?v=..., and a browser keeps it for good. the number alone
+                #can come to mean another page while the archive stays the same - a reader that learns to show
+                #a comic's flash pages puts them among its pictures - so the version names the page itself
+                #too, and an address is only ever one picture
+                own = hashlib.sha1("{0}\0{1}".format(version, page["entry"]).encode("utf-8")).hexdigest()[:12]
+                pages.append(dict(page, source=at, v=own))
         ended = comic["ended"]
         if ended is None:
             ended = bool(((metadata or {}).get("settings") or {}).get("ended"))
@@ -224,6 +229,7 @@ class Library:
                 "position": at, "unread": unread, "ended": stream["ended"],
                 "new": max(total - progress["seen"], 0) if progress else 0,
                 "read": progress["updated"] if progress else None,
-                "chapters": len(stream["chapters"]), "cover": stream["versions"][0] if stream["versions"] else None,
+                #the cover is the first page, so it is that page's version: the same picture, the same address
+                "chapters": len(stream["chapters"]), "cover": stream["pages"][0]["v"] if stream["pages"] else None,
                 "updated": max((source["stamp"][1] for path in comic["sources"]
                                 for source in [self.sources.cached(path)] if source), default=0) / 1e9}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Page } from "./api";
-import { chapterOf, keyAction, pageAt, tapAction, viewOf, views, wanted } from "./layout";
+import { chapterOf, keyAction, pageAt, placeStrip, tapAction, viewOf, views, wanted } from "./layout";
 import { clean, merged } from "./settings";
 
 const page = (w: number | null = 800, h: number | null = 1200, standin = false): Page => ({ v: "1", w, h, standin, media: null });
@@ -79,6 +79,21 @@ describe("pages made ready", () => {
     expect(pageAt(strip, 1800)).toBe(3);
     expect(pageAt(strip, 99999)).toBe(5);
     expect(pageAt({ length: 0, at: () => 0 }, 10)).toBe(0);
+  });
+
+  it("are placed one under the next by their measured sizes, for each fit", () => {
+    const pages = [{ w: 800, h: 200 }, { w: 800, h: 1200 }, { w: null, h: null }];
+    const width = placeStrip(pages, "width", 400, 1000);
+    expect([...width.heights]).toEqual([100, 600, 400]);
+    expect([...width.tops]).toEqual([0, 100, 700]);
+    expect(width.total).toBe(1100);
+    // fitted to the screen, a tall page shrinks to the screen's height and a strip stays as wide as allowed
+    const screen = placeStrip(pages, "screen", 400, 300);
+    expect([...screen.widths].slice(0, 2)).toEqual([400, 200]);
+    expect([...screen.heights].slice(0, 2)).toEqual([100, 300]);
+    const original = placeStrip(pages, "original", 400, 1000);
+    expect([...original.widths].slice(0, 2)).toEqual([800, 800]);
+    expect(original.widest).toBe(800);
   });
 
   it("know which chapter a page is in", () => {

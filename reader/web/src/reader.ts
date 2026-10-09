@@ -3,7 +3,8 @@
 // changes, by page rather than by number, so it survives the comic growing or being renumbered.
 import { api, type StandIn } from "./api";
 import { attachGestures } from "./gestures";
-import { chapterOf, keyAction, pageAt, tapAction, viewOf, views, wanted } from "./layout";
+import { chapterOf, keyAction, tapAction, viewOf, views, wanted } from "./layout";
+import { Strip } from "./strip";
 import { clean, merged, type Settings } from "./settings";
 import { el, esc } from "./dom";
 import { embedFor } from "./media";
@@ -77,9 +78,6 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     reader.style.background = settings.background;
     reader.style.setProperty("--pad", `${settings.padding}vw`);
     reader.dataset.mode = settings.mode;
-    // scrolling fits pages the same four ways a page at a time does: a webtoon read fitted to the width is
-    // the usual way, and side padding keeps it readable on a wide screen
-    strip.className = `strip fit-${settings.fit}`;
     spread.className = `spread fit-${settings.fit} count-${shown[view]?.length ?? 1}${settings.direction === "rtl" ? " rtl" : ""}`;
   }
 
@@ -108,159 +106,46 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     remember();
   }
 
-  // webtoon: every page one under the next, scrolled through, each fetched as it comes near
-  let observer: IntersectionObserver | null = null;
-  let far: IntersectionObserver | null = null;
-  let live: IntersectionObserver | null = null;
-  let sizes: ResizeObserver | null = null;
-  const onScreen = new Set<number>();
-  // where the reader is: the page at the top of the screen, and how far down into it. whatever changes size
-  // above it - a picture arriving, a player taking its place - it is put back there, so the place is never
-  // lost to a page further up loading late
-  let anchor = { n: 0, offset: 0 };
-
-  function shape(holder: HTMLElement, width: number, height: number) {
-    holder.classList.remove("unsized");
-    holder.style.aspectRatio = `${width} / ${height}`;
-    holder.style.setProperty("--ratio", String(width / height));
-    holder.style.setProperty("--natural", `${width}px`);
-  }
-
-  // a page the server could not measure takes its picture's size the first time it arrives, and keeps it,
-  // so letting it go later and fetching it again does not move anything a second time
-  function learnShape(n: number, holder: HTMLElement, picture: HTMLImageElement) {
-    if (!holder.classList.contains("unsized")) return;
-    const learn = () => {
-      if (!picture.naturalWidth || !picture.naturalHeight) return;
-      comic.pages[n] = { ...comic.pages[n], w: picture.naturalWidth, h: picture.naturalHeight };
-      shape(holder, picture.naturalWidth, picture.naturalHeight);
-    };
-    if (picture.complete) learn();
-    else picture.addEventListener("load", learn, { once: true });
-  }
-
-  // a place given its picture, if it has nothing in it yet
-  function fill(holder: HTMLElement, n: number) {
-    if (holder.firstChild) return;
-    const picture = image(n);
-    holder.append(picture);
-    learnShape(n, holder, picture);
-  }
-
-  function holderOf(n: number): HTMLElement | undefined {
-    return strip.children[n] as HTMLElement | undefined;
-  }
+  // webtoon: every page one under the next, scrolled through. strip.ts keeps only the pages near the screen
+  // in the page, each at the place its measured size gives it
+  let scrolling: Strip | null = null;
 
   function renderStrip() {
     stage.hidden = true;
     strip.hidden = false;
+    standinButton.hidden = true;
     applyLook();
-    if (!strip.childElementCount) {
-      // pictures fetched as they come within two screens
-      observer = new IntersectionObserver((entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const holder = entry.target as HTMLElement;
-          fill(holder, Number(holder.dataset.n));
-        }
-      }, { root: strip, rootMargin: "200% 0px" });
-      // and let go of once five screens away, so a comic of thousands of pages scrolled end to end holds a
-      // dozen or so, not all of them. the place a picture leaves keeps its measured size, so nothing moves;
-      // coming back to it is the browser's cache, since a page's address never changes. let go further out
-      // than it is fetched, so a page near the edge is not dropped and fetched again as the reader scrolls
-      // back and forth
-      far = new IntersectionObserver((entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) continue;
-          const holder = entry.target as HTMLElement;
-          const n = Number(holder.dataset.n);
-          const picture = images.get(n);
+    if (!scrolling) {
+      scrolling = new Strip(strip, comic.pages, {
+        picture: image,
+        release(n) {
           // a picture still on its way stops being fetched: a page flown past is not worth the wait
+          const picture = images.get(n);
           if (picture && !picture.complete) picture.removeAttribute("src");
           images.delete(n);
-          holder.replaceChildren();
-        }
-      }, { root: strip, rootMargin: "500% 0px" });
-      // a player only while its page is on screen: dozens of flash movies running at once, all making
-      // sound, is what a comic with a week of animated strips would otherwise be
-      live = new IntersectionObserver((entries) => {
-        for (const entry of entries) {
-          const holder = entry.target as HTMLElement;
-          const n = Number(holder.dataset.n);
-          if (entry.isIntersecting) {
-            onScreen.add(n);
-            fill(holder, n);
-            if (!holder.querySelector(".embed")) embedPage(n, () => onScreen.has(n));
-          } else {
-            onScreen.delete(n);
-            const playing = holder.querySelector(".embed");
-            if (playing) playing.replaceWith(image(n));
-          }
-        }
-      }, { root: strip, threshold: 0.25 });
-      sizes = new ResizeObserver(hold);
-      comic.pages.forEach((info, n) => {
-        const holder = el("div", "strip-page");
-        holder.dataset.n = String(n);
-        // the page's shape is known before it loads - measured by the server - so nothing below it moves
-        // when it arrives
-        if (info.w && info.h) shape(holder, info.w, info.h);
-        else holder.classList.add("unsized");
-        strip.append(holder);
-        observer!.observe(holder);
-        far!.observe(holder);
-        sizes!.observe(holder);
-        if (info.standin) live!.observe(holder);
+        },
+        play(n, _holder, stillWanted) {
+          embedPage(n, stillWanted).then((left) => { if (left && stillWanted()) offer(left); });
+        },
+        reading(n) {
+          if (n === page()) return;
+          view = viewOf(shown, n);
+          standinButton.hidden = true;
+          updateMenu();
+          remember();
+        },
       });
     }
-    jumpTo(page());
-    showStandIn([page()]);
+    scrolling.look(settings.fit, settings.padding);
+    scrolling.jumpTo(page());
     updateMenu();
   }
 
-  // leaving scrolling: every player stopped, every watcher let go
+  // leaving scrolling: every player stopped, every picture let go
   function clearStrip() {
-    observer?.disconnect();
-    far?.disconnect();
-    live?.disconnect();
-    sizes?.disconnect();
-    onScreen.clear();
-    strip.replaceChildren();
+    scrolling?.destroy();
+    scrolling = null;
   }
-
-  function jumpTo(n: number) {
-    const holder = holderOf(n);
-    if (!holder) return;
-    anchor = { n, offset: 0 };
-    strip.scrollTop = holder.offsetTop;
-  }
-
-  // after anything changed size, the page being read goes back to where it was on screen
-  function hold() {
-    const holder = holderOf(anchor.n);
-    if (!holder || strip.hidden) return;
-    const wanted = holder.offsetTop + anchor.offset;
-    if (Math.abs(strip.scrollTop - wanted) > 1) strip.scrollTop = wanted;
-  }
-
-  strip.addEventListener("scroll", () => {
-    // the page at the top of the screen is the one being read, found by halving: a long comic is thousands
-    // of pages, too many to look at one by one on every scroll
-    const tops = { length: strip.children.length, at: (n: number) => holderOf(n)!.offsetTop };
-    const top = pageAt(tops, strip.scrollTop + 40);
-    anchor = { n: top, offset: strip.scrollTop - tops.at(top) };
-    // at the very end the last pages can never reach the top of the screen - nothing below them pushes
-    // them up - so there the place is the last page that has come into view, or the end of a comic could
-    // never be read to
-    const atEnd = strip.scrollTop + strip.clientHeight >= strip.scrollHeight - 2;
-    const current = atEnd ? pageAt(tops, strip.scrollTop + strip.clientHeight - 1) : top;
-    if (current !== page()) {
-      view = viewOf(shown, current);
-      showStandIn([current]);
-      updateMenu();
-      remember();
-    }
-  }, { passive: true });
 
   function remember() {
     window.clearTimeout(saveTimer);
@@ -360,18 +245,20 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     standinButton.hidden = true;
     for (const n of pages.filter((at) => comic.pages[at].standin)) {
       const left = await embedPage(n);
-      if (!left || !shown[view]?.includes(n)) continue;
-      // a link to somewhere that cannot be embedded, or flash where Ruffle could not be fetched: a button
-      // opens it instead
-      standinButton.hidden = false;
-      standinButton.textContent = left.kind === "link" ? "Open link" : left.kind === "video" ? "Play video" : "Open flash file";
-      standinButton.onclick = (event) => {
-        event.stopPropagation();
-        if (left.kind === "video" && left.url) playVideo(left.url);
-        else if (left.kind === "link" && left.address) window.open(left.address, "_blank", "noopener");
-        else if (left.url) window.open(left.url, "_blank", "noopener");
-      };
+      if (left && shown[view]?.includes(n)) offer(left);
     }
+  }
+
+  // a link to somewhere that cannot be embedded, or flash where Ruffle could not be loaded: a button opens it
+  function offer(left: StandIn) {
+    standinButton.hidden = false;
+    standinButton.textContent = left.kind === "link" ? "Open link" : left.kind === "video" ? "Play video" : "Open flash file";
+    standinButton.onclick = (event) => {
+      event.stopPropagation();
+      if (left.kind === "video" && left.url) playVideo(left.url);
+      else if (left.kind === "link" && left.address) window.open(left.address, "_blank", "noopener");
+      else if (left.url) window.open(left.url, "_blank", "noopener");
+    };
   }
 
   function playVideo(url: string) {
@@ -505,6 +392,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     padding.oninput = () => {
       paddingShown.textContent = `${padding.value}%`;
       reader.style.setProperty("--pad", `${padding.value}vw`);
+      scrolling?.look(settings.fit, Number(padding.value));
     };
     padding.onchange = () => change({ padding: Number(padding.value) });
     input<HTMLInputElement>("zone").value = String(settings.zone);

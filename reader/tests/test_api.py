@@ -52,6 +52,24 @@ def test_a_page_named_with_its_version_is_kept_for_good(library, client):
     assert api.get("/api/comics/{0}/pages/99".format(comic["id"])).status_code == 404
 
 
+def test_a_page_number_that_comes_to_mean_another_page_gets_another_address(library, client):
+    #the archive unchanged, but the reader now counting a page it skipped before: every number after it means
+    #a different picture, and a browser keeping pages for good by address must not show the old one
+    folder, archive = single(library)
+    api, app = client()
+    comic = next(iter(app.state.library.comics.values()))
+    before = app.state.library.stream(comic)["pages"]
+    stream = app.state.library.stream(comic)
+    shifted = [dict(page, entry="other-" + page["entry"]) for page in stream["pages"]]
+    source = app.state.library.sources.cached(comic["sources"][0])
+    app.state.library.sources.known[comic["sources"][0]] = dict(source, pages=[
+        {k: v for k, v in page.items() if k not in ("source", "v")} for page in shifted])
+    after = app.state.library.stream(comic)["pages"]
+    assert all(old["v"] != new["v"] for old, new in zip(before, after))
+    #and two pages of one archive never share an address's version
+    assert len({page["v"] for page in before}) == len(before)
+
+
 def test_a_cover_is_made_from_the_first_page(library, client):
     single(library)
     api, _ = client()

@@ -1,7 +1,7 @@
 // the parts of reading that are only arithmetic, kept apart from the page so they can be tested alone:
 // which pages are shown together, which way a tap turns, which pages to have ready
 import type { Page } from "./api";
-import type { Settings } from "./settings";
+import type { Fit, Settings } from "./settings";
 
 // what is on screen at once: one page, or two side by side. a page drawn as a spread, a stand-in, and the
 // first page of a chapter always start a view of their own, so a chapter never opens on the wrong side
@@ -85,6 +85,52 @@ export function pageAt(tops: { length: number; at(n: number): number }, y: numbe
     else high = middle - 1;
   }
   return low;
+}
+
+export interface Placed {
+  tops: Float64Array;
+  heights: Float64Array;
+  widths: Float64Array;
+  total: number;
+  widest: number;
+}
+
+// where every page of a scrolled comic sits, worked out from the sizes the server measured rather than read
+// back from the page: the four fits as the paged view has them, in `room` pixels across and `screen` tall.
+// a page the server could not measure is given 40% of a screen until its picture says otherwise
+export function placeStrip(pages: { w: number | null; h: number | null }[], fit: Fit, room: number, screen: number): Placed {
+  const count = pages.length;
+  const placed: Placed = { tops: new Float64Array(count), heights: new Float64Array(count),
+                           widths: new Float64Array(count), total: 0, widest: 0 };
+  let y = 0;
+  for (let n = 0; n < count; n++) {
+    const { w, h } = pages[n];
+    let width: number;
+    let height: number;
+    if (!w || !h) {
+      width = room;
+      height = screen * 0.4;
+    } else if (fit === "width") {
+      width = room;
+      height = room * h / w;
+    } else if (fit === "screen") {
+      width = Math.min(room, screen * w / h);
+      height = width * h / w;
+    } else if (fit === "height") {
+      height = screen;
+      width = screen * w / h;
+    } else {
+      width = w;
+      height = h;
+    }
+    placed.tops[n] = y;
+    placed.heights[n] = height;
+    placed.widths[n] = width;
+    placed.widest = Math.max(placed.widest, width);
+    y += height;
+  }
+  placed.total = y;
+  return placed;
 }
 
 // the chapter a page is in

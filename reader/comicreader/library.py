@@ -111,19 +111,37 @@ def gather(library, skip):
         found.append(comic)
         if kind == "folder" and settings.get("cbz") is not False:
             unmatched.append(comic)
+        elif kind == "chapters":
+            unmatched.append(comic)
     #a comic whose metadata names an archive that is not there - the shelf sorted into folders by author
-    #since it was written - is read from the one archive elsewhere with its own name, if there is exactly
-    #one. two would be a guess, and it is read from its loose pages instead
-    elsewhere = {}
+    #since it was written, or chapters packed somewhere the metadata never recorded - is read from what is
+    #on the shelf under its own name, if exactly one thing is: one single archive, or one set of chapter
+    #archives. two would be a guess, and it is read from its loose pages instead. a comic already read from
+    #its chapters claims the single archive of its name too, the one it had before it was cut into them
+    singles, sets = {}, {}
     for path in archives:
-        if path not in claimed and not CHAPTER.match(os.path.basename(path)):
-            elsewhere.setdefault(os.path.splitext(os.path.basename(path))[0].lower(), []).append(path)
+        if path in claimed:
+            continue
+        chapter = CHAPTER.match(os.path.basename(path))
+        if chapter:
+            sets.setdefault(chapter.group("series").lower(), {}).setdefault(os.path.dirname(path), []).append(path)
+        else:
+            singles.setdefault(os.path.splitext(os.path.basename(path))[0].lower(), []).append(path)
     for comic in unmatched:
-        named_so = elsewhere.get(comic["title"].lower(), [])
-        if len(named_so) == 1:
-            comic.update(kind="archive", sources=named_so,
-                         place=listed_in(library, os.path.dirname(named_so[0]), comic["title"]))
-            claimed.add(named_so[0])
+        name = comic["title"].lower()
+        single, chapters = singles.get(name, []), list(sets.get(name, {}).values())
+        if comic["kind"] == "chapters":
+            if len(single) == 1:
+                claimed.add(single[0])
+        elif len(single) == 1:
+            comic.update(kind="archive", sources=single,
+                         place=listed_in(library, os.path.dirname(single[0]), comic["title"]))
+            claimed.add(single[0])
+        elif not single and len(chapters) == 1:
+            ordered = sorted(chapters[0], key=chapter_order)
+            comic.update(kind="chapters", sources=ordered,
+                         place=listed_in(library, os.path.dirname(ordered[0]), comic["title"]))
+            claimed.update(ordered)
     #archives no comic folder claims: a shelf of archives from somewhere else, or a comic whose loose
     #pages are gone. chapter archives of one series beside each other are read as one comic
     groups = {}

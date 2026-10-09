@@ -129,6 +129,27 @@ def test_a_comic_whose_archive_was_moved_since_its_metadata_was_written_is_still
     assert (comic["kind"], comic["sources"], comic["folder"]) == ("archive", [str(moved)], str(folder))
 
 
+def test_a_comic_whose_chapters_were_never_recorded_is_read_from_the_chapters_of_its_name(library, make_app):
+    folder = comic_folder(library, "TheirComic", 4)
+    shelf = library / "CBZs" / "TheirComic"
+    shelf.mkdir(parents=True)
+    names = page_names(folder)
+    cbz.write(str(shelf / "TheirComic - c001 - One.cbz"), str(folder), names[:2])
+    cbz.write(str(shelf / "TheirComic - c002 - Two.cbz"), str(folder), names[2:])
+    app = make_app()
+    comic = only(app)
+    assert comic["kind"] == "chapters" and len(app.state.library.stream(comic)["pages"]) == 4
+
+
+def test_a_chaptered_comic_claims_its_old_single_archive_wherever_it_is_shelved(library, make_app):
+    folder = chaptered(library, "MyComic", [2, 4])
+    moved = library / "CBZs" / "SomeAuthor" / "MyComic.cbz"
+    moved.parent.mkdir(parents=True)
+    cbz.write(str(moved), str(folder), page_names(folder))
+    app = make_app()
+    assert only(app)["kind"] == "chapters"
+
+
 def test_two_archives_of_one_name_are_not_guessed_between(library, make_app):
     folder = comic_folder(library, "TheirComic", 2, settings={"cbz_path": "CBZs/TheirComic.cbz"})
     for author in ("One", "Two"):

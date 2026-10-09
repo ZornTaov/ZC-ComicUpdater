@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import io
+import mimetypes
 import os
 import posixpath
 import re
@@ -18,6 +19,10 @@ from comicreader.config import Config
 from comicreader.library import Library
 from comicreader.sources import VIDEO_MEDIA, Busy, original
 from comicreader.store import Store
+
+#Ruffle's WebAssembly, which a browser compiles as it arrives only when it is sent as what it is - windows
+#does not always know the type
+mimetypes.add_type("application/wasm", ".wasm")
 
 #a page asked for with the version of the archive it came from never changes, so the browser keeps it as
 #long as it likes: turning back to a page is then instant, with no request at all

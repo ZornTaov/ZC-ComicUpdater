@@ -10,9 +10,10 @@ export function youtubeEmbed(address: string): string | null {
   return found ? `https://www.youtube-nocookie.com/embed/${found[1]}` : null;
 }
 
-// Ruffle, the flash player written for browsers, fetched only the first time a flash page is opened. it is
-// MIT/Apache licensed and large, so it is not built into the page
-const RUFFLE = "https://unpkg.com/@ruffle-rs/ruffle";
+// Ruffle, the flash player written for browsers (MIT/Apache), served from beside the page so it works with
+// no internet - copied there by copy-ruffle.mjs at build time - and fetched only the first time a flash page
+// is opened, since it is several megabytes the rest of the page never needs
+const RUFFLE = "/ruffle/ruffle.js";
 let ruffle: Promise<RufflePlayerApi> | null = null;
 
 interface RufflePlayerApi {
@@ -27,7 +28,7 @@ function loadRuffle(): Promise<RufflePlayerApi> {
   if (!ruffle) {
     ruffle = new Promise((resolve, reject) => {
       window.RufflePlayer = Object.assign(window.RufflePlayer ?? {}, {
-        config: { publicPath: `${RUFFLE}/`, autoplay: "on", unmuteOverlay: "visible", letterbox: "on",
+        config: { publicPath: "/ruffle/", autoplay: "on", unmuteOverlay: "visible", letterbox: "on",
                   splashScreen: false, contextMenu: "rightClickOnly" } }) as never;
       const script = document.createElement("script");
       script.src = RUFFLE;

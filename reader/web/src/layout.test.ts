@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Page } from "./api";
-import { chapterOf, keyAction, tapAction, viewOf, views, wanted } from "./layout";
+import { chapterOf, keyAction, pageAt, tapAction, viewOf, views, wanted } from "./layout";
 import { clean, merged } from "./settings";
 
 const page = (w: number | null = 800, h: number | null = 1200, standin = false): Page => ({ v: "1", w, h, standin, media: null });
@@ -67,6 +67,18 @@ describe("pages made ready", () => {
     const shown = [[0], [1], [2], [3], [4], [5]];
     expect(wanted(shown, 2, 3, 1)).toEqual([3, 1, 4, 5]);
     expect(wanted(shown, 5, 3, 1)).toEqual([4]);
+  });
+
+  it("find the page at the top of the screen in a long strip", () => {
+    const tops = [0, 900, 1800, 1800, 2400, 5000];
+    const strip = { length: tops.length, at: (n: number) => tops[n] };
+    expect(pageAt(strip, 0)).toBe(0);
+    expect(pageAt(strip, 899)).toBe(0);
+    expect(pageAt(strip, 900)).toBe(1);
+    // a page of no height yet shares its top with the next: the later one is where the reader is
+    expect(pageAt(strip, 1800)).toBe(3);
+    expect(pageAt(strip, 99999)).toBe(5);
+    expect(pageAt({ length: 0, at: () => 0 }, 10)).toBe(0);
   });
 
   it("know which chapter a page is in", () => {

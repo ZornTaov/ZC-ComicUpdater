@@ -114,7 +114,9 @@ button {
 
 /* scrolling: each page sized by the same four fits, before its picture has even arrived where its shape is
    known (--ratio, --natural from the comic's ComicInfo) */
-.strip { position: absolute; inset: 0; overflow: auto; touch-action: pan-x pan-y; padding: 0 var(--pad); }
+/* the reader keeps its own place as pages above it change size (reader.ts, hold), so the browser's own
+   attempt at the same is turned off rather than left to fight it */
+.strip { position: absolute; inset: 0; overflow: auto; touch-action: pan-x pan-y; padding: 0 var(--pad); overflow-anchor: none; }
 .strip-page { margin: 0 auto; min-height: 40vh; }
 .strip-page:has(img, .embed) { min-height: 0; }
 .strip-page img { display: block; width: 100%; height: auto; }
@@ -133,8 +135,9 @@ button {
 .spread .embed-wide { width: min(var(--embed-room), calc(100dvh * 16 / 9)); aspect-ratio: 16 / 9; }
 .spread .embed-flash { width: min(var(--embed-room), calc(100dvh * var(--aspect, 1.3333))); aspect-ratio: var(--aspect, 4 / 3); }
 .embed-flash > * { width: 100%; height: 100%; }
-.strip-page .embed { width: 100%; }
-.strip-page .embed-wide { aspect-ratio: 16 / 9; }
+/* a player fills its page's place exactly, which was the right shape before it arrived */
+.strip-page .embed { width: 100%; height: 100%; }
+.strip-page .embed-wide { aspect-ratio: var(--aspect, 16 / 9); }
 .strip-page .embed-flash { aspect-ratio: var(--aspect, 4 / 3); }
 .standin-open {
   position: absolute; left: 50%; bottom: 72px; transform: translateX(-50%);

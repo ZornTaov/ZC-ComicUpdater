@@ -139,13 +139,16 @@ class Library:
             return False
         try:
             found = gather(self.config.library, self.config.skip)
+            #which comics there are is known at once; each archive is then read again only where it changed,
+            #and the last reading of it is served until then - a scan that has to read everything again, after
+            #the reader learns to keep something new, is minutes on a big library, not minutes of nothing
+            self.comics = {comic["id"]: comic for comic in found}
             for comic in found:
                 for path in comic["sources"]:
                     try:
                         self.sources.get(path, "folder" if comic["kind"] == "folder" else "archive")
                     except Busy:
                         continue
-            self.comics = {comic["id"]: comic for comic in found}
             self.store.forget_sources({path for comic in found for path in comic["sources"]})
             self.scanned = time.time()
             return True

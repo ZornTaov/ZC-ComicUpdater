@@ -3,7 +3,7 @@
 // changes, by page rather than by number, so it survives the comic growing or being renumbered.
 import { api, type StandIn } from "./api";
 import { attachGestures } from "./gestures";
-import { chapterOf, keyAction, tapAction, viewOf, views, wanted } from "./layout";
+import { chapterOf, keyAction, pageAt, tapAction, viewOf, views, wanted } from "./layout";
 import { clean, merged, type Settings } from "./settings";
 import { el, esc } from "./dom";
 import { embedFor } from "./media";
@@ -110,26 +110,54 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
 
   // webtoon: every page one under the next, scrolled through, each fetched as it comes near
   let observer: IntersectionObserver | null = null;
+  let live: IntersectionObserver | null = null;
+  let sizes: ResizeObserver | null = null;
+  const onScreen = new Set<number>();
+  // where the reader is: the page at the top of the screen, and how far down into it. whatever changes size
+  // above it - a picture arriving, a player taking its place - it is put back there, so the place is never
+  // lost to a page further up loading late
+  let anchor = { n: 0, offset: 0 };
+
+  function holderOf(n: number): HTMLElement | undefined {
+    return strip.children[n] as HTMLElement | undefined;
+  }
+
   function renderStrip() {
     stage.hidden = true;
     strip.hidden = false;
     applyLook();
     if (!strip.childElementCount) {
+      // pictures fetched as they come within two screens
       observer = new IntersectionObserver((entries) => {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
           const holder = entry.target as HTMLElement;
-          const n = Number(holder.dataset.n);
-          if (!holder.firstChild) {
-            holder.append(image(n));
-            if (comic.pages[n].standin) embedPage(n);
-          }
+          if (!holder.firstChild) holder.append(image(Number(holder.dataset.n)));
         }
       }, { root: strip, rootMargin: "200% 0px" });
+      // a player only while its page is on screen: dozens of flash movies running at once, all making
+      // sound, is what a comic with a week of animated strips would otherwise be
+      live = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          const holder = entry.target as HTMLElement;
+          const n = Number(holder.dataset.n);
+          if (entry.isIntersecting) {
+            onScreen.add(n);
+            if (!holder.firstChild) holder.append(image(n));
+            if (!holder.querySelector(".embed")) embedPage(n, () => onScreen.has(n));
+          } else {
+            onScreen.delete(n);
+            const playing = holder.querySelector(".embed");
+            if (playing) playing.replaceWith(image(n));
+          }
+        }
+      }, { root: strip, threshold: 0.25 });
+      sizes = new ResizeObserver(hold);
       comic.pages.forEach((info, n) => {
         const holder = el("div", "strip-page");
         holder.dataset.n = String(n);
-        // the page's shape is known before it loads, so the strip does not jump as pages come in
+        // the page's shape is known before it loads - measured by the server - so nothing below it moves
+        // when it arrives
         if (info.w && info.h) {
           holder.style.aspectRatio = `${info.w} / ${info.h}`;
           holder.style.setProperty("--ratio", String(info.w / info.h));
@@ -137,22 +165,50 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
         }
         strip.append(holder);
         observer!.observe(holder);
+        sizes!.observe(holder);
+        if (info.standin) live!.observe(holder);
       });
     }
-    const target = strip.children[page()] as HTMLElement | undefined;
-    target?.scrollIntoView({ block: "start" });
+    jumpTo(page());
     showStandIn([page()]);
     updateMenu();
   }
 
+  // leaving scrolling: every player stopped, every watcher let go
+  function clearStrip() {
+    observer?.disconnect();
+    live?.disconnect();
+    sizes?.disconnect();
+    onScreen.clear();
+    strip.replaceChildren();
+  }
+
+  function jumpTo(n: number) {
+    const holder = holderOf(n);
+    if (!holder) return;
+    anchor = { n, offset: 0 };
+    strip.scrollTop = holder.offsetTop;
+  }
+
+  // after anything changed size, the page being read goes back to where it was on screen
+  function hold() {
+    const holder = holderOf(anchor.n);
+    if (!holder || strip.hidden) return;
+    const wanted = holder.offsetTop + anchor.offset;
+    if (Math.abs(strip.scrollTop - wanted) > 1) strip.scrollTop = wanted;
+  }
+
   strip.addEventListener("scroll", () => {
-    // the page at the top of the screen is the one being read
-    const top = strip.getBoundingClientRect().top;
-    let current = 0;
-    for (let n = 0; n < strip.children.length; n++) {
-      const box = (strip.children[n] as HTMLElement).getBoundingClientRect();
-      if (box.bottom > top + 40) { current = n; break; }
-    }
+    // the page at the top of the screen is the one being read, found by halving: a long comic is thousands
+    // of pages, too many to look at one by one on every scroll
+    const tops = { length: strip.children.length, at: (n: number) => holderOf(n)!.offsetTop };
+    const top = pageAt(tops, strip.scrollTop + 40);
+    anchor = { n: top, offset: strip.scrollTop - tops.at(top) };
+    // at the very end the last pages can never reach the top of the screen - nothing below them pushes
+    // them up - so there the place is the last page that has come into view, or the end of a comic could
+    // never be read to
+    const atEnd = strip.scrollTop + strip.clientHeight >= strip.scrollHeight - 2;
+    const current = atEnd ? pageAt(tops, strip.scrollTop + strip.clientHeight - 1) : top;
     if (current !== page()) {
       view = viewOf(shown, current);
       showStandIn([current]);
@@ -235,13 +291,19 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     return asked.get(n)!;
   }
 
-  // the real thing in place of page n's picture; what could not be shown that way is handed back
-  async function embedPage(n: number): Promise<StandIn | null> {
+  // the real thing in place of page n's picture; what could not be shown that way is handed back. asking
+  // takes a moment, so by the time the answer comes the page may have been scrolled away: it is only put
+  // in if still wanted
+  async function embedPage(n: number, wanted: () => boolean = () => true): Promise<StandIn | null> {
     const found = await standInOf(n);
     if (!found?.kind) return null;
     const picture = images.get(n);
+    // already showing the real thing, put there by whichever asked first
+    if (!picture?.isConnected) return null;
     const embed = await embedFor(found);
-    if (embed && picture?.isConnected) {
+    if (embed && picture?.isConnected && wanted()) {
+      const info = comic.pages[n];
+      if (info.w && info.h) embed.element.style.setProperty("--aspect", String(info.w / info.h));
       picture.replaceWith(embed.element);
       embed.start();
       return null;
@@ -364,7 +426,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     settings = merged(globalSettings, own);
     shown = views(comic.pages, settings, starts);
     view = viewOf(shown, at);
-    if (wasWebtoon && settings.mode !== "webtoon") { observer?.disconnect(); strip.replaceChildren(); }
+    if (wasWebtoon && settings.mode !== "webtoon") clearStrip();
     render();
   }
 
@@ -520,7 +582,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
   return () => {
     save();
     detach();
-    observer?.disconnect();
+    clearStrip();
     window.removeEventListener("keydown", keys);
     document.removeEventListener("visibilitychange", hidden);
     stage.removeEventListener("wheel", wheel);

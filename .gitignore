@@ -64,6 +64,7 @@
 !reader/web/package-lock.json
 !reader/web/tsconfig.json
 !reader/web/vite.config.ts
+!reader/web/copy-ruffle.mjs
 !reader/web/public/
 !reader/web/public/*
 !reader/web/src/

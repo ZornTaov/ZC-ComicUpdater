@@ -2,10 +2,25 @@
 #naming where a video lives. each is a page in its place - drawn as the scraper's stand-in would be, and
 #the real thing there to be played - while a readme or a script beside the pages stays out.
 import zipfile
+import zlib
 
 from conftest import png
 
-SWF = b"FWS\x0a" + b"\x00" * 60
+from comicreader.sources import swf_shape
+
+def swf(width, height, kind=b"FWS"):
+    #a flash header: the frame rectangle in twips, as many bits per field as the largest needs
+    fields = [0, width * 20, 0, height * 20]
+    size = max(value.bit_length() for value in fields) + 1
+    bits = "{0:05b}".format(size) + "".join("{0:0{1}b}".format(value, size) for value in fields)
+    bits += "0" * (-len(bits) % 8)
+    body = int(bits, 2).to_bytes(len(bits) // 8, "big") + b"\x00\x0c\x01\x00" + b"\x00" * 40
+    if kind == b"CWS":
+        body = zlib.compress(body)
+    return kind + b"\x0a" + (8 + len(body)).to_bytes(4, "little") + body
+
+
+SWF = swf(800, 200)
 MP4 = b"\x00\x00\x00\x18ftypmp42" + bytes(range(256)) * 64
 
 
@@ -69,6 +84,22 @@ def test_a_bonus_folder_beside_the_pages_is_not_read_as_pages(library, client):
                                 "[B] Original Flash SWF/whole thing.swf": SWF})
     _, comic = opened(client)
     assert len(comic["pages"]) == 2
+
+
+def test_every_page_is_the_right_shape_before_it_loads(library, client):
+    #so scrolling through a comic never jumps as its pictures and players arrive: pictures measured from
+    #their first bytes, flash from its own header, a video or a link to one as a wide screen
+    unadopted(library, entries={"01.png": png(40, 60), "02.swf": swf(800, 200), "03.mp4": MP4,
+                                "04.txt": b"Trailer https://youtu.be/abcdefghijk"})
+    _, comic = opened(client)
+    assert [(page[1], page[2]) for page in comic["pages"]] == [(40, 60), (800, 200), (1600, 900), (1600, 900)]
+
+
+def test_a_flash_header_says_its_size_however_it_is_compressed():
+    assert swf_shape(swf(550, 400)) == (550, 400)
+    assert swf_shape(swf(800, 200, b"CWS")[:200]) == (800, 200)
+    assert swf_shape(b"not flash at all") is None
+    assert swf_shape(b"CWS\x0a\x00\x00\x00\x00garbage") is None
 
 
 def test_a_page_read_before_adoption_is_the_same_page_after(library, client):

@@ -73,6 +73,20 @@ export function wanted(shown: number[][], view: number, ahead: number, behind: n
   return out;
 }
 
+// the page whose top is the last at or above y, among pages whose tops only ever go down the strip: found
+// by halving, so it is quick however long the comic
+export function pageAt(tops: { length: number; at(n: number): number }, y: number): number {
+  let low = 0;
+  let high = tops.length - 1;
+  if (high < 0) return 0;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (tops.at(middle) <= y) low = middle;
+    else high = middle - 1;
+  }
+  return low;
+}
+
 // the chapter a page is in
 export function chapterOf(starts: number[], page: number): number {
   let found = -1;

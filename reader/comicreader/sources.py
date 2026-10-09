@@ -9,11 +9,13 @@
 import collections
 import functools
 import json
+import lzma
 import os
 import posixpath
 import threading
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 
 from comiclib import comicinfo
 from comiclib.metadata import METADATA_FILE
@@ -30,7 +32,15 @@ VIDEO_MEDIA = {".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", 
 
 
 #what a reading of a source holds. a reading kept from an older reader, holding less, is read again once
-FORMAT = 3
+FORMAT = 4
+
+
+def head_of(zf, info):
+    #the first bytes of an entry, for measuring it, without reading the whole page
+    def read(n):
+        with zf.open(info) as f:
+            return f.read(n)
+    return read
 
 
 @functools.lru_cache(maxsize=64)
@@ -92,6 +102,48 @@ def media_kind(name):
     return None
 
 
+#what a video or a linked video is shown as before it has loaded: most are made for a 16:9 screen
+WIDE = (1600, 900)
+
+
+def swf_shape(head):
+    #a flash movie's (width, height), from the frame rectangle that opens it - after an uncompressed,
+    #zlib or LZMA header. a flash comic is often a wide strip, which it is shown as from the start
+    try:
+        kind = head[:3]
+        if kind == b"FWS":
+            body = head[8:]
+        elif kind == b"CWS":
+            body = zlib.decompressobj().decompress(head[8:], 64)
+        elif kind == b"ZWS":
+            #the LZMA properties come after a 4-byte length; lzma reads them as the start of an .lzma file
+            #whose unknown size is written as all ones
+            body = lzma.LZMADecompressor(format=lzma.FORMAT_ALONE).decompress(
+                head[12:17] + b"\xff" * 8 + head[17:], 64)
+        else:
+            return None
+        bits = int.from_bytes(body[:17], "big")
+        size = bits >> (17 * 8 - 5)
+        fields = []
+        for at in range(4):
+            shift = 17 * 8 - 5 - size * (at + 1)
+            value = (bits >> shift) & ((1 << size) - 1)
+            if value >> (size - 1):
+                value -= 1 << size
+            fields.append(value)
+        width, height = (fields[1] - fields[0]) // 20, (fields[3] - fields[2]) // 20
+        return (width, height) if width > 0 and height > 0 else None
+    except (zlib.error, lzma.LZMAError, ValueError, IndexError, EOFError):
+        return None
+
+
+def media_shape(kind, read):
+    #what a page that is not a picture is shown as, so its place is the right size before it loads
+    if kind == "flash":
+        return swf_shape(read(4096)) or (800, 600)
+    return WIDE
+
+
 def in_order(names, prefix):
     #the pages a reader turns through, as the scraper orders them: directly under the archive's one folder,
     #or - pages spread over folders of someone else's making - every page by its path
@@ -136,26 +188,32 @@ def read_archive(path):
                 except (ValueError, UnicodeDecodeError):
                     pass
                 break
+        said = comicinfo.pages_said(info_text) if info_text else []
+        #believed only where it describes these very pages, as the scraper itself does
+        if len(said) != len(pictures) or any(each["size"] != infos[entry].file_size for each, entry in zip(said, pictures)):
+            said = []
+        described = dict(zip(pictures, said))
+        pages = []
+        for entry in order:
+            read = head_of(zf, infos[entry])
+            if entry in media:
+                #keyed as the stand-in the scraper would give it, so a place kept in a comic read before it
+                #was adopted is still the same page after
+                address, called = notes.get(entry, (None, None))
+                width, height = media_shape(media[entry], read)
+                pages.append({"entry": entry, "key": page_key(os.path.splitext(posixpath.basename(entry))[0] + ".png"),
+                              "size": infos[entry].file_size, "w": width, "h": height, "standin": True,
+                              "media": media[entry], "address": address, "called": called})
+                continue
+            #every page's size known before it is shown, so a comic scrolled through never jumps as pictures
+            #arrive: from the ComicInfo where there is one, measured from the picture's first bytes where not
+            each = described.get(entry) or {}
+            shape = (each.get("width"), each.get("height")) if each.get("width") else comicinfo.measure(read)
+            width, height = shape or (None, None)
+            pages.append({"entry": entry, "key": page_key(posixpath.basename(entry)), "size": infos[entry].file_size,
+                          "w": width, "h": height, "standin": bool(each.get("standin"))})
     if stamp(path) != before:
         raise Busy(path)
-    said = comicinfo.pages_said(info_text) if info_text else []
-    #believed only where it describes these very pages, as the scraper itself does
-    if len(said) != len(pictures) or any(each["size"] != infos[entry].file_size for each, entry in zip(said, pictures)):
-        said = []
-    described = dict(zip(pictures, said))
-    pages = []
-    for entry in order:
-        if entry in media:
-            #keyed as the stand-in the scraper would give it, so a place kept in a comic read before it was
-            #adopted is still the same page after
-            address, called = notes.get(entry, (None, None))
-            pages.append({"entry": entry, "key": page_key(os.path.splitext(posixpath.basename(entry))[0] + ".png"),
-                          "size": infos[entry].file_size, "w": None, "h": None, "standin": True,
-                          "media": media[entry], "address": address, "called": called})
-            continue
-        each = described.get(entry) or {}
-        pages.append({"entry": entry, "key": page_key(posixpath.basename(entry)), "size": infos[entry].file_size,
-                      "w": each.get("width"), "h": each.get("height"), "standin": bool(each.get("standin"))})
     return {"kind": "archive", "path": path, "stamp": before, "pages": pages, "format": FORMAT,
             "about": about_from(info_text) if info_text else {}, "metadata": metadata}
 
@@ -167,8 +225,14 @@ def read_folder(path):
     pages = []
     for name in listing(path, others=True):
         standin = bool(held_otherwise(path, name))
+
+        def read(n, name=name):
+            with open(os.path.join(path, name), "rb") as f:
+                return f.read(n)
+        shape = None if standin else comicinfo.measure(read)
+        width, height = shape or (None, None)
         pages.append({"entry": name, "key": page_key(os.path.splitext(name)[0] + ".png" if standin else name),
-                      "size": None, "w": None, "h": None, "standin": standin})
+                      "size": None, "w": width, "h": height, "standin": standin})
     return {"kind": "folder", "path": path, "stamp": before, "pages": pages, "about": {}, "metadata": None,
             "format": FORMAT}
 

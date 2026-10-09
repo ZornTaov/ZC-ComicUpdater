@@ -1,7 +1,9 @@
 # Working on this project
 
 Notes for whoever picks this up next, written down because they were worked out the slow way more than
-once. The README is the user-facing documentation and is thorough — read it for *what* the tools do.
+once. The user-facing documentation is the GitHub wiki (https://github.com/ZornTaov/ZC-ComicUpdater/wiki,
+its own git repo, `ZC-ComicUpdater.wiki.git`) - read it for *what* the tools do; the README is a short
+front page pointing there. A change users would notice needs its wiki page updated too.
 This file is about *how the pieces fit* and *what is easy to get wrong*.
 
 Paths on any particular machine — which drive the library is on, where the container folder is mounted —
@@ -100,7 +102,7 @@ where it is cheap to (`standin.py` draws PNGs and `comicinfo.py` reads image siz
 - **The library** holds `Uncompressed/<Comic>` for loose pages and `CBZs/` for archives. A comic's
   `output` and `cbz_path` are stored relative to the library root, so the library can move.
 - **The scripts also run in a container**, from a folder mounted over the copies baked into the image
-  (see the README's "Changing the scripts without rebuilding"). So **committing is not deploying**:
+  (see the wiki's Docker page, "Changing the scripts without rebuilding"). So **committing is not deploying**:
   the running copy is the mounted folder, and a new module has to reach it too or both scripts fail on
   import - `comiclib/` above all, which every script imports. `mirror_base.py`, `chapters.py`,
   `adopt_comic.py` and `web_page/` take effect immediately; `update_comics.py`, `web_ui.py` and

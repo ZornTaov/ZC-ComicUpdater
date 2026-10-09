@@ -3,7 +3,7 @@
 # the image runs on its own with nothing but a library mounted.
 #
 # Mounting a folder over /app replaces the scripts baked in here with that folder's, which is how to run
-# edits without rebuilding: change a file on the share, restart the container. See the README.
+# edits without rebuilding: change a file on the share, restart the container. See the wiki's Docker page.
 FROM python:3.12-slim
 
 # unbuffered output so progress shows up in the Container Station log while a run is still going

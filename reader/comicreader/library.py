@@ -109,9 +109,8 @@ def gather(library, skip):
                  "sources": sources, "folder": folder, "ended": bool(settings.get("ended")),
                  "place": listed_in(library, where, name)}
         found.append(comic)
-        if kind == "folder" and settings.get("cbz") is not False:
-            unmatched.append(comic)
-        elif kind == "chapters":
+        #a comic kept without an archive on purpose looks for none: an archive of its name is someone else's
+        if kind != "folder" or settings.get("cbz") is not False:
             unmatched.append(comic)
     #a comic whose metadata names an archive that is not there - the shelf sorted into folders by author
     #since it was written, or chapters packed somewhere the metadata never recorded - is read from what is
@@ -133,6 +132,11 @@ def gather(library, skip):
         if comic["kind"] == "chapters":
             if len(single) == 1:
                 claimed.add(single[0])
+        elif comic["kind"] == "archive":
+            #chapters packed beside the pages that the metadata never recorded: the single archive is what
+            #the scraper goes on adding to, so it is what is read, and the chapters are not another comic
+            if len(chapters) == 1:
+                claimed.update(chapters[0])
         elif len(single) == 1:
             comic.update(kind="archive", sources=single,
                          place=listed_in(library, os.path.dirname(single[0]), comic["title"]))

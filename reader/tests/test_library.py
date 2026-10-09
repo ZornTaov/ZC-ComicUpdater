@@ -150,6 +150,19 @@ def test_a_chaptered_comic_claims_its_old_single_archive_wherever_it_is_shelved(
     assert only(app)["kind"] == "chapters"
 
 
+def test_chapters_the_metadata_never_recorded_are_not_another_comic(library, make_app):
+    #read from the single archive the scraper adds to, with a set of chapters packed beside its pages
+    folder = comic_folder(library, "MyComic", 4, settings={"cbz_path": "CBZs/MyComic.cbz"})
+    names = page_names(folder)
+    cbz.write(str(library / "CBZs" / "MyComic.cbz"), str(folder), names)
+    beside = library / "Uncompressed" / "MyComic_chapters"
+    beside.mkdir()
+    cbz.write(str(beside / "MyComic - c001 - One.cbz"), str(folder), names[:2])
+    cbz.write(str(beside / "MyComic - c002 - Two.cbz"), str(folder), names[2:])
+    app = make_app()
+    assert only(app)["kind"] == "archive"
+
+
 def test_two_archives_of_one_name_are_not_guessed_between(library, make_app):
     folder = comic_folder(library, "TheirComic", 2, settings={"cbz_path": "CBZs/TheirComic.cbz"})
     for author in ("One", "Two"):

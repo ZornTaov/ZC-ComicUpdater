@@ -6,10 +6,11 @@ import re
 import shutil
 import zipfile
 
-from comiclib import cbz
+from comiclib import cbz, comicinfo
 from comiclib.cbz import shelf
 from comiclib.chapters.align import place_recovered, recovered_files
 from comiclib.chapters.index import joined_pages
+from comiclib.library import find_comics
 from comiclib.metadata import METADATA_FILE as metadata_file, now_stamp as time_stamp, read as read_metadata
 from comiclib.metadata import write as write_metadata
 from comiclib.pages import SET_ASIDE, listing as folder_pages, sizes as file_sizes
@@ -49,26 +50,6 @@ def chapter_folder(folder, metadata, root=None, given=None):
 def chapter_file(folder, chapter):
     return "{0} - c{1:03d} - {2}.cbz".format(os.path.basename(os.path.abspath(folder)),
                                              chapter["number"], tidy_name(chapter["label"]))
-
-
-def comic_info(folder, chapter, count, names):
-    #what a reader reads to know this is chapter N of a series rather than a loose pile of pictures
-    def escaped(text):
-        return (str(text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
-
-    lines = ['<?xml version="1.0" encoding="utf-8"?>',
-             '<ComicInfo xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">',
-             '  <Series>{0}</Series>'.format(escaped(os.path.basename(os.path.abspath(folder)))),
-             '  <Number>{0}</Number>'.format(chapter["number"]),
-             '  <Count>{0}</Count>'.format(count),
-             '  <Title>{0}</Title>'.format(escaped(chapter["label"])),
-             '  <PageCount>{0}</PageCount>'.format(len(names))]
-    if chapter.get("start_url"):
-        lines.append('  <Web>{0}</Web>'.format(escaped(chapter["start_url"])))
-    lines.append('  <Notes>Made by chapters.py from pages {0} to {1}</Notes>'.format(
-        chapter["start_page"], chapter["end_page"]))
-    lines.append('</ComicInfo>')
-    return chr(10).join(lines) + chr(10)
 
 
 def chapter_contents(folder, chapters, pages):
@@ -124,7 +105,6 @@ def already_packed(path, names, folder, sizes=None):
         wanted = cbz.expected(folder, names, sizes)
     except (OSError, zipfile.BadZipFile):
         return False
-    held.pop("ComicInfo.xml", None)
     return held == wanted
 
 
@@ -156,15 +136,26 @@ def pack(folder, args):
     print("{0}: {1} chapter(s) into {2}".format(folder, len(parcels), shelf))
     print("  looking at what the archives already hold ...", flush=True)
     sizes = file_sizes(folder)
-    todo = []
+    todo, retold = [], {}
     for at, (chapter, names) in enumerate(parcels, 1):
-        if not already_packed(os.path.join(shelf, chapter_file(folder, chapter)), names, folder, sizes):
+        path = os.path.join(shelf, chapter_file(folder, chapter))
+        if not already_packed(path, names, folder, sizes):
             todo.append((chapter, names))
+        else:
+            #the pages are right but the ComicInfo may not be - a label put right, the comic marked ended,
+            #or an archive packed before ComicInfo described its pages. that goes on the end of the archive
+            #rather than the chapter being written again, which a sync would carry whole
+            change = cbz.planned(path, folder, names, (), comicinfo.about_chapter(folder, metadata, chapter,
+                                                                                  len(parcels)), adding=False)
+            if change["retold"]:
+                retold[chapter["number"]] = (path, change)
         if at % 10 == 0 and at < len(parcels):
             print("    looked at {0} of {1}".format(at, len(parcels)), flush=True)
-    print("  {0} to write, {1} already as they should be".format(len(todo), len(parcels) - len(todo)))
+    print("  {0} to write, {1} already as they should be{2}".format(
+        len(todo), len(parcels) - len(todo),
+        ", {0} of them with a ComicInfo to bring up to date".format(len(retold)) if retold else ""))
     for chapter, names in parcels[:100]:
-        mark = "write" if (chapter, names) in todo else "keep "
+        mark = "write" if (chapter, names) in todo else "info " if chapter["number"] in retold else "keep "
         print("  {0} c{1:03d} {2:<44} {3:>4} page(s)  {4}".format(
             mark, chapter["number"], tidy_name(chapter["label"])[:44], len(names),
             chapter_file(folder, chapter)[:60]))
@@ -178,10 +169,14 @@ def pack(folder, args):
         print("  writing {0} ({1} page(s)) ...".format(os.path.basename(path), len(names)), flush=True)
         #a page no reader can show goes in as a page saying where the real one is, named so it falls where
         #the page belongs - the same stand-in the single archive of a comic not in chapters gets
-        cbz.write(path, folder, names, first=[("ComicInfo.xml", comic_info(folder, chapter, len(parcels), names))])
+        cbz.write(path, folder, names, about=comicinfo.about_chapter(folder, metadata, chapter, len(parcels)))
         written += 1
         print("  wrote {0} ({1} page(s))".format(os.path.basename(path), len(names)), flush=True)
     print("Wrote {0} chapter archive(s).".format(written))
+    for path, change in retold.values():
+        cbz.apply(path, folder, change, metadata=False)
+    if retold:
+        print("Brought the ComicInfo of {0} chapter archive(s) up to date.".format(len(retold)))
 
     kept = verify_chapters(folder, shelf, parcels)
     if kept is not True:
@@ -270,8 +265,10 @@ def keep_extras(full, folder, keep_in):
 
     try:
         with zipfile.ZipFile(full) as zf:
+            #the ComicInfo was written for the single archive, and each chapter archive has its own
             extras = [info for info in zf.infolist()
-                      if not info.is_dir() and posixpath.basename(info.filename) not in on_disk
+                      if not info.is_dir() and info.filename != comicinfo.NAME
+                      and posixpath.basename(info.filename) not in on_disk
                       and not renamed_page(zf, info)]
             names = [posixpath.basename(info.filename) for info in extras]
             clash = sorted({name for name in names
@@ -339,4 +336,48 @@ def repack(folder, args):
         return 1
     shutil.move(spare, archive)
     print("  {0} now holds every page as it is on disk.".format(archive))
+    return 0
+
+
+def retell(folder, args):
+    #a ComicInfo for archives packed before every archive carried one, or one brought up to what the comic
+    #says now. given a library rather than a comic, every comic in it. only ever written on the end of an
+    #archive, so a library's worth of archives syncs as a few kilobytes each, not as every page again
+    if os.path.isfile(os.path.join(folder, metadata_file)):
+        return retell_one(folder, args)
+    comics = [comic for comic in find_comics(folder) if not comic.skipped]
+    if not comics:
+        print("ERROR: {0} is neither a comic nor a library holding any.".format(folder))
+        return 2
+    args.root = args.root or folder
+    worst = 0
+    for comic in comics:
+        worst = max(worst, retell_one(comic.folder, args))
+    return worst
+
+
+def retell_one(folder, args):
+    metadata = read_metadata(folder)
+    settings = metadata.get("settings") or {}
+    if settings.get("cbz") is False:
+        return 0
+    if (metadata.get("chapters") or {}).get("folder"):
+        #packing writes a chapter archive whose pages are out of date and retells the rest, which is
+        #exactly this for a comic in chapters
+        print("{0} is kept in chapters; packing it brings each chapter's ComicInfo up to date.".format(folder))
+        return pack(folder, args)
+    archive = settings.get("cbz_path")
+    if archive and not os.path.isabs(archive):
+        archive = os.path.join(args.root or os.path.dirname(folder), archive.replace('/', os.sep))
+    archive = archive or cbz.default_path(folder)
+    if not os.path.exists(archive):
+        return 0
+    names = sorted(name for name in file_sizes(folder) if name != metadata_file)
+    try:
+        told = cbz.retag(archive, folder, names, comicinfo.about_comic(folder, metadata), dry_run=args.dry_run)
+    except (OSError, zipfile.BadZipFile) as error:
+        print("Could not look inside {0} ({1}), so it was left alone.".format(archive, error))
+        return 1
+    if told:
+        print("{0}: ComicInfo {1}.".format(archive, "would be written" if args.dry_run else "written"))
     return 0

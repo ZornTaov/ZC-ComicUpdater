@@ -104,7 +104,7 @@ def test_a_page_saved_the_old_way_is_held_once_under_its_new_name(tmp_path, serv
     held = sorted(name for name in os.listdir(out) if name != "mirror_metadata.json")
     assert held == ["p1.jpg.png", "p2.jpg", "p3.jpg"], "page 2 is held once, under its new name: {0}".format(held)
     with zipfile.ZipFile(str(tmp_path / "Legacy.cbz")) as zf:
-        packed = sorted(name for name in zf.namelist() if name != "mirror_metadata.json")
+        packed = sorted(name for name in zf.namelist() if name not in ("mirror_metadata.json", "ComicInfo.xml"))
     assert packed == ["p1.jpg.png", "p2.jpg", "p3.jpg"], packed
 
 

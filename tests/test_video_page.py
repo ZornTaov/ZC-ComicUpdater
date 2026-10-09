@@ -79,7 +79,7 @@ def test_a_repacked_single_archive_holds_the_stand_in_too(filmy, library):
     assert done.returncode == 0, done.stdout[-400:]
     with zipfile.ZipFile(str(archive)) as zf:
         names = zf.namelist()
-    assert names == ["0001.png", "0002.png", "0003.png", "0004.png", "mirror_metadata.json"], names
+    assert names == ["0001.png", "0002.png", "0003.png", "0004.png", "ComicInfo.xml", "mirror_metadata.json"], names
     #and the stand-in is the drawing, not the video under another name
     with zipfile.ZipFile(str(archive)) as zf:
         assert zf.read("0003.png").startswith(b"\x89PNG"), "0003.png is not a picture"

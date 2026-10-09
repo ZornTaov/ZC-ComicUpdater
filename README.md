@@ -518,6 +518,28 @@ snapshots on ZFS or btrfs from growing by a whole archive every time a comic upd
 Pages are stored, not deflated: they are already-compressed JPEG and PNG, so compressing them again
 costs CPU to save nothing.
 
+### ComicInfo.xml
+
+Every archive - a comic's single one, each chapter's, one repacked or adopted - carries a
+`ComicInfo.xml` to the [v2.1 draft schema](https://github.com/anansi-project/comicinfo/): the series,
+the title, the site it is mirrored from, the page count, and for every page its size in bytes and in
+pixels. A page much wider than it is tall is marked as a double page, so a reader shows it alone in a
+spread, and a stand-in for a video or flash page is marked as not a page of the story. The sizes are
+read from the first few bytes of each picture, and kept from one ComicInfo to the next, so a page is
+measured once.
+
+The ComicInfo and the metadata are the last two entries of a single archive, and an append takes both
+back and writes them again after the new pages, so adding pages still leaves every byte before them
+where it was.
+
+Archives packed before this have none. One command gives each one, on its end, for a comic or a whole
+library; a comic in chapters is packed, which does the same for each chapter:
+
+```sh
+python chapters.py comicinfo "D:/Comics" --dry-run
+python chapters.py comicinfo "D:/Comics"
+```
+
 ## Working out which file came from which page
 
 Chapters, and anything else that needs to know where a page sits in a comic, first need to know which
@@ -829,9 +851,12 @@ CBZs/SomeAuthor/TheirComic/TheirComic - c001 - Chapter 1.cbz
 CBZs/SomeAuthor/TheirComic/TheirComic - c002 - Chapter 2.cbz
 ```
 
-Each carries a `ComicInfo.xml` naming the series, the chapter number and how many there are, which is
-what Kavita, Komga and PerfectViewer read. Only chapters whose pages have changed are written again,
-so a nightly update rewrites one small archive rather than a gigabyte. Pages saved since the chapters
+Each carries a `ComicInfo.xml` naming the series and the chapter, with the chapter's label as a
+bookmark on its first page, which is what Kavita, Komga and PerfectViewer read. How many chapters there
+are is said only once the comic is marked ended, since a reader takes that to mean the series is
+complete. Only chapters whose pages have changed are written again, so a nightly update rewrites one
+small archive rather than a gigabyte; a chapter whose ComicInfo alone is out of date - a label put
+right, the comic marked ended - gets a new one on its end, and its pages are not written again. Pages saved since the chapters
 were worked out join the chapter still being published.
 
 `--replace` gives up the single archive, but only after checking that **every page is in exactly one

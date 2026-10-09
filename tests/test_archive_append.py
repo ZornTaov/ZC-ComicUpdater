@@ -44,6 +44,9 @@ def test_new_pages_are_appended_under_the_prefix_the_archive_already_uses(librar
         kept += 1
 
     assert added == 1, "expected exactly the one new page appended, got {0}".format(added)
+    #the ComicInfo sits at the top whatever the pages are under, which is where a reader looks for it
+    assert names.count("ComicInfo.xml") == 1, names
+    names = [n for n in names if n != "ComicInfo.xml"]
     assert len(names) == 8, "the five it already had were added again: {0}".format(names)
     assert not [n for n in names if not n.startswith(NAME + "/")], names
     assert len([n for n in names if n.endswith("mirror_metadata.json")]) == 1, names

@@ -78,10 +78,13 @@ def test_packing_writes_one_archive_per_chapter(tiny):
         info = ET.fromstring(zf.read("ComicInfo.xml"))
     #the missing flash page is simply absent, the rest are there
     assert held == ["0006.png", "0007.png", "0008.png", "0009.png"], held
-    #ComicInfo says which chapter of how many, and keeps the label as the title
+    #ComicInfo says which chapter, and keeps the label as the title. not of how many: the comic is still
+    #running, and a reader takes Count to mean the series is complete
     assert (info.findtext("Series"), info.findtext("Number"), info.findtext("Count"),
-            info.findtext("PageCount")) == ("Tiny", "2", "3", "4"), ET.tostring(info)[:200]
+            info.findtext("PageCount")) == ("Tiny", "2", None, "4"), ET.tostring(info)[:200]
     assert info.findtext("Title") == "Arc 2 - Trouble: Part 1/2", info.findtext("Title")
+    #and the label marks the chapter's first page, for a reader's list of bookmarks
+    assert info.find("Pages/Page").get("Bookmark") == "Arc 2 - Trouble: Part 1/2", ET.tostring(info)[-300:]
     assert "exactly one chapter archive" in tiny.first.stdout, tiny.first.stdout[-300:]
     assert tiny.single.exists(), "the single archive went before anything asked it to"
 
@@ -112,6 +115,25 @@ def test_pages_scraped_since_join_the_last_chapter(tiny):
     with zipfile.ZipFile(str(tiny.out / THIRD)) as zf:
         assert "0013.png" in zf.namelist(), zf.namelist()
     assert "join chapter 3" in done.stdout, done.stdout[:300]
+
+
+def test_a_comic_marked_ended_retells_each_chapters_comicinfo_without_writing_its_pages_again(tiny):
+    meta = read_meta(tiny.comic)
+    meta["settings"]["ended"] = True
+    write_meta(tiny.comic, meta)
+    before = {name: (tiny.out / name).read_bytes() for name in tiny.made()}
+    done = tiny.pack()
+    assert "0 to write, 3 already as they should be, 3 of them with a ComicInfo" in done.stdout, done.stdout[:300]
+    for name, old in before.items():
+        with zipfile.ZipFile(str(tiny.out / name)) as zf:
+            assert zf.namelist().count("ComicInfo.xml") == 1, zf.namelist()
+            info = ET.fromstring(zf.read("ComicInfo.xml"))
+            pages_end = zf.getinfo("ComicInfo.xml").header_offset
+        #the new ComicInfo went where the old one was, at the end, and nothing ahead of it moved
+        assert (tiny.out / name).read_bytes()[:pages_end] == old[:pages_end], name
+        assert info.findtext("Count") == "3", ET.tostring(info)[:300]
+    #and once said, it is not said again
+    assert "with a ComicInfo" not in tiny.pack().stdout
 
 
 def test_a_damaged_chapter_archive_is_written_again(tiny):

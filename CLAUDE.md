@@ -31,6 +31,7 @@ archives, and keep them up to date unattended.
 | `metadata` | Reading and writing `mirror_metadata.json` (always written aside and moved into place), timestamps, settings to command and back, schema 1 to 2 |
 | `cbz` | Every archive any script writes: a new one, one added to, a chapter's, a repack. The Uncompressed/CBZs shelf rule |
 | `standin` | Draws a page for a page no reader can show. `cbz` asks it about every file, so every archive agrees |
+| `comicinfo` | The `ComicInfo.xml` every archive carries (v2.1 draft, in the schema's element order), and a picture's size read from its first bytes. `cbz` writes it last-but-metadata and an append rewrites both on the end |
 | `exits` | `mirror_base`'s exit codes and what each means, and `MirrorError`, which carries one |
 | `browser` | Starting the browser a scrape drives, and closing it however it ended |
 | `elements` | The element paths shipped as examples (comic image, next link, first-page link), finding the image and the links by them, and pressing a link |
@@ -66,10 +67,11 @@ file needs a `<script>` tag there, and a new folder needs its two lines in `.git
 `tests/test_web_status.py` runs the Result column's expression out of `js/library.js` by text, so moving
 that expression means moving the test's markers with it.
 
-Dependencies are **selenium and requests only**, on purpose (`requirements.txt`). Adding one means
-rebuilding the container, which is a real cost to the person running this — `comiclib/standin.py` draws PNGs
-with `zlib` and `struct` rather than take a dependency on Pillow. Assume the same constraint for
-anything new.
+Dependencies are **selenium and requests** today (`requirements.txt`). Adding one is allowed when it is
+genuinely needed, but it means rebuilding the container, which is a real cost to the person running this -
+so **say plainly whether a change needs a rebuild, a restart, or neither**. Prefer the standard library
+where it is cheap to (`standin.py` draws PNGs and `comicinfo.py` reads image sizes with `zlib` and
+`struct`), and keep `comiclib`'s archive and page modules stdlib-only, since other programs import them.
 
 ## How the pieces fit
 

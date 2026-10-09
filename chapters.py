@@ -27,7 +27,7 @@ from comiclib.chapters.index import (alignment_path, fill_sizes, head_size, inde
 from comiclib.chapters.links import (link_targets, looks_like_pages, page_at, page_shape,  # noqa: F401
                                      same_page, says_it_twice)
 from comiclib.chapters.packing import (already_packed, chapter_contents, chapter_file,  # noqa: F401
-                                       chapter_folder, comic_info, drop_single, pack, repack, tidy_name,
+                                       chapter_folder, drop_single, pack, repack, retell, tidy_name,
                                        verify_chapters)
 from comiclib.chapters.pageops import insert_page, mark_recovered, refetch, renumber, shift_up  # noqa: F401
 from comiclib.chapters.wordpress import wordpress_index
@@ -42,7 +42,7 @@ def setup():
     params = argparse.ArgumentParser(
         description="Line a comic's saved files up with the pages they came from.")
     params.add_argument("what", choices=["index", "align", "show", "chapters", "fix", "try", "pack",
-                                         "refetch", "repack", "renumber", "recovered", "insert"],
+                                         "refetch", "repack", "renumber", "recovered", "insert", "comicinfo"],
                         help="index: walk the comic (or, with --wordpress, read its list of posts) and "
                              "line it up. align: line up a walk already done. "
                              "show: what the last alignment says. refetch: fetch again any page whose file "
@@ -55,8 +55,10 @@ def setup():
                              "recovered: note a page the site has lost that you put back by hand. "
                              "insert: put in a page the comic's own links skip past. "
                              "pack: write one .cbz per chapter. "
-                             "repack: write the .cbz afresh from the folder.")
-    params.add_argument("folder", help="The comic's folder.")
+                             "repack: write the .cbz afresh from the folder. "
+                             "comicinfo: give an archive packed before archives carried a ComicInfo.xml one, "
+                             "on its end, or bring it up to date; given a library, every comic in it.")
+    params.add_argument("folder", help="The comic's folder, or with comicinfo, the library's.")
     params.add_argument("--start", default=None, help="The comic's first page, when its metadata does not know.")
     params.add_argument("--restart", action='store_true', default=False,
                         help="With index, throw away what is already recorded and walk the comic from the "
@@ -80,7 +82,8 @@ def setup():
     params.add_argument("--limit", type=int, default=0, help="Stop the walk after this many pages.")
     params.add_argument("--root", default=None, help="Library folder, used to name the cache.")
     params.add_argument("--dry-run", "-n", action='store_true', default=False,
-                        help="With refetch, say what would be fetched and change nothing.")
+                        help="With refetch, say what would be fetched and change nothing. With pack or "
+                             "comicinfo, say what would be written and write nothing.")
     params.add_argument("--all", action='store_true', default=False,
                         help="With refetch, fetch every page again, not only those that differ.")
     params.add_argument("--repack", action='store_true', default=False,
@@ -209,6 +212,8 @@ def main():
         return refetch(folder, args)
     if args.what == "repack":
         return repack(folder, args)
+    if args.what == "comicinfo":
+        return retell(folder, args)
     if args.what == "index":
         if (wordpress_index if args.wordpress else walk)(folder, args) is None:
             return 2

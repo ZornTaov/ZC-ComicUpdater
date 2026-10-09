@@ -100,8 +100,9 @@ def test_the_archive_keeps_the_old_copies_until_it_is_repacked(small):
     run("chapters.py", "repack", small.comic, "--root", small.library)
     held = small.archived()
     assert held["Small/0001.png"] == 5000 and held["Small/0005.png"] == 8000, held
-    #the folder-prefixed layout is kept, and so is the metadata file inside it
-    assert all(name.startswith("Small/") for name in held), list(held)[:3]
+    #the folder-prefixed layout is kept, and so is the metadata file inside it. the ComicInfo is at the top,
+    #where a reader looks for it
+    assert all(name.startswith("Small/") for name in held if name != "ComicInfo.xml"), list(held)[:3]
     assert "Small/mirror_metadata.json" in held, list(held)
     assert len([n for n in held if n.endswith(".png")]) == 5, held
     assert not os.path.exists(str(small.cbz) + ".packing")

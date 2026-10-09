@@ -210,6 +210,51 @@ def test_a_series_is_what_comicinfo_says_never_a_shared_name(library, make_app):
     assert [summary["series"] for summary in summaries] == [None, None]
 
 
+def shelved(library, folder, names):
+    where = library / folder
+    where.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        with zipfile.ZipFile(str(where / (name + ".cbz")), "w") as zf:
+            zf.writestr("01.png", png(4, 4))
+
+
+def summaries(app):
+    return {s["name"]: s for s in (app.state.library.summary(c, None) for c in app.state.library.comics.values())}
+
+
+def test_a_folder_of_archives_numbered_one_after_another_is_a_series(library, make_app):
+    #three ways a shelf numbers its parts, none with a ComicInfo to say so
+    shelved(library, "SomeComic", ["001", "002", "003", "004"])
+    shelved(library, "Their Comic", ["[1] TC - The Start", "[2] TC - Middle Bits", "[3] TC - The End", "[5] TC - After"])
+    shelved(library, "Chaptered", ["Ch.01", "Ch.02", "Ch.03"])
+    found = summaries(make_app())
+    assert (found["SomeComic 1"]["series"], found["SomeComic 1"]["number"]) == ("SomeComic", "1")
+    assert found["SomeComic 4"]["series"] == "SomeComic", "a part named only by its number is called by its series"
+    assert (found["[5] TC - After"]["series"], found["[5] TC - After"]["number"]) == ("Their Comic", "5")
+    assert found["Ch.03"]["series"] == "Chaptered"
+
+
+def test_a_folder_of_different_comics_is_not_a_series(library, make_app):
+    #side stories sharing a folder, one with a 2 on its name; too few to be a run; numbers too far apart
+    shelved(library, "Side Stories", ["AbelsStory", "AbelsStory2", "Matilda", "PerfectDate"])
+    shelved(library, "Two Only", ["Part 1", "Part 2"])
+    shelved(library, "Scattered", ["Strip 1", "Strip 50", "Strip 900"])
+    #and the top of the library, whose name says nothing about what is in it
+    shelved(library, "", ["Issue 1", "Issue 2", "Issue 3"])
+    assert all(s["series"] is None for s in summaries(make_app()).values())
+
+
+def test_a_comicinfo_series_wins_over_a_numbered_run(library, make_app):
+    where = library / "Shelf"
+    where.mkdir()
+    for n in (1, 2, 3):
+        with zipfile.ZipFile(str(where / "Part {0}.cbz".format(n)), "w") as zf:
+            zf.writestr("01.png", png(4, 4))
+            zf.writestr("ComicInfo.xml", "<ComicInfo><Series>The Real Name</Series><Number>{0}</Number></ComicInfo>".format(n + 10))
+    found = summaries(make_app())
+    assert (found["Part 1"]["series"], found["Part 1"]["number"]) == ("The Real Name", "11")
+
+
 def test_a_comic_that_grows_shows_its_new_pages_when_opened(library, make_app):
     folder = comic_folder(library, "MyComic", 3)
     archive = library / "CBZs" / "MyComic.cbz"

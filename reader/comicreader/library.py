@@ -69,6 +69,30 @@ def listed_in(library, where, name):
     return "" if relative == "." else relative
 
 
+#a name's first number, and what comes before and after it: "Ch.01", "[10] NPC - A Very Bad Day", "001"
+FIRST_NUMBER = re.compile(r"^(?P<before>\D*?)(?P<number>\d+)(?P<after>.*)$")
+
+
+def numbered_runs(paths):
+    #archives of one folder that are the parts of one series, told only by their names: three or more that
+    #read the same up to their first number, each a different number, and those numbers near enough
+    #consecutive - no more spread out than half as many again as there are, so a missing part or two is
+    #fine. a folder of different comics that happen to share a word, or carry a year, is not one. answers
+    #each archive in a run with its number
+    by_start = {}
+    for path in paths:
+        found = FIRST_NUMBER.match(os.path.splitext(os.path.basename(path))[0])
+        if found:
+            by_start.setdefault(found.group("before").strip().lower(), []).append((int(found.group("number")), path))
+    runs = {}
+    for members in by_start.values():
+        numbers = sorted(number for number, _ in members)
+        if len(members) >= 3 and len(set(numbers)) == len(numbers) and \
+                numbers[-1] - numbers[0] + 1 <= len(numbers) * 1.5:
+            runs.update((path, number) for number, path in members)
+    return runs
+
+
 def chapter_order(path):
     found = CHAPTER.match(os.path.basename(path))
     return (int(found.group("number")) if found else 0, sort_key(os.path.basename(path)))
@@ -148,13 +172,21 @@ def gather(library, skip):
             claimed.update(ordered)
     #archives no comic folder claims: a shelf of archives from somewhere else, or a comic whose loose
     #pages are gone. chapter archives of one series beside each other are read as one comic
-    groups = {}
+    groups, loose = {}, {}
     for path in archives:
         if path in claimed:
             continue
         found_chapter = CHAPTER.match(os.path.basename(path))
         key = (os.path.dirname(path), found_chapter.group("series")) if found_chapter else (path, None)
         groups.setdefault(key, []).append(path)
+        if not found_chapter:
+            loose.setdefault(os.path.dirname(path), []).append(path)
+    #archives of one folder numbered one after another are the parts of one series, named after the folder,
+    #where no ComicInfo says otherwise. not at the top of the library, whose name says nothing about them
+    runs = {}
+    for where, paths in loose.items():
+        if os.path.normpath(where) != library:
+            runs.update(numbered_runs(paths))
     for (where, series), members in groups.items():
         if series:
             relative = os.path.join(os.path.relpath(where, library), series)
@@ -163,10 +195,18 @@ def gather(library, skip):
                           "sources": sorted(members, key=chapter_order), "folder": None, "ended": None,
                           "place": listed_in(library, where, series)})
         else:
-            title, author = named(os.path.splitext(os.path.basename(where))[0])
-            found.append({"id": ident(os.path.relpath(where, library)), "title": title, "author": author,
-                          "kind": "archive", "sources": members, "folder": None, "ended": None,
-                          "place": listed_in(library, os.path.dirname(where), title)})
+            stem = os.path.splitext(os.path.basename(where))[0]
+            title, author = named(stem)
+            comic = {"id": ident(os.path.relpath(where, library)), "title": title, "author": author,
+                     "kind": "archive", "sources": members, "folder": None, "ended": None,
+                     "place": listed_in(library, os.path.dirname(where), title)}
+            if where in runs:
+                series = os.path.basename(os.path.dirname(where))
+                comic.update(series=series, number=str(runs[where]))
+                #a part named only by its number - 001.cbz - is called by its series and number
+                if stem.strip().isdigit():
+                    comic["title"] = "{0} {1}".format(series, runs[where])
+            found.append(comic)
     return found
 
 
@@ -306,10 +346,12 @@ class Library:
         single = comic["kind"] == "archive"
         return {"id": comic["id"], "name": comic["title"],
                 "title": (about.get("title") if single else None) or comic["title"],
-                #a series is what a ComicInfo says one is - the issues of one comic, each its own archive - never
-                #a guess from names, which made two different comics that happen to share one into a series
-                "series": about.get("series") if single else None,
-                "number": about.get("number") if single else None, "volume": about.get("volume") if single else None,
+                #a series is what a ComicInfo says one is - the issues of one comic, each its own archive - or,
+                #where none does, a folder of archives numbered one after another (numbered_runs). never just a
+                #shared name, which made two different comics into a series
+                "series": ((about.get("series") or comic.get("series")) if single else None),
+                "number": ((about.get("number") or comic.get("number")) if single else None),
+                "volume": about.get("volume") if single else None,
                 "year": about.get("year"), "author": about.get("writer") or about.get("penciller") or comic.get("author"),
                 "place": comic.get("place", ""), "kind": comic["kind"], "pages": total,
                 "position": at, "unread": unread, "ended": stream["ended"],

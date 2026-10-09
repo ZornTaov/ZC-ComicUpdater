@@ -117,9 +117,13 @@ button {
 /* the reader keeps its own place as pages above it change size (reader.ts, hold), so the browser's own
    attempt at the same is turned off rather than left to fight it */
 .strip { position: absolute; inset: 0; overflow: auto; touch-action: pan-x pan-y; padding: 0 var(--pad); overflow-anchor: none; }
-.strip-page { margin: 0 auto; min-height: 40vh; }
-.strip-page:has(img, .embed) { min-height: 0; }
+/* a place whose size is known is exactly that size, empty or full: its picture fills it rather than sizing
+   it, so a picture arriving or being let go never moves anything. only a page the server could not measure
+   has a stand-in height until its picture says what it is */
+.strip-page { margin: 0 auto; }
+.strip-page.unsized:empty { min-height: 40vh; }
 .strip-page img { display: block; width: 100%; height: auto; }
+.strip-page:not(.unsized) img { height: 100%; object-fit: contain; }
 .strip.fit-width .strip-page { width: 100%; }
 .strip.fit-screen .strip-page { width: min(100%, calc(100dvh * var(--ratio, 0.7))); }
 .strip.fit-height .strip-page { width: calc(100dvh * var(--ratio, 0.7)); }

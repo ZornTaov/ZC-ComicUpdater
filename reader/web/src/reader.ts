@@ -119,6 +119,34 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
   // lost to a page further up loading late
   let anchor = { n: 0, offset: 0 };
 
+  function shape(holder: HTMLElement, width: number, height: number) {
+    holder.classList.remove("unsized");
+    holder.style.aspectRatio = `${width} / ${height}`;
+    holder.style.setProperty("--ratio", String(width / height));
+    holder.style.setProperty("--natural", `${width}px`);
+  }
+
+  // a page the server could not measure takes its picture's size the first time it arrives, and keeps it,
+  // so letting it go later and fetching it again does not move anything a second time
+  function learnShape(n: number, holder: HTMLElement, picture: HTMLImageElement) {
+    if (!holder.classList.contains("unsized")) return;
+    const learn = () => {
+      if (!picture.naturalWidth || !picture.naturalHeight) return;
+      comic.pages[n] = { ...comic.pages[n], w: picture.naturalWidth, h: picture.naturalHeight };
+      shape(holder, picture.naturalWidth, picture.naturalHeight);
+    };
+    if (picture.complete) learn();
+    else picture.addEventListener("load", learn, { once: true });
+  }
+
+  // a place given its picture, if it has nothing in it yet
+  function fill(holder: HTMLElement, n: number) {
+    if (holder.firstChild) return;
+    const picture = image(n);
+    holder.append(picture);
+    learnShape(n, holder, picture);
+  }
+
   function holderOf(n: number): HTMLElement | undefined {
     return strip.children[n] as HTMLElement | undefined;
   }
@@ -133,7 +161,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
           const holder = entry.target as HTMLElement;
-          if (!holder.firstChild) holder.append(image(Number(holder.dataset.n)));
+          fill(holder, Number(holder.dataset.n));
         }
       }, { root: strip, rootMargin: "200% 0px" });
       // and let go of once five screens away, so a comic of thousands of pages scrolled end to end holds a
@@ -161,7 +189,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
           const n = Number(holder.dataset.n);
           if (entry.isIntersecting) {
             onScreen.add(n);
-            if (!holder.firstChild) holder.append(image(n));
+            fill(holder, n);
             if (!holder.querySelector(".embed")) embedPage(n, () => onScreen.has(n));
           } else {
             onScreen.delete(n);
@@ -176,11 +204,8 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
         holder.dataset.n = String(n);
         // the page's shape is known before it loads - measured by the server - so nothing below it moves
         // when it arrives
-        if (info.w && info.h) {
-          holder.style.aspectRatio = `${info.w} / ${info.h}`;
-          holder.style.setProperty("--ratio", String(info.w / info.h));
-          holder.style.setProperty("--natural", `${info.w}px`);
-        }
+        if (info.w && info.h) shape(holder, info.w, info.h);
+        else holder.classList.add("unsized");
         strip.append(holder);
         observer!.observe(holder);
         far!.observe(holder);

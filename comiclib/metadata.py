@@ -186,4 +186,9 @@ def migrate(old):
     }
     if old.get("adopted_from"):
         fresh["history"]["adopted_from"] = old["adopted_from"]
+    #where the chapters are: written by chapters.py into whatever schema the file was in, so a schema 1 file
+    #can hold them. they describe the comic, not how its metadata was once written, and are carried across
+    #as a scrape carries them - dropped, the comic's chapter archives would be read as a comic of their own
+    if old.get("chapters"):
+        fresh["chapters"] = old["chapters"]
     return fresh

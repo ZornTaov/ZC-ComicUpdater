@@ -88,7 +88,9 @@ def create_app(config=None, scan_in_background=True):
                 #the fifth is what a page held inside the archive as something other than a picture is
                 "pages": [[page["v"], page["w"], page["h"], 1 if page["standin"] else 0, page.get("media")]
                           for page in stream["pages"]],
-                "settings": store.settings("comic:" + comic_id)}
+                "settings": store.settings("comic:" + comic_id),
+                #the parts either side of it in its series, for reading on past either end
+                **library.neighbours.get(comic_id, {"previous": None, "next": None})}
 
     def page_of(comic_id, n):
         comic = comic_or_404(comic_id)

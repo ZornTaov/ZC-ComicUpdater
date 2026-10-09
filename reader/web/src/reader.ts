@@ -199,6 +199,11 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
 
   function turn(forward: boolean) {
     if (settings.mode === "webtoon") {
+      // scrolled to the very end of a chapter, or the very start, a turn goes on into the next or the last
+      const atEnd = strip.scrollTop + strip.clientHeight >= strip.scrollHeight - 2;
+      const atStart = strip.scrollTop <= 2;
+      if (forward && atEnd) return onward(true);
+      if (!forward && atStart) return onward(false);
       strip.scrollBy({ top: (forward ? 1 : -1) * strip.clientHeight * 0.85 });
       return;
     }
@@ -208,10 +213,24 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     }
     if (!scrolledThrough(forward)) return;
     const next = view + (forward ? 1 : -1);
-    if (next < 0) return notify("This is the first page");
-    if (next >= shown.length) return notify(comic.ended ? "The end" : "You're up to date");
+    if (next < 0 || next >= shown.length) return onward(forward);
     view = next;
     render();
+  }
+
+  // past the end of a chapter, its next chapter from the start; before its start, the one before from its
+  // end - as a comic in chapters reads straight through. at the end of the last, the end
+  function onward(forward: boolean) {
+    const part = forward ? comic.next : comic.previous;
+    if (!part) {
+      if (!forward) return notify("This is the first page");
+      return notify(comic.ended ? "The end" : "You're up to date");
+    }
+    window.clearTimeout(saveTimer);
+    saveTimer = undefined;
+    save(true);
+    notify(part.title);
+    location.hash = forward ? `#/read/${part.id}/1` : `#/read/${part.id}/999999`;
   }
 
   function go(n: number) {

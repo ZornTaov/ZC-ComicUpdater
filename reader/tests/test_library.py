@@ -43,15 +43,24 @@ def test_a_single_archive_is_one_comic(library, make_app):
     assert (comic["kind"], comic["title"], len(stream["pages"]), stream["ended"]) == ("archive", "MyComic", 5, True)
 
 
-def test_chapter_archives_read_one_after_another_as_one_comic(library, make_app):
+def chapters_of(app, series):
+    found = [app.state.library.summary(comic, None) for comic in app.state.library.comics.values()]
+    return sorted((s for s in found if s["series"] == series), key=lambda s: int(s["number"]))
+
+
+def test_chapter_archives_are_each_a_comic_of_their_own_in_one_series(library, make_app):
     #ten chapters, so c010 has to come after c009 and not after c001
     chaptered(library, "MyComic", [2, 4, 6, 8, 10, 12, 14, 16, 18, 20])
     app = make_app()
-    comic = only(app)
-    stream = app.state.library.stream(comic)
-    assert comic["kind"] == "chapters" and len(stream["pages"]) == 20
-    assert [page["entry"] for page in stream["pages"]][17:] == ["0018_page18.png", "0019_page19.png", "0020_page20.png"]
-    assert [(chapter["title"], chapter["start"]) for chapter in stream["chapters"]][-2:] == [("Part 9", 16), ("Part 10", 18)]
+    parts = chapters_of(app, "MyComic")
+    assert len(parts) == len(app.state.library.comics) == 10
+    assert [(p["number"], p["title"], p["pages"]) for p in parts][-2:] == [("9", "Part 9", 2), ("10", "Part 10", 2)]
+    #shown in a folder of their own, the shelf they were packed into
+    assert {p["place"] for p in parts} == {"CBZs/MyComic"}
+    #and each knows the parts either side of it, for reading on past its end
+    neighbours = app.state.library.neighbours
+    assert neighbours[parts[8]["id"]]["next"]["id"] == parts[9]["id"]
+    assert neighbours[parts[9]["id"]]["next"] is None and neighbours[parts[0]["id"]]["previous"] is None
 
 
 def test_a_comic_kept_only_as_loose_pages_is_read_from_its_folder(library, make_app):
@@ -75,11 +84,9 @@ def test_archives_no_comic_folder_claims_are_comics_too(library, make_app):
             zf.writestr("02.png", png(4, 4))
     app = make_app()
     by_title = {comic["title"]: comic for comic in app.state.library.comics.values()}
-    assert sorted(by_title) == ["Standalone", "Their Comic"]
-    stream = app.state.library.stream(by_title["Their Comic"])
-    assert len(stream["pages"]) == 4
     #a chapter with no ComicInfo is named by its file, or numbered when the file names nothing
-    assert [chapter["title"] for chapter in stream["chapters"]] == ["Start", "Chapter 2"]
+    assert sorted(by_title) == ["Chapter 2", "Standalone", "Start"]
+    assert [p["title"] for p in chapters_of(app, "Their Comic")] == ["Start", "Chapter 2"]
 
 
 def test_each_comic_says_where_it_is_shelved_and_what_its_comicinfo_calls_it(library, make_app):
@@ -137,8 +144,15 @@ def test_a_comic_whose_chapters_were_never_recorded_is_read_from_the_chapters_of
     cbz.write(str(shelf / "TheirComic - c001 - One.cbz"), str(folder), names[:2])
     cbz.write(str(shelf / "TheirComic - c002 - Two.cbz"), str(folder), names[2:])
     app = make_app()
-    comic = only(app)
-    assert comic["kind"] == "chapters" and len(app.state.library.stream(comic)["pages"]) == 4
+    just_chapters(app, "TheirComic", 2)
+    assert sum(p["pages"] for p in chapters_of(app, "TheirComic")) == 4
+
+
+def just_chapters(app, series, count):
+    #the library holds the comic's chapters and nothing else: no comic for its loose pages, none for an old
+    #single archive of the same pages
+    parts = chapters_of(app, series)
+    assert len(parts) == count == len(app.state.library.comics), [c["title"] for c in app.state.library.comics.values()]
 
 
 def test_a_chaptered_comic_claims_its_old_single_archive_wherever_it_is_shelved(library, make_app):
@@ -146,8 +160,7 @@ def test_a_chaptered_comic_claims_its_old_single_archive_wherever_it_is_shelved(
     moved = library / "CBZs" / "SomeAuthor" / "MyComic.cbz"
     moved.parent.mkdir(parents=True)
     cbz.write(str(moved), str(folder), page_names(folder))
-    app = make_app()
-    assert only(app)["kind"] == "chapters"
+    just_chapters(make_app(), "MyComic", 2)
 
 
 def test_chapters_the_metadata_never_recorded_are_not_another_comic(library, make_app):
@@ -182,8 +195,7 @@ def test_a_chaptered_comic_with_its_old_single_archive_still_shelved_is_one_comi
     metadata = json.loads((folder / "mirror_metadata.json").read_text())
     metadata["settings"]["cbz_path"] = "CBZs/MyComic.cbz"
     (folder / "mirror_metadata.json").write_text(json.dumps(metadata))
-    app = make_app()
-    assert only(app)["kind"] == "chapters"
+    just_chapters(make_app(), "MyComic", 2)
 
 
 def test_a_stand_in_packed_before_comicinfo_is_known_by_what_the_folder_keeps(library, make_app):
@@ -313,12 +325,14 @@ def test_the_place_follows_its_page_when_a_page_is_put_in_before_it(library, mak
     assert at == 5 and stream["pages"][at]["entry"] == "0006_page5.png"
 
 
-def test_the_place_follows_its_page_into_the_chapter_it_was_cut_into(library, make_app):
+def test_the_place_moves_into_the_chapter_it_was_cut_into_and_the_chapters_before_count_as_read(library, make_app):
+    #read part way as one archive, then cut into chapters and the single archive given up
     folder = comic_folder(library, "MyComic", 8)
     cbz.write(str(library / "CBZs" / "MyComic.cbz"), str(folder), page_names(folder))
     app = make_app()
-    progress = remembered_at(app, only(app), 6)
-    #the comic is cut into chapters and its single archive given up
+    whole = only(app)
+    progress = remembered_at(app, whole, 6)
+    app.state.store.save_progress(whole["id"], progress["key"], 6, 8, 0.25)
     os.remove(str(library / "CBZs" / "MyComic.cbz"))
     (folder / "mirror_metadata.json").unlink()
     for name in os.listdir(str(folder)):
@@ -326,10 +340,12 @@ def test_the_place_follows_its_page_into_the_chapter_it_was_cut_into(library, ma
     folder.rmdir()
     chaptered(library, "MyComic", [3, 8])
     app.state.library.scan()
-    comic = only(app)
-    stream = app.state.library.stream(comic)
-    at = app.state.library.position(stream, progress)
-    assert stream["pages"][at]["entry"] == "0007_page7.png" and stream["pages"][at]["source"] == 1
+    first, second = chapters_of(app, "MyComic")
+    kept = app.state.store.every_progress()
+    #page 7 is the fourth page of the second chapter, where the screen was a quarter of the way down it
+    assert (kept[second["id"]]["position"], kept[second["id"]]["part"]) == (3, 0.25)
+    assert kept[first["id"]]["position"] == 2, "the chapter before it is read"
+    assert whole["id"] not in kept, "and the place in the whole comic is not left behind"
 
 
 def test_a_page_gone_altogether_keeps_the_place_by_number(make_app, library):

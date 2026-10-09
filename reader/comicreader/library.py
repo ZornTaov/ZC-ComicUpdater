@@ -218,7 +218,53 @@ def gather(library, skip):
                 if stem.strip().isdigit():
                     comic["title"] = "{0} {1}".format(series, number)
             found.append(comic)
-    return found
+    return split_chapters(library, found)
+
+
+def split_chapters(library, found):
+    #a comic packed one archive per chapter is a series of its chapters, each its own comic with its own
+    #place and its own read or unread - shown in a folder of its own, the shelf it was packed into. the
+    #reader goes from the end of one chapter into the next, so it still reads straight through
+    out = []
+    for comic in found:
+        if comic["kind"] != "chapters":
+            out.append(comic)
+            continue
+        shelf = os.path.relpath(os.path.dirname(comic["sources"][0]), library).replace(os.sep, "/")
+        for at, path in enumerate(comic["sources"], 1):
+            found_chapter = CHAPTER.match(os.path.basename(path))
+            number = int(found_chapter.group("number")) if found_chapter else at
+            label = found_chapter.group("label") if found_chapter and found_chapter.group("label") else \
+                "Chapter {0}".format(number)
+            out.append({"id": ident(os.path.relpath(path, library)), "title": label, "author": comic.get("author"),
+                        "kind": "archive", "sources": [path], "folder": comic["folder"], "ended": comic["ended"],
+                        "place": "" if shelf == "." else shelf, "series": comic["title"], "number": str(number),
+                        #the comic these were read as before they were each their own, whose place moves into them
+                        "parent": comic["id"]})
+    return out
+
+
+def series_neighbours(summaries):
+    #each comic's part before and after it in its series, in the series' own order - volume, then number as
+    #a number, then title - so reading on from the end of one part opens the next
+    def number(text):
+        try:
+            return float(text)
+        except (TypeError, ValueError):
+            return float("inf")
+
+    by_series = {}
+    for summary in summaries:
+        if summary["series"]:
+            by_series.setdefault((summary["series"], summary["place"]), []).append(summary)
+    neighbours = {}
+    for parts in by_series.values():
+        parts.sort(key=lambda s: (number(s["volume"]), number(s["number"]), sort_key(s["title"])))
+        for at, part in enumerate(parts):
+            neighbours[part["id"]] = {
+                "previous": {"id": parts[at - 1]["id"], "title": parts[at - 1]["title"]} if at > 0 else None,
+                "next": {"id": parts[at + 1]["id"], "title": parts[at + 1]["title"]} if at + 1 < len(parts) else None}
+    return neighbours
 
 
 class Library:
@@ -227,6 +273,7 @@ class Library:
         self.store = store
         self.sources = Sources(store)
         self.comics = {}
+        self.neighbours = {}
         self.kept_otherwise = {}
         self.scanned = None
         self.scanning = threading.Lock()
@@ -256,6 +303,8 @@ class Library:
             #what each comic holds now, against what the last scan saw: a comic that has grown is noted as
             #recently updated
             self.store.saw({comic["id"]: len(self.stream(comic)["pages"]) for comic in found})
+            self.move_places(found)
+            self.neighbours = series_neighbours([self.summary(comic, None) for comic in found])
             self.scanned = time.time()
             return True
         finally:
@@ -309,6 +358,41 @@ class Library:
         if ended is None:
             ended = bool(((metadata or {}).get("settings") or {}).get("ended"))
         return {"pages": pages, "chapters": chapters, "ended": ended, "versions": versions, "about": first or {}}
+
+    def move_places(self, found):
+        #a comic read as one before its chapters became comics of their own: the place kept in it moves to the
+        #chapter holding that page - found by the page itself, or failing that by counting through - and every
+        #chapter before it counts as read, so a comic part read does not come back as dozens of unread chapters
+        progress = self.store.every_progress()
+        children = {}
+        for comic in found:
+            if comic.get("parent"):
+                children.setdefault(comic["parent"], []).append(comic)
+        for parent, chapters in children.items():
+            kept = progress.get(parent)
+            if not kept or any(progress.get(chapter["id"]) for chapter in chapters):
+                continue
+            chapters.sort(key=lambda chapter: int(chapter["number"]))
+            streams = [(chapter, self.stream(chapter)["pages"]) for chapter in chapters]
+            target = next(((chapter, [page["key"] for page in pages].index(kept["key"]))
+                           for chapter, pages in streams if kept.get("key") in {page["key"] for page in pages}), None)
+            if target is None:
+                left = kept["position"]
+                for chapter, pages in streams:
+                    if left < len(pages):
+                        target = (chapter, left)
+                        break
+                    left -= len(pages)
+            if target is None:
+                continue
+            for chapter, pages in streams:
+                if chapter is target[0]:
+                    at = target[1]
+                    self.store.save_progress(chapter["id"], pages[at]["key"], at, len(pages), kept.get("part") or 0)
+                    break
+                if pages:
+                    self.store.save_progress(chapter["id"], pages[-1]["key"], len(pages) - 1, len(pages))
+            self.store.forget_progress(parent)
 
     def originals(self, folder):
         #what a comic's folder keeps as a page no reader can show - a video, a flash file, a note naming where

@@ -54,6 +54,9 @@ export interface Comic {
   chapters: Chapter[];
   pages: Page[];
   settings: Partial<Settings>;
+  // the parts either side of it in its series - the chapters of a comic, the issues of a series
+  previous: { id: string; title: string } | null;
+  next: { id: string; title: string } | null;
 }
 
 export interface StandIn {

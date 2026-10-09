@@ -49,12 +49,15 @@ export function tapAction(x: number, width: number, settings: Pick<Settings, "zo
 
 // what a key does, the same way round as the taps: the arrows follow the reading direction, everything
 // else - space, page down, a page-turner's buttons - always goes forward
-export function keyAction(key: string, shift: boolean, direction: "ltr" | "rtl"): Action | "first" | "last" | null {
+// up and down are for moving the page a little, to put it just where it reads best: never a turn
+export function keyAction(key: string, shift: boolean, direction: "ltr" | "rtl"): Action | "first" | "last" | "up" | "down" | null {
   switch (key) {
     case "ArrowRight": return direction === "rtl" ? "back" : "forward";
     case "ArrowLeft": return direction === "rtl" ? "forward" : "back";
-    case "PageDown": case "ArrowDown": case "Enter": return "forward";
-    case "PageUp": case "ArrowUp": case "Backspace": return "back";
+    case "ArrowDown": return "down";
+    case "ArrowUp": return "up";
+    case "PageDown": case "Enter": return "forward";
+    case "PageUp": case "Backspace": return "back";
     case " ": return shift ? "back" : "forward";
     case "Home": return "first";
     case "End": return "last";

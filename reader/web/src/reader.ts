@@ -539,8 +539,21 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     if (action === "menu") return event.key === "Escape" && menu.classList.contains("hidden") ? (save(), leave()) : toggleMenu();
     if (action === "first") return go(0);
     if (action === "last") return go(comic.pages.length - 1);
+    if (action === "up" || action === "down") return nudge(action === "down" ? 1 : -1);
     turn(action === "forward");
   };
+
+  // a small move, held down for a steady glide as the key repeats: for putting a page just where it reads
+  // best, never for turning it. a zoomed page is moved within its zoom instead
+  function nudge(way: number) {
+    if (settings.mode !== "webtoon" && zoom.scale > 1.01) {
+      zoom.y -= way * Math.max(40, stage.clientHeight * 0.08);
+      paintZoom();
+      return;
+    }
+    const scroller = settings.mode === "webtoon" ? strip : stage;
+    scroller.scrollBy({ top: way * Math.max(40, scroller.clientHeight * 0.08) });
+  }
   window.addEventListener("keydown", keys);
 
   let wheelAt = 0;

@@ -60,6 +60,12 @@ describe("taps and keys", () => {
     expect(keyAction(" ", true, "ltr")).toBe("back");
     expect(keyAction("q", false, "ltr")).toBeNull();
   });
+
+  it("keeps up and down for moving the page a little, never turning it", () => {
+    expect(keyAction("ArrowDown", false, "ltr")).toBe("down");
+    expect(keyAction("ArrowUp", false, "rtl")).toBe("up");
+    expect(keyAction("PageUp", false, "ltr")).toBe("back");
+  });
 });
 
 describe("pages made ready", () => {

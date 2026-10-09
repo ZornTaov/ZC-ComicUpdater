@@ -543,8 +543,12 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     turn(action === "forward");
   };
 
-  // a small move, held down for a steady glide as the key repeats: for putting a page just where it reads
-  // best, never for turning it. a zoomed page is moved within its zoom instead
+  // a small move, for putting a page just where it reads best, never for turning it. it eases there as a
+  // mouse wheel's smooth scrolling does, rather than jumping: each press moves where the page is headed,
+  // and the page closes on it a share of the way each frame - so a key held down, repeating, glides, and
+  // slows to a stop when let go. a zoomed page is moved within its zoom instead
+  let glide: { scroller: HTMLElement; target: number; frame: number } | null = null;
+
   function nudge(way: number) {
     if (settings.mode !== "webtoon" && zoom.scale > 1.01) {
       zoom.y -= way * Math.max(40, stage.clientHeight * 0.08);
@@ -552,12 +556,50 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
       return;
     }
     const scroller = settings.mode === "webtoon" ? strip : stage;
-    scroller.scrollBy({ top: way * Math.max(40, scroller.clientHeight * 0.08) });
+    const step = Math.max(40, scroller.clientHeight * 0.08);
+    const furthest = scroller.scrollHeight - scroller.clientHeight;
+    const from = glide && glide.scroller === scroller ? glide.target : scroller.scrollTop;
+    const target = clamp(from + way * step, 0, Math.max(0, furthest));
+    if (glide && glide.scroller === scroller) {
+      glide.target = target;
+      return;
+    }
+    stopGlide();
+    glide = { scroller, target, frame: requestAnimationFrame(glideOn) };
   }
+
+  function glideOn() {
+    if (!glide) return;
+    const { scroller, target } = glide;
+    const left = target - scroller.scrollTop;
+    if (Math.abs(left) < 1) {
+      scroller.scrollTop = target;
+      glide = null;
+      return;
+    }
+    const was = scroller.scrollTop;
+    // at least a pixel a frame, or a page whose scroll is kept to whole pixels would never arrive
+    scroller.scrollTop = was + Math.sign(left) * Math.max(1, Math.abs(left) * 0.2);
+    if (scroller.scrollTop === was) {
+      glide = null;
+      return;
+    }
+    glide.frame = requestAnimationFrame(glideOn);
+  }
+
+  // a wheel or a finger takes over from a glide under way, rather than being pulled back toward it
+  function stopGlide() {
+    if (glide) cancelAnimationFrame(glide.frame);
+    glide = null;
+  }
+  strip.addEventListener("wheel", stopGlide, { passive: true });
+  strip.addEventListener("touchstart", stopGlide, { passive: true });
+  stage.addEventListener("touchstart", stopGlide, { passive: true });
   window.addEventListener("keydown", keys);
 
   let wheelAt = 0;
   const wheel = (event: WheelEvent) => {
+    stopGlide();
     if (settings.mode === "webtoon" || event.ctrlKey) return;
     const vertical = stage.scrollHeight - stage.clientHeight > 4;
     if (vertical && !(event.deltaY > 0 ? stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 4 : stage.scrollTop <= 4)) return;
@@ -590,5 +632,6 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     document.removeEventListener("visibilitychange", hidden);
     window.removeEventListener("pagehide", closing);
     stage.removeEventListener("wheel", wheel);
+    stopGlide();
   };
 }

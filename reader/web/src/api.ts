@@ -3,7 +3,16 @@ import type { Settings } from "./settings";
 
 export interface ComicSummary {
   id: string;
+  // what its file or folder is called, and what it is called to read: the ComicInfo's title where it has one
+  name: string;
   title: string;
+  series: string | null;
+  number: string | null;
+  volume: string | null;
+  year: string | null;
+  author: string | null;
+  // the folder it is shown in, relative to the library; "" for the top
+  place: string;
   kind: "archive" | "chapters" | "folder";
   pages: number;
   position: number | null;

@@ -45,6 +45,28 @@ def inside(library, path):
     return os.path.normpath(path if os.path.isabs(path) else os.path.join(library, path))
 
 
+#"The Title - by Someone", the way a shelf of archives from elsewhere is often named
+BYLINE = re.compile(r"^(?P<title>.+?)\s+-\s+by\s+(?P<author>.+)$", re.I)
+
+
+def named(stem):
+    #a title and an author from an archive's file name: underscores were spaces before some tool saved it
+    text = re.sub(r"\s+", " ", stem.replace("_", " ")).strip()
+    found = BYLINE.match(text)
+    if found:
+        return found.group("title").strip(" -"), found.group("author").strip()
+    return text, None
+
+
+def listed_in(library, where, name):
+    #the folder a comic is shown in, relative to the library, "" for the top. a folder holding nothing but
+    #one comic's own archives is that comic, not a folder to go into first
+    if os.path.basename(where).lower() == name.lower() and os.path.normpath(where) != library:
+        where = os.path.dirname(where)
+    relative = os.path.relpath(where, library).replace(os.sep, "/")
+    return "" if relative == "." else relative
+
+
 def chapter_order(path):
     found = CHAPTER.match(os.path.basename(path))
     return (int(found.group("number")) if found else 0, sort_key(os.path.basename(path)))
@@ -73,8 +95,10 @@ def gather(library, skip):
             kind, sources = "archive", [single]
         if kind != "folder":
             claimed.update(sources)
-        found.append({"id": ident(os.path.relpath(folder, library)), "title": name, "kind": kind,
-                      "sources": sources, "folder": folder, "ended": bool(settings.get("ended"))})
+        where = {"chapters": shelf, "archive": os.path.dirname(single)}.get(kind, os.path.dirname(folder))
+        found.append({"id": ident(os.path.relpath(folder, library)), "title": name, "author": None, "kind": kind,
+                      "sources": sources, "folder": folder, "ended": bool(settings.get("ended")),
+                      "place": listed_in(library, where, name)})
     #archives no comic folder claims: a shelf of archives from somewhere else, or a comic whose loose
     #pages are gone. chapter archives of one series beside each other are read as one comic
     groups = {}
@@ -87,12 +111,15 @@ def gather(library, skip):
     for (where, series), members in groups.items():
         if series:
             relative = os.path.join(os.path.relpath(where, library), series)
-            found.append({"id": ident(relative), "title": series, "kind": "chapters",
-                          "sources": sorted(members, key=chapter_order), "folder": None, "ended": None})
+            title, author = named(series)
+            found.append({"id": ident(relative), "title": title, "author": author, "kind": "chapters",
+                          "sources": sorted(members, key=chapter_order), "folder": None, "ended": None,
+                          "place": listed_in(library, where, series)})
         else:
-            found.append({"id": ident(os.path.relpath(where, library)),
-                          "title": os.path.splitext(os.path.basename(where))[0], "kind": "archive",
-                          "sources": members, "folder": None, "ended": None})
+            title, author = named(os.path.splitext(os.path.basename(where))[0])
+            found.append({"id": ident(os.path.relpath(where, library)), "title": title, "author": author,
+                          "kind": "archive", "sources": members, "folder": None, "ended": None,
+                          "place": listed_in(library, os.path.dirname(where), title)})
     return found
 
 
@@ -130,7 +157,7 @@ class Library:
         #fresh looks at each source's file first, so a comic opened while the scraper adds to it shows the
         #new pages without waiting for a scan
         kind = "folder" if comic["kind"] == "folder" else "archive"
-        pages, chapters, versions, metadata = [], [], [], None
+        pages, chapters, versions, metadata, first = [], [], [], None, None
         for at, path in enumerate(comic["sources"]):
             try:
                 source = self.sources.get(path, kind) if fresh else (self.sources.cached(path)
@@ -142,6 +169,7 @@ class Library:
             metadata = metadata or source.get("metadata")
             start = len(pages)
             about = source.get("about") or {}
+            first = about if first is None else first
             if comic["kind"] == "chapters":
                 label = about.get("title")
                 if not label:
@@ -159,7 +187,7 @@ class Library:
         ended = comic["ended"]
         if ended is None:
             ended = bool(((metadata or {}).get("settings") or {}).get("ended"))
-        return {"pages": pages, "chapters": chapters, "ended": ended, "versions": versions}
+        return {"pages": pages, "chapters": chapters, "ended": ended, "versions": versions, "about": first or {}}
 
     def position(self, stream, progress):
         #where the reader is up to in a comic as it stands now. the page itself is what was remembered, not
@@ -180,7 +208,16 @@ class Library:
         total = len(stream["pages"])
         at = self.position(stream, progress) if progress else None
         unread = total - at - 1 if at is not None else total
-        return {"id": comic["id"], "title": comic["title"], "kind": comic["kind"], "pages": total,
+        about = stream["about"]
+        #a single archive is an issue or a book, and its ComicInfo says which series and which one. a comic
+        #in chapters is the series itself, whatever its first chapter's ComicInfo calls that chapter
+        single = comic["kind"] == "archive"
+        return {"id": comic["id"], "name": comic["title"],
+                "title": (about.get("title") if single else None) or comic["title"],
+                "series": (about.get("series") if single else None) or (comic["title"] if not single else None),
+                "number": about.get("number") if single else None, "volume": about.get("volume") if single else None,
+                "year": about.get("year"), "author": about.get("writer") or about.get("penciller") or comic.get("author"),
+                "place": comic.get("place", ""), "kind": comic["kind"], "pages": total,
                 "position": at, "unread": unread, "ended": stream["ended"],
                 "new": max(total - progress["seen"], 0) if progress else 0,
                 "read": progress["updated"] if progress else None,

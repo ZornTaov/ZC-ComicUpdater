@@ -27,6 +27,10 @@ VIDEO_MEDIA = {".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", 
                ".mkv": "video/x-matroska", ".swf": "application/x-shockwave-flash"}
 
 
+#what a reading of a source holds. a reading kept from an older reader, holding less, is read again once
+FORMAT = 2
+
+
 class Busy(Exception):
     #an archive being written as it was read, with no earlier reading of it to fall back on
     pass
@@ -49,13 +53,14 @@ def top_folder(entries):
 
 def about_from(text):
     #what an archive's ComicInfo says it is, beyond its pages: the chapter label a reader shows, which part
-    #of the series it is, and the bookmarks it puts on pages
+    #of which series it is, who made it, and the bookmarks it puts on pages
     try:
         root = ET.fromstring(text)
     except ET.ParseError:
         return {}
-    about = {tag.lower(): root.findtext(tag) for tag in ("Title", "Series", "Number", "Count", "Web")
-             if root.findtext(tag)}
+    about = {tag.lower(): root.findtext(tag).strip()
+             for tag in ("Title", "Series", "Number", "Count", "Volume", "Year", "Writer", "Penciller", "Web")
+             if (root.findtext(tag) or "").strip()}
     about["bookmarks"] = {str(at): page.get("Bookmark") for at, page in enumerate(root.iter("Page"))
                           if page.get("Bookmark")}
     return about
@@ -70,7 +75,12 @@ def read_archive(path):
         if not order:
             #pages spread over folders of someone else's making: every picture, by its path
             order = reading_order(None, [name for name in infos if PAGE_TYPES.search(name)])
-        info_text = zf.read(comicinfo.NAME) if comicinfo.NAME in infos else None
+        #at the top, where the schema puts it; an archive made by another tool sometimes has it under its
+        #folder, or spelled in another case
+        named = comicinfo.NAME if comicinfo.NAME in infos else next(
+            (name for name in infos if posixpath.basename(name).lower() == comicinfo.NAME.lower()
+             and name.count("/") <= 1), None)
+        info_text = zf.read(named) if named else None
         metadata = None
         for name in (prefix + METADATA_FILE, METADATA_FILE):
             if name in infos:
@@ -90,7 +100,7 @@ def read_archive(path):
         each = each or {}
         pages.append({"entry": entry, "key": page_key(posixpath.basename(entry)), "size": infos[entry].file_size,
                       "w": each.get("width"), "h": each.get("height"), "standin": bool(each.get("standin"))})
-    return {"kind": "archive", "path": path, "stamp": before, "pages": pages,
+    return {"kind": "archive", "path": path, "stamp": before, "pages": pages, "format": FORMAT,
             "about": about_from(info_text) if info_text else {}, "metadata": metadata}
 
 
@@ -103,7 +113,8 @@ def read_folder(path):
         standin = bool(held_otherwise(path, name))
         pages.append({"entry": name, "key": page_key(os.path.splitext(name)[0] + ".png" if standin else name),
                       "size": None, "w": None, "h": None, "standin": standin})
-    return {"kind": "folder", "path": path, "stamp": before, "pages": pages, "about": {}, "metadata": None}
+    return {"kind": "folder", "path": path, "stamp": before, "pages": pages, "about": {}, "metadata": None,
+            "format": FORMAT}
 
 
 class Sources:
@@ -122,7 +133,7 @@ class Sources:
             now = stamp(path)
         except OSError:
             return held
-        if held is not None and held["stamp"] == now:
+        if held is not None and held["stamp"] == now and held.get("format") == FORMAT:
             return held
         try:
             fresh = (read_folder if kind == "folder" else read_archive)(path)

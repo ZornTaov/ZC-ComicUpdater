@@ -17,6 +17,9 @@ export interface Settings {
   // pages fetched and decoded ahead of the one shown, and behind it
   ahead: number;
   behind: number;
+  // space left empty either side of the page, as a share of the screen's width: on a wide monitor a page
+  // fitted to the width is otherwise far too big to read
+  padding: number;
 }
 
 export const defaults: Settings = {
@@ -29,6 +32,7 @@ export const defaults: Settings = {
   coverAlone: true,
   ahead: 4,
   behind: 2,
+  padding: 0,
 };
 
 export function merged(global: Partial<Settings>, comic: Partial<Settings>): Settings {
@@ -47,5 +51,6 @@ export function clean(given: Partial<Settings>): Partial<Settings> {
   if (typeof given.coverAlone === "boolean") out.coverAlone = given.coverAlone;
   if (typeof given.ahead === "number") out.ahead = Math.min(12, Math.max(1, Math.round(given.ahead)));
   if (typeof given.behind === "number") out.behind = Math.min(6, Math.max(0, Math.round(given.behind)));
+  if (typeof given.padding === "number" && Number.isFinite(given.padding)) out.padding = Math.min(40, Math.max(0, Math.round(given.padding)));
   return out;
 }

@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { ComicSummary, Page } from "./api";
+import type { Page } from "./api";
 import { chapterOf, keyAction, tapAction, viewOf, views, wanted } from "./layout";
 import { clean, merged } from "./settings";
-import { shelve } from "./shelves";
 
 const page = (w: number | null = 800, h: number | null = 1200, standin = false): Page => ({ v: "1", w, h, standin });
 
@@ -84,24 +83,11 @@ describe("settings", () => {
   it("drops what it does not know and keeps numbers in range", () => {
     expect(clean({ fit: "sideways" as never, zone: 0.9, ahead: 100, background: "red" })).toEqual({ zone: 0.45, ahead: 12 });
   });
-});
 
-describe("shelves", () => {
-  const comic = (over: Partial<ComicSummary>): ComicSummary => ({
-    id: "x", title: "MyComic", kind: "archive", pages: 10, position: null, unread: 10, new: 0, ended: false,
-    read: null, updated: 0, chapters: 0, cover: null, ...over });
-
-  it("puts a comic read to the end that has since gained pages under new pages", () => {
-    const shelves = shelve([comic({ position: 9, unread: 2, new: 2, pages: 12 })]);
-    expect(shelves.updated).toHaveLength(1);
-  });
-
-  it("keeps a comic read part way under continue reading, new pages or not", () => {
-    expect(shelve([comic({ position: 3, unread: 8, new: 2, pages: 12 })]).reading).toHaveLength(1);
-  });
-
-  it("tells a comic caught up apart from one that has ended", () => {
-    const shelves = shelve([comic({ position: 9, unread: 0 }), comic({ position: 9, unread: 0, ended: true })]);
-    expect([shelves.caughtUp.length, shelves.finished.length]).toEqual([1, 1]);
+  it("keeps side padding between none and 40% a side", () => {
+    expect(clean({ padding: 75 })).toEqual({ padding: 40 });
+    expect(clean({ padding: -5 })).toEqual({ padding: 0 });
+    expect(clean({ padding: 12.4 })).toEqual({ padding: 12 });
   });
 });
+

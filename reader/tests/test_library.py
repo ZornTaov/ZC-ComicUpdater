@@ -82,6 +82,34 @@ def test_archives_no_comic_folder_claims_are_comics_too(library, make_app):
     assert [chapter["title"] for chapter in stream["chapters"]] == ["Start", "Chapter 2"]
 
 
+def test_each_comic_says_where_it_is_shelved_and_what_its_comicinfo_calls_it(library, make_app):
+    #a shelf of archives from elsewhere: some loose at the top, some in a folder per site, some issues of
+    #one series with a ComicInfo each, and one comic whose folder holds nothing but its own archive
+    def archive(path, info=None):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(str(path), "w") as zf:
+            zf.writestr("01.png", png(4, 4))
+            if info:
+                zf.writestr("ComicInfo.xml", "<ComicInfo>{0}</ComicInfo>".format(
+                    "".join("<{0}>{1}</{0}>".format(tag, value) for tag, value in info.items())))
+    archive(library / "Loose_One_-_by_Some_Body.cbz")
+    archive(library / "A Site" / "Their_Comic_-_by_Them.cbz")
+    archive(library / "Issues" / "MyComic 02.cbz", {"Series": "MyComic", "Number": "2", "Title": "Second", "Writer": "An Author"})
+    archive(library / "Issues" / "MyComic 10.cbz", {"Series": "MyComic", "Number": "10", "Title": "Tenth"})
+    archive(library / "Alone" / "Alone.cbz")
+    api = make_app()
+    progress = {}
+    by_name = {summary["name"]: summary for summary in
+               (api.state.library.summary(comic, progress.get(comic["id"])) for comic in api.state.library.comics.values())}
+    assert (by_name["Loose One"]["place"], by_name["Loose One"]["author"]) == ("", "Some Body")
+    assert (by_name["Their Comic"]["place"], by_name["Their Comic"]["author"]) == ("A Site", "Them")
+    second = by_name["MyComic 02"]
+    assert (second["place"], second["title"], second["series"], second["number"], second["author"]) == \
+        ("Issues", "Second", "MyComic", "2", "An Author")
+    assert by_name["MyComic 10"]["number"] == "10"
+    assert by_name["Alone"]["place"] == "", "a folder holding only its own comic is that comic"
+
+
 def test_a_comic_that_grows_shows_its_new_pages_when_opened(library, make_app):
     folder = comic_folder(library, "MyComic", 3)
     archive = library / "CBZs" / "MyComic.cbz"

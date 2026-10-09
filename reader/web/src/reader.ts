@@ -74,7 +74,11 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
 
   function applyLook() {
     reader.style.background = settings.background;
+    reader.style.setProperty("--pad", `${settings.padding}vw`);
     reader.dataset.mode = settings.mode;
+    // scrolling fits pages the same four ways a page at a time does: a webtoon read fitted to the width is
+    // the usual way, and side padding keeps it readable on a wide screen
+    strip.className = `strip fit-${settings.fit}`;
     spread.className = `spread fit-${settings.fit} count-${shown[view]?.length ?? 1}${settings.direction === "rtl" ? " rtl" : ""}`;
   }
 
@@ -121,7 +125,12 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
       comic.pages.forEach((info, n) => {
         const holder = el("div", "strip-page");
         holder.dataset.n = String(n);
-        if (info.w && info.h) holder.style.aspectRatio = `${info.w} / ${info.h}`;
+        // the page's shape is known before it loads, so the strip does not jump as pages come in
+        if (info.w && info.h) {
+          holder.style.aspectRatio = `${info.w} / ${info.h}`;
+          holder.style.setProperty("--ratio", String(info.w / info.h));
+          holder.style.setProperty("--natural", `${info.w}px`);
+        }
         strip.append(holder);
         observer!.observe(holder);
       });
@@ -342,6 +351,8 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
       <label class="row">Remember for
         <select data-set="scope"><option value="all">every comic</option><option value="comic">this comic only</option></select></label>
       <label class="row">Background <input type="color" data-set="background"></label>
+      <label class="row">Side padding <span class="value" data-show="padding"></span>
+        <input type="range" min="0" max="40" step="1" data-set="padding"></label>
       <label class="row">Tap zone width <input type="range" min="0.15" max="0.45" step="0.01" data-set="zone"></label>
       <label class="row"><input type="checkbox" data-set="swapZones"> Left side goes forward</label>
       <label class="row"><input type="checkbox" data-set="coverAlone"> First page alone in two-page view</label>
@@ -356,6 +367,16 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     input<HTMLSelectElement>("scope").onchange = (event) => { scope = (event.target as HTMLSelectElement).value as "comic" | "all"; };
     input<HTMLInputElement>("background").value = settings.background;
     input<HTMLInputElement>("background").onchange = (event) => change({ background: (event.target as HTMLInputElement).value });
+    const padding = input<HTMLInputElement>("padding");
+    const paddingShown = sheet.querySelector<HTMLElement>('[data-show="padding"]')!;
+    padding.value = String(settings.padding);
+    paddingShown.textContent = `${settings.padding}%`;
+    // shown as it is dragged, saved when it is let go
+    padding.oninput = () => {
+      paddingShown.textContent = `${padding.value}%`;
+      reader.style.setProperty("--pad", `${padding.value}vw`);
+    };
+    padding.onchange = () => change({ padding: Number(padding.value) });
     input<HTMLInputElement>("zone").value = String(settings.zone);
     input<HTMLInputElement>("zone").onchange = (event) => change({ zone: Number((event.target as HTMLInputElement).value) });
     input<HTMLInputElement>("swapZones").checked = settings.swapZones;

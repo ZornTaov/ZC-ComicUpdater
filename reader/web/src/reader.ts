@@ -110,6 +110,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
 
   // webtoon: every page one under the next, scrolled through, each fetched as it comes near
   let observer: IntersectionObserver | null = null;
+  let far: IntersectionObserver | null = null;
   let live: IntersectionObserver | null = null;
   let sizes: ResizeObserver | null = null;
   const onScreen = new Set<number>();
@@ -135,6 +136,23 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
           if (!holder.firstChild) holder.append(image(Number(holder.dataset.n)));
         }
       }, { root: strip, rootMargin: "200% 0px" });
+      // and let go of once five screens away, so a comic of thousands of pages scrolled end to end holds a
+      // dozen or so, not all of them. the place a picture leaves keeps its measured size, so nothing moves;
+      // coming back to it is the browser's cache, since a page's address never changes. let go further out
+      // than it is fetched, so a page near the edge is not dropped and fetched again as the reader scrolls
+      // back and forth
+      far = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) continue;
+          const holder = entry.target as HTMLElement;
+          const n = Number(holder.dataset.n);
+          const picture = images.get(n);
+          // a picture still on its way stops being fetched: a page flown past is not worth the wait
+          if (picture && !picture.complete) picture.removeAttribute("src");
+          images.delete(n);
+          holder.replaceChildren();
+        }
+      }, { root: strip, rootMargin: "500% 0px" });
       // a player only while its page is on screen: dozens of flash movies running at once, all making
       // sound, is what a comic with a week of animated strips would otherwise be
       live = new IntersectionObserver((entries) => {
@@ -165,6 +183,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
         }
         strip.append(holder);
         observer!.observe(holder);
+        far!.observe(holder);
         sizes!.observe(holder);
         if (info.standin) live!.observe(holder);
       });
@@ -177,6 +196,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
   // leaving scrolling: every player stopped, every watcher let go
   function clearStrip() {
     observer?.disconnect();
+    far?.disconnect();
     live?.disconnect();
     sizes?.disconnect();
     onScreen.clear();

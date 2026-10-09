@@ -11,7 +11,7 @@ describe("youtube", () => {
       `https://youtu.be/${id}`,
       `https://www.youtube.com/shorts/${id}`,
     ]) {
-      expect(youtubeEmbed(address)).toBe(`https://www.youtube-nocookie.com/embed/${id}`);
+      expect(youtubeEmbed(address)).toBe(`https://www.youtube.com/embed/${id}`);
     }
   });
 

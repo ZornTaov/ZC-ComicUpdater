@@ -4,10 +4,12 @@
 import type { StandIn } from "./api";
 
 // the YouTube video an address names, in any of the shapes a site links one, as the address to embed it.
-// the no-cookie host, since nothing here needs YouTube to remember who watched
+// youtube.com itself, not its no-cookie host: that one hides the viewer's own sign-in from the player on
+// purpose, and YouTube now answers an anonymous embedded viewer with "sign in to confirm you're not a bot" -
+// which signing in cannot satisfy, since the player still will not see it
 export function youtubeEmbed(address: string): string | null {
   const found = address.match(/(?:youtube(?:-nocookie)?\.com\/(?:embed\/|shorts\/|v\/|watch\?(?:[^#]*&)?v=)|youtu\.be\/)([\w-]{11})/);
-  return found ? `https://www.youtube-nocookie.com/embed/${found[1]}` : null;
+  return found ? `https://www.youtube.com/embed/${found[1]}` : null;
 }
 
 // Ruffle, the flash player written for browsers (MIT/Apache), served from beside the page so it works with

@@ -91,6 +91,8 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
   }
 
   function render() {
+    // a glide under way belongs to what was on screen, not to what is about to be
+    stopGlide();
     if (settings.mode === "webtoon") return renderStrip();
     stage.hidden = false;
     strip.hidden = true;
@@ -179,9 +181,10 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     const vertical = stage.scrollHeight - stage.clientHeight > 4;
     const horizontal = stage.scrollWidth - stage.clientWidth > 4;
     if (vertical) {
-      const atEnd = forward ? stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 4 : stage.scrollTop <= 4;
+      const at = headedTo(stage);
+      const atEnd = forward ? at + stage.clientHeight >= stage.scrollHeight - 4 : at <= 4;
       if (!atEnd) {
-        stage.scrollBy({ top: (forward ? 1 : -1) * stage.clientHeight * 0.85 });
+        glideBy(stage, (forward ? 1 : -1) * stage.clientHeight * 0.85);
         return false;
       }
     } else if (horizontal) {
@@ -199,12 +202,13 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
 
   function turn(forward: boolean) {
     if (settings.mode === "webtoon") {
-      // scrolled to the very end of a chapter, or the very start, a turn goes on into the next or the last
-      const atEnd = strip.scrollTop + strip.clientHeight >= strip.scrollHeight - 2;
-      const atStart = strip.scrollTop <= 2;
-      if (forward && atEnd) return onward(true);
-      if (!forward && atStart) return onward(false);
-      strip.scrollBy({ top: (forward ? 1 : -1) * strip.clientHeight * 0.85 });
+      // scrolled to the very end of a chapter, or the very start, a turn goes on into the next or the last.
+      // judged by where a glide under way is headed, so a turn pressed while one is still easing to the end
+      // goes on rather than waiting for it
+      const at = headedTo(strip);
+      if (forward && at + strip.clientHeight >= strip.scrollHeight - 2) return onward(true);
+      if (!forward && at <= 2) return onward(false);
+      glideBy(strip, (forward ? 1 : -1) * strip.clientHeight * 0.85);
       return;
     }
     if (zoom.scale > 1.01) {
@@ -556,10 +560,19 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
       return;
     }
     const scroller = settings.mode === "webtoon" ? strip : stage;
-    const step = Math.max(40, scroller.clientHeight * 0.08);
-    const furthest = scroller.scrollHeight - scroller.clientHeight;
-    const from = glide && glide.scroller === scroller ? glide.target : scroller.scrollTop;
-    const target = clamp(from + way * step, 0, Math.max(0, furthest));
+    glideBy(scroller, way * Math.max(40, scroller.clientHeight * 0.08));
+  }
+
+  // where a scroller is headed: where a glide under way will end, or where it is
+  function headedTo(scroller: HTMLElement): number {
+    return glide && glide.scroller === scroller ? glide.target : scroller.scrollTop;
+  }
+
+  // move a scroller by `distance`, easing there: a nudge, or a whole page turned in scroll mode. a press
+  // during a glide carries on from where it was headed, so presses in a row add up rather than restarting
+  function glideBy(scroller: HTMLElement, distance: number) {
+    const furthest = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const target = clamp(headedTo(scroller) + distance, 0, furthest);
     if (glide && glide.scroller === scroller) {
       glide.target = target;
       return;

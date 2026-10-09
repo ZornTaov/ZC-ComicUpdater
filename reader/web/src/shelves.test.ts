@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ComicSummary } from "./api";
-import { compareComics, reading, shelf } from "./shelves";
+import { compareComics, reading, recentlyUpdated, shelf } from "./shelves";
 
 const comic = (over: Partial<ComicSummary>): ComicSummary => ({
   id: over.name ?? over.title ?? "x", name: over.title ?? "x", title: "MyComic", series: null, number: null,
   volume: null, year: null, author: null, place: "", kind: "archive", pages: 10, position: null, unread: 10,
-  new: 0, ended: false, read: null, updated: 0, chapters: 0, cover: null, ...over });
+  new: 0, ended: false, read: null, updated: 0, grew: null, added: 0, chapters: 0, cover: null, ...over });
 
 const titles = (list: ComicSummary[]) => list.map((each) => each.title);
 
@@ -40,6 +40,25 @@ describe("reading", () => {
       comic({ title: "caught up", position: 9, unread: 0 }),
     ]);
     expect([titles(now.updated), titles(now.reading)]).toEqual([["updated"], ["part way"]]);
+  });
+});
+
+describe("recently updated", () => {
+  const now = 1_000_000_000;
+  const day = 24 * 3600;
+  it("lists comics that grew in the last two weeks, newest first, whether read or not", () => {
+    const list = [
+      comic({ id: "old", title: "old", grew: now - 30 * day, added: 4 }),
+      comic({ id: "yesterday", title: "yesterday", grew: now - day, added: 2 }),
+      comic({ id: "never", title: "never", grew: null }),
+      comic({ id: "today", title: "today", grew: now - 60, added: 1, position: 3, unread: 6 }),
+    ];
+    expect(titles(recentlyUpdated(list, now))).toEqual(["today", "yesterday"]);
+  });
+
+  it("leaves out what is already shown under new pages", () => {
+    const grown = comic({ id: "a", title: "a", grew: now - 60, added: 1 });
+    expect(recentlyUpdated([grown], now, [grown])).toEqual([]);
   });
 });
 

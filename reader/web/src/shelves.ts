@@ -42,6 +42,17 @@ export function reading(comics: ComicSummary[]): Reading {
   return out;
 }
 
+// comics that have gained pages lately, newest first: everything the library has been sent, read or not.
+// those already under "new pages" - read to their end before they grew - are left there rather than shown twice
+export const RECENT_DAYS = 14;
+
+export function recentlyUpdated(comics: ComicSummary[], now: number, shown: ComicSummary[] = []): ComicSummary[] {
+  const already = new Set(shown.map((comic) => comic.id));
+  const since = now - RECENT_DAYS * 24 * 3600;
+  return comics.filter((comic) => comic.grew !== null && comic.grew >= since && !already.has(comic.id))
+    .sort((a, b) => (b.grew ?? 0) - (a.grew ?? 0));
+}
+
 export interface Group {
   key: string;
   label: string;

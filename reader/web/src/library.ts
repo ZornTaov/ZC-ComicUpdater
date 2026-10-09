@@ -2,7 +2,7 @@
 // place being looked at is in the address, so the back button goes back up and a folder can be bookmarked
 import { api, type ComicSummary } from "./api";
 import { el, esc } from "./dom";
-import { BROWSE_LABELS, type Browse, type Group, matches, pathLabel, reading, shelf } from "./shelves";
+import { BROWSE_LABELS, type Browse, type Group, matches, pathLabel, reading, recentlyUpdated, shelf } from "./shelves";
 
 export function browseHash(browse: Browse, path = ""): string {
   return path ? `#/browse/${browse}/${encodeURIComponent(path)}` : `#/browse/${browse}`;
@@ -48,7 +48,14 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
 
   // away from its own folder - in what is being read, a search, a series - a comic says which folder it is
   // from, since a shelf of archives named "Ch.01", "Ch.02" says nothing about which comic they are
-  function card(comic: ComicSummary, away = true): string {
+  // under "recently updated", a comic says how many pages it gained and when, in place of what it says elsewhere
+  function grewBy(comic: ComicSummary): string {
+    const days = Math.floor((Date.now() / 1000 - (comic.grew ?? 0)) / 86400);
+    const when = days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+    return `+${comic.added} page${comic.added === 1 ? "" : "s"} ${when}`;
+  }
+
+  function card(comic: ComicSummary, away = true, growth = false): string {
     const badge = comic.new > 0 && comic.position !== null ? `<span class="badge new">${comic.new} new</span>`
       : comic.position !== null && comic.unread > 0 ? `<span class="badge">${comic.unread} left</span>`
       : comic.ended && comic.position !== null && comic.unread <= 0 ? '<span class="badge done">Ended</span>' : "";
@@ -57,7 +64,8 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     const issue = comic.series && comic.series !== comic.title
       ? `${comic.series}${comic.number ? ` #${comic.number}` : ""}` : comic.number ? `#${comic.number}` : "";
     const folder = away && comic.place ? comic.place.split("/").pop()! : "";
-    const under = [issue || folder || comic.author, `${comic.pages} pages`].filter(Boolean).join(" · ");
+    const under = growth ? grewBy(comic)
+      : [issue || folder || comic.author, `${comic.pages} pages`].filter(Boolean).join(" · ");
     return `<a class="card" href="#/read/${comic.id}" data-id="${comic.id}" title="${esc(comic.name)}">
       <div class="cover"><img loading="lazy" alt="" src="${api.coverUrl(comic.id, comic.cover)}">${badge}
         <button class="card-menu" type="button" aria-label="More for ${esc(comic.title)}" data-menu="${comic.id}">⋯</button></div>
@@ -118,9 +126,11 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     // what is being read comes first, wherever you are: at the top for the whole library, and inside a
     // folder, series or author for what is being read there
     const now = reading(here.within);
+    const recent = recentlyUpdated(here.within, Date.now() / 1000, now.updated);
     const groupsTitle = browse === "folder" ? "Folders" : browse === "series" ? "Series" : "Authors";
     main.innerHTML = section("New pages", now.updated.map((comic) => card(comic)).join(""), now.updated.length)
       + section("Continue reading", now.reading.map((comic) => card(comic)).join(""), now.reading.length)
+      + section("Recently updated", recent.map((comic) => card(comic, true, true)).join(""), recent.length)
       + section(groupsTitle, here.groups.map(tile).join(""), here.groups.length)
       + section(browse === "all" ? "Every comic" : "Comics",
                 here.comics.map((comic) => card(comic, browse !== "folder")).join(""), here.comics.length);

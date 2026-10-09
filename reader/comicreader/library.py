@@ -197,7 +197,14 @@ class Library:
                         self.sources.get(path, "folder" if comic["kind"] == "folder" else "archive")
                     except Busy:
                         continue
-            self.store.forget_sources({path for comic in found for path in comic["sources"]})
+            in_use = {path for comic in found for path in comic["sources"]}
+            #an archive or folder gone from the library - deleted, renamed, given up for chapters - is
+            #forgotten, not served from its last reading
+            self.store.forget_sources(in_use)
+            self.sources.forget(in_use)
+            #what each comic holds now, against what the last scan saw: a comic that has grown is noted as
+            #recently updated
+            self.store.saw({comic["id"]: len(self.stream(comic)["pages"]) for comic in found})
             self.scanned = time.time()
             return True
         finally:
@@ -288,7 +295,7 @@ class Library:
                 return min(same, key=lambda at: abs(at - progress["position"]))
         return remembered
 
-    def summary(self, comic, progress):
+    def summary(self, comic, progress, growth=None):
         stream = self.stream(comic)
         total = len(stream["pages"])
         at = self.position(stream, progress) if progress else None
@@ -307,6 +314,8 @@ class Library:
                 "place": comic.get("place", ""), "kind": comic["kind"], "pages": total,
                 "position": at, "unread": unread, "ended": stream["ended"],
                 "new": max(total - progress["seen"], 0) if progress else 0,
+                #when a scan last saw it gain pages, and how many it gained then
+                "grew": (growth or {}).get("grew"), "added": (growth or {}).get("added") or 0,
                 "read": progress["updated"] if progress else None,
                 #the cover is the first page, so it is that page's version: the same picture, the same address
                 "chapters": len(stream["chapters"]), "cover": stream["pages"][0]["v"] if stream["pages"] else None,

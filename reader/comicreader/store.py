@@ -28,6 +28,11 @@ class Store:
             CREATE TABLE IF NOT EXISTS settings (
                 scope TEXT PRIMARY KEY,
                 data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS growth (
+                series TEXT PRIMARY KEY,
+                pages INTEGER NOT NULL,
+                grew REAL,
+                added INTEGER NOT NULL DEFAULT 0);
         """)
         #how far down its page the reader was, for a comic read by scrolling: added after the table was
         #first made, so a data folder from before gains it here
@@ -62,6 +67,32 @@ class Store:
                             (series, key, position, seen, stamp, part))
             self.db.commit()
         return self.progress(series)
+
+    def growth(self):
+        #when each comic last gained pages, and how many: what a scan saw it holding, against the time before
+        with self.lock:
+            rows = self.db.execute("SELECT series, pages, grew, added FROM growth").fetchall()
+        return {row[0]: {"pages": row[1], "grew": row[2], "added": row[3]} for row in rows}
+
+    def saw(self, counts, now=None):
+        #a scan's count of every comic's pages. a comic seen for the first time is only counted - the first
+        #scan of a library is not every comic in it being updated at once - and one that has grown since the
+        #last scan is noted as having grown now, by how much. one that has shrunk - pages taken out, a
+        #chapter re-cut - is counted again without being called updated
+        now = time.time() if now is None else now
+        known = self.growth()
+        with self.lock:
+            for series, pages in counts.items():
+                before = known.get(series)
+                if before is None:
+                    self.db.execute("INSERT INTO growth (series, pages, grew, added) VALUES (?, ?, NULL, 0)",
+                                    (series, pages))
+                elif pages > before["pages"]:
+                    self.db.execute("UPDATE growth SET pages = ?, grew = ?, added = ? WHERE series = ?",
+                                    (pages, now, pages - before["pages"], series))
+                elif pages != before["pages"]:
+                    self.db.execute("UPDATE growth SET pages = ? WHERE series = ?", (pages, series))
+            self.db.commit()
 
     def forget_progress(self, series):
         with self.lock:

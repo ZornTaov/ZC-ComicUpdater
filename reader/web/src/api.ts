@@ -21,6 +21,9 @@ export interface ComicSummary {
   ended: boolean;
   read: number | null;
   updated: number;
+  // when a scan last saw it gain pages (seconds), and how many it gained then
+  grew: number | null;
+  added: number;
   chapters: number;
   cover: string | null;
 }

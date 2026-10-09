@@ -65,9 +65,10 @@ def create_app(config=None, scan_in_background=True):
     @app.get("/api/library")
     def everything():
         progress = store.every_progress()
+        growth = store.growth()
         return {"scanned": library.scanned,
-                "comics": sorted((library.summary(comic, progress.get(comic["id"])) for comic in library.comics.values()),
-                                 key=lambda each: each["title"].lower())}
+                "comics": sorted((library.summary(comic, progress.get(comic["id"]), growth.get(comic["id"]))
+                                  for comic in library.comics.values()), key=lambda each: each["title"].lower())}
 
     @app.post("/api/scan")
     def scan():

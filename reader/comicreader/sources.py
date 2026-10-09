@@ -251,6 +251,12 @@ class Sources:
         held = self.known.get(path)
         try:
             now = stamp(path)
+        except FileNotFoundError:
+            #gone: not served from its last reading, which would show pages that can no longer be fetched.
+            #an archive is replaced by moving the new one over it, so it is never missing in between
+            with self.lock:
+                self.known.pop(path, None)
+            return None
         except OSError:
             return held
         if held is not None and held["stamp"] == now and held.get("format") == FORMAT:
@@ -268,6 +274,14 @@ class Sources:
 
     def cached(self, path):
         return self.known.get(path)
+
+    def forget(self, keep):
+        #every reading but those of the sources still in the library, and any archive held open for them
+        with self.lock:
+            for path in [path for path in self.known if path not in keep]:
+                del self.known[path]
+            for handle in [handle for handle in self.open if handle[0] not in keep]:
+                self.open.pop(handle).close()
 
     def page(self, source, page):
         #the bytes of one page, and what kind of picture it is. a page that is not a picture is its stand-in

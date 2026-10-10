@@ -93,6 +93,8 @@ export const api = {
   saveProgress: (id: string, position: number, part = 0, closing = false) =>
     put(`/api/comics/${id}/progress`, { position, part }, closing),
   forgetProgress: (id: string) => call(`/api/comics/${id}/progress`, { method: "DELETE" }),
+  // many comics at once - a folder, a series, everything up to one - read to their ends or forgotten
+  markMany: (ids: string[], read: boolean) => put<{ marked: number }>("/api/progress", { comics: ids, read }),
   settings: () => call<Partial<Settings>>("/api/settings"),
   saveSettings: (settings: Partial<Settings>) => put<Partial<Settings>>("/api/settings", settings),
   saveComicSettings: (id: string, settings: Partial<Settings>) => put(`/api/comics/${id}/settings`, settings),

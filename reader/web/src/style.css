@@ -71,14 +71,17 @@ button {
   border-radius: 6px; background: var(--line); border: 1px solid var(--muted); opacity: .6;
 }
 .badge.count { z-index: 2; }
-.badge.left { left: 6px; right: auto; z-index: 2; }
+/* bottom left, since the ⋯ has the top */
+.badge.left { left: 6px; right: auto; top: auto; bottom: 6px; z-index: 2; }
 .card.group .cover { margin: 5px 5px 0 0; }
 .library main { padding: 8px 16px 40px; }
 .library section h2 { font-size: 15px; margin: 20px 0 10px; }
 .library section h2 span { color: var(--muted); font-weight: normal; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 16px 12px; }
 .card { color: inherit; text-decoration: none; display: block; min-width: 0; }
-.cover { position: relative; aspect-ratio: 2 / 3; border-radius: 6px; overflow: hidden; background: var(--line); }
+/* isolate keeps the badges' and the ⋯'s z-index inside their own cover: without it they rank against the
+   sticky bar at the top of the library, and scroll up over it */
+.cover { position: relative; isolation: isolate; aspect-ratio: 2 / 3; border-radius: 6px; overflow: hidden; background: var(--line); }
 .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .badge {
   position: absolute; right: 6px; top: 6px;

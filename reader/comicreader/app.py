@@ -192,6 +192,27 @@ def create_app(config=None, scan_in_background=True):
         store.forget_progress(comic_id)
         return {"ok": True}
 
+    @app.put("/api/progress")
+    async def save_many(request: Request):
+        #a whole folder or series marked at once, or every comic up to one: each read to its last page, or its
+        #place forgotten. one gone since the page was drawn, or with no pages yet, is passed over rather than
+        #failing the rest
+        body = await request.json()
+        read, marked = bool(body.get("read")), 0
+        for comic_id in body.get("comics") or []:
+            comic = library.comics.get(comic_id)
+            if comic is None:
+                continue
+            if not read:
+                store.forget_progress(comic_id)
+            else:
+                pages = library.stream(comic)["pages"]
+                if not pages:
+                    continue
+                store.save_progress(comic_id, pages[-1]["key"], len(pages) - 1, len(pages))
+            marked += 1
+        return {"marked": marked}
+
     @app.get("/api/settings")
     def global_settings():
         return store.settings("global")

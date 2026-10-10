@@ -2,7 +2,7 @@
 // place being looked at is in the address, so the back button goes back up and a folder can be bookmarked
 import { api, type ComicSummary } from "./api";
 import { el, esc } from "./dom";
-import { BROWSE_LABELS, type Browse, type Group, matches, pathLabel, reading, recentlyUpdated, shelf } from "./shelves";
+import { BROWSE_LABELS, type Browse, type Group, matches, pathLabel, reading, recentlyUpdated, shelf, upTo } from "./shelves";
 
 export function browseHash(browse: Browse, path = ""): string {
   return path ? `#/browse/${browse}/${encodeURIComponent(path)}` : `#/browse/${browse}`;
@@ -82,7 +82,8 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     const waiting = group.comics.filter((comic) => comic.new > 0 && comic.position !== null).length;
     return `<a class="card group" href="${browseHash(browse, group.key)}">
       <div class="cover stack"><img loading="lazy" alt="" src="${api.coverUrl(first.id, first.cover)}">
-        <span class="badge count">${group.comics.length}</span>${waiting ? `<span class="badge new left">${waiting} updated</span>` : ""}</div>
+        <span class="badge count">${group.comics.length}</span>${waiting ? `<span class="badge new left">${waiting} updated</span>` : ""}
+        <button class="card-menu" type="button" aria-label="More for ${esc(group.label)}" data-group="${esc(group.key)}">⋯</button></div>
       <div class="name">${esc(group.label)}</div>
       <div class="meta">${browse === "folder" ? "Folder" : browse === "series" ? "Series" : "Author"}</div>
     </a>`;
@@ -136,30 +137,49 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
                 here.comics.map((comic) => card(comic, browse !== "folder")).join(""), here.comics.length);
   }
 
-  // what can be done to a comic besides reading it on: from the start, or marked read or unread. done from
-  // here rather than inside the reader, which keeps saving its place as it is read
+  // what can be done to a comic besides reading it on: from the start, or marked read or unread, and to a
+  // folder or series, all of it marked at once. done from here rather than inside the reader, which keeps
+  // saving its place as it is read. a choice that marks anything draws the library again from the server
+  type Choice = [label: string, act: () => Promise<unknown> | void, marks: boolean];
   let popup: HTMLElement | null = null;
   function closeMenu() {
     popup?.remove();
     popup = null;
   }
 
-  function openMenu(button: HTMLElement, comic: ComicSummary) {
+  function comicChoices(comic: ComicSummary): Choice[] {
+    const choices: Choice[] = [
+      ["Read from the start", () => open(comic.id, 0), false],
+      ["Mark as read", () => api.saveProgress(comic.id, Math.max(comic.pages - 1, 0)), true],
+    ];
+    // inside a folder or series, everything before this one too - catching up on a comic started elsewhere.
+    // never offered from a search, where the order on screen is not the shelf's
+    const before = search.value.trim() ? [] : upTo(comics, browse, path, comic.id);
+    if (before.length > 1) choices.push(["Mark as read up to here", () => api.markMany(before.map((each) => each.id), true), true]);
+    if (comic.position !== null) choices.push(["Mark as unread", () => api.forgetProgress(comic.id), true]);
+    return choices;
+  }
+
+  function groupChoices(group: Group): Choice[] {
+    const ids = group.comics.map((each) => each.id);
+    const choices: Choice[] = [["Mark all as read", () => api.markMany(ids, true), true]];
+    if (group.comics.some((each) => each.position !== null)) {
+      choices.push(["Mark all as unread", () => api.markMany(ids, false), true]);
+    }
+    return choices;
+  }
+
+  function openMenu(button: HTMLElement, choices: Choice[]) {
     closeMenu();
     popup = el("div", "card-pop");
-    const choices: [string, () => Promise<unknown> | void][] = [
-      ["Read from the start", () => open(comic.id, 0)],
-      ["Mark as read", () => api.saveProgress(comic.id, Math.max(comic.pages - 1, 0))],
-    ];
-    if (comic.position !== null) choices.push(["Mark as unread", () => api.forgetProgress(comic.id)]);
-    for (const [label, act] of choices) {
+    for (const [label, act, marks] of choices) {
       const choice = el("button");
       choice.textContent = label;
       choice.onclick = async (event) => {
         event.stopPropagation();
         closeMenu();
         await act();
-        if (label !== "Read from the start") {
+        if (marks) {
           comics = cached = (await api.library()).comics;
           draw();
         }
@@ -181,8 +201,11 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     if (more) {
       event.preventDefault();
       event.stopPropagation();
-      const comic = comics.find((each) => each.id === more.dataset.menu);
-      if (comic) openMenu(more, comic);
+      const comic = more.dataset.menu ? comics.find((each) => each.id === more.dataset.menu) : undefined;
+      const group = more.dataset.group !== undefined
+        ? shelf(comics, browse, path).groups.find((each) => each.key === more.dataset.group) : undefined;
+      if (comic) openMenu(more, comicChoices(comic));
+      else if (group) openMenu(more, groupChoices(group));
       return;
     }
     const link = (event.target as HTMLElement).closest<HTMLAnchorElement>("a.card[data-id]");

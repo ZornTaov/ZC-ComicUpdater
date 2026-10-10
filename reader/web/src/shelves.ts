@@ -112,6 +112,16 @@ export function shelf(comics: ComicSummary[], browse: Browse, path: string): She
   return { within: comics, groups: byName(groups), comics: loose.sort(compareComics) };
 }
 
+// a comic and every one before it on the same shelf, in the shelf's own order - what "read up to here" marks.
+// only inside a folder, series or author, where the order means something; at the top, or for a comic that
+// is not on this shelf but below it, there is nothing to count up to
+export function upTo(comics: ComicSummary[], browse: Browse, path: string, id: string): ComicSummary[] {
+  if (!path || browse === "all") return [];
+  const ordered = shelf(comics, browse, path).comics;
+  const at = ordered.findIndex((comic) => comic.id === id);
+  return at < 0 ? [] : ordered.slice(0, at + 1);
+}
+
 // what a path is called, for the heading
 export function pathLabel(browse: Browse, path: string): string {
   if (!path) return "Comics";

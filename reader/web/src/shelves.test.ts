@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ComicSummary } from "./api";
-import { compareComics, reading, recentlyUpdated, shelf } from "./shelves";
+import { compareComics, reading, recentlyUpdated, shelf, upTo } from "./shelves";
 
 const comic = (over: Partial<ComicSummary>): ComicSummary => ({
   id: over.name ?? over.title ?? "x", name: over.title ?? "x", title: "MyComic", series: null, number: null,
@@ -84,6 +84,11 @@ describe("folders", () => {
     expect(titles(reading(inside.within).reading)).toEqual(["Deep"]);
   });
 
+  it("reads up to a comic among those in the folder itself, not those in folders below it", () => {
+    expect(titles(upTo(library, "folder", "Site A", "Two"))).toEqual(["One", "Two"]);
+    expect(upTo(library, "folder", "Site A", "Deep")).toEqual([]);
+  });
+
   it("does not take a folder for one whose name starts the same", () => {
     const list = [comic({ title: "a", place: "Site" }), comic({ title: "b", place: "Site Two" })];
     expect(titles(shelf(list, "folder", "Site").within)).toEqual(["a"]);
@@ -109,6 +114,18 @@ describe("series and authors", () => {
     const twins = [comic({ title: "Same Name", place: "Uncompressed" }), comic({ title: "Same Name", place: "CBZs" })];
     const top = shelf(twins, "series", "");
     expect([top.groups.length, top.comics.length]).toEqual([0, 2]);
+  });
+
+  it("reads up to an issue in the series' own order, not the order the library came in", () => {
+    const list = [...library, comic({ title: "Third", series: "MyComic", number: "3" })];
+    expect(titles(upTo(list, "series", "MyComic", "Second"))).toEqual(["First", "Second"]);
+    expect(titles(upTo(list, "series", "MyComic", "Third"))).toEqual(["First", "Second", "Third"]);
+  });
+
+  it("has nothing to read up to at the top, or for a comic not on this shelf", () => {
+    expect(upTo(library, "series", "", "Second")).toEqual([]);
+    expect(upTo(library, "series", "MyComic", "Standalone")).toEqual([]);
+    expect(upTo(library, "all", "MyComic", "Second")).toEqual([]);
   });
 
   it("groups by author, with no author its own group only when there are several", () => {

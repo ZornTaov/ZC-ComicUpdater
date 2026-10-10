@@ -48,6 +48,20 @@ def test_how_far_down_a_page_is_kept_with_the_place(library, client, tmp_path):
     assert api.get("/api/comics/{0}".format(comic_id)).json()["part"] == 0
 
 
+def test_many_comics_are_marked_read_and_unread_at_once(library, client):
+    #a folder or series from its menu: each read to its own last page, one gone since is passed over
+    single(library, "MyComic", pages=5)
+    single(library, "OtherComic", pages=3)
+    api, _ = client()
+    ids = [comic["id"] for comic in api.get("/api/library").json()["comics"]]
+    marked = api.put("/api/progress", json={"comics": ids + ["gone"], "read": True}).json()
+    assert marked["marked"] == 2
+    comics = api.get("/api/library").json()["comics"]
+    assert sorted((comic["position"], comic["unread"]) for comic in comics) == [(2, 0), (4, 0)]
+    api.put("/api/progress", json={"comics": ids, "read": False})
+    assert [comic["position"] for comic in api.get("/api/library").json()["comics"]] == [None, None]
+
+
 def test_a_data_folder_from_before_gains_the_new_column(tmp_path):
     #progress kept by a reader from before "part" was a column is still read, and can be added to
     import sqlite3

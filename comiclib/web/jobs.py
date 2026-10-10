@@ -52,25 +52,42 @@ def within_week(entries):
 
 class LogTee:
     #everything update_comics prints still goes to the real output, so the container log is unchanged,
-    #and the recent lines are also kept for the page to show
+    #and the recent lines are also kept for the page to show. print writes its text and its newline as two
+    #calls, so a line is gathered per thread and passed on whole: one shared buffer let a request queueing a
+    #job and the worker starting another print at once, and the log showed "Queued: ...Checking ..."
     def __init__(self, stream, keep=3000):
         self.stream = stream
         self.lines = collections.deque(maxlen=keep)
         self.seq = 0
-        self.partial = ""
+        #per thread: what the page has not yet got a whole line of, and what the real output has not been sent
+        self.partial = {}
+        self.unsent = {}
         self.lock = threading.Lock()
 
     def write(self, text):
-        self.stream.write(text)
+        me = threading.get_ident()
         with self.lock:
-            self.partial += text
-            *finished, self.partial = self.partial.split("\n")
+            *finished, partial = (self.partial.pop(me, "") + text).split("\n")
             for line in finished:
                 self.seq += 1
                 self.lines.append((self.seq, time.time(), line))
+            unsent = self.unsent.pop(me, "") + text
+            cut = unsent.rfind("\n") + 1
+            if cut:
+                self.stream.write(unsent[:cut])
+            #kept only while a line is half written: the server starts a thread for every request
+            if partial:
+                self.partial[me] = partial
+            if unsent[cut:]:
+                self.unsent[me] = unsent[cut:]
         return len(text)
 
     def flush(self):
+        #a print with no newline still reaches the real output when it asks to be flushed
+        with self.lock:
+            rest = self.unsent.pop(threading.get_ident(), "")
+            if rest:
+                self.stream.write(rest)
         self.stream.flush()
 
     def since(self, seq):

@@ -60,13 +60,28 @@ def named(stem):
     return text, None
 
 
-def listed_in(library, where, name):
-    #the folder a comic is shown in, relative to the library, "" for the top. a folder holding nothing but
-    #one comic's own archives is that comic, not a folder to go into first
-    if os.path.basename(where).lower() == name.lower() and os.path.normpath(where) != library:
-        where = os.path.dirname(where)
+def listed_in(library, where):
+    #the folder a comic is in, relative to the library, "" for the top
     relative = os.path.relpath(where, library).replace(os.sep, "/")
     return "" if relative == "." else relative
+
+
+def lift_alone(found):
+    #a folder holding nothing but one comic of its own name is that comic, not a folder to go into first.
+    #nothing but: another comic beside it, or anywhere below it - a spin-off shelved inside the folder of
+    #the comic it came from - makes it a folder of comics, and the comic stays in it with the rest. told
+    #from the comics already found, so it costs no more reading of the shelf
+    held = {}
+    for comic in found:
+        parts = comic["place"].split("/") if comic["place"] else []
+        for depth in range(1, len(parts) + 1):
+            folder = "/".join(parts[:depth])
+            held[folder] = held.get(folder, 0) + 1
+    for comic in found:
+        name, place = comic.pop("named", None), comic["place"]
+        if name and place and place.rsplit("/", 1)[-1].lower() == name.lower() and held[place] == 1:
+            comic["place"] = place.rsplit("/", 1)[0] if "/" in place else ""
+    return found
 
 
 #a name's first number, and what comes before and after it: "Ch.01", "[10] NPC - A Very Bad Day", "001"
@@ -141,7 +156,7 @@ def gather(library, skip):
         where = {"chapters": shelf, "archive": os.path.dirname(single)}.get(kind, os.path.dirname(folder))
         comic = {"id": ident(os.path.relpath(folder, library)), "title": name, "author": None, "kind": kind,
                  "sources": sources, "folder": folder, "ended": bool(settings.get("ended")),
-                 "place": listed_in(library, where, name)}
+                 "place": listed_in(library, where), "named": name}
         found.append(comic)
         #a comic kept without an archive on purpose looks for none: an archive of its name is someone else's
         if kind != "folder" or settings.get("cbz") is not False:
@@ -173,12 +188,12 @@ def gather(library, skip):
                 claimed.update(chapters[0])
         elif len(single) == 1:
             comic.update(kind="archive", sources=single,
-                         place=listed_in(library, os.path.dirname(single[0]), comic["title"]))
+                         place=listed_in(library, os.path.dirname(single[0])))
             claimed.add(single[0])
         elif not single and len(chapters) == 1:
             ordered = sorted(chapters[0], key=chapter_order)
             comic.update(kind="chapters", sources=ordered,
-                         place=listed_in(library, os.path.dirname(ordered[0]), comic["title"]))
+                         place=listed_in(library, os.path.dirname(ordered[0])))
             claimed.update(ordered)
     #archives no comic folder claims: a shelf of archives from somewhere else, or a comic whose loose
     #pages are gone. chapter archives of one series beside each other are read as one comic
@@ -203,13 +218,13 @@ def gather(library, skip):
             title, author = named(series)
             found.append({"id": ident(relative), "title": title, "author": author, "kind": "chapters",
                           "sources": sorted(members, key=chapter_order), "folder": None, "ended": None,
-                          "place": listed_in(library, where, series)})
+                          "place": listed_in(library, where), "named": series})
         else:
             stem = os.path.splitext(os.path.basename(where))[0]
             title, author = named(stem)
             comic = {"id": ident(os.path.relpath(where, library)), "title": title, "author": author,
                      "kind": "archive", "sources": members, "folder": None, "ended": None,
-                     "place": listed_in(library, os.path.dirname(where), title)}
+                     "place": listed_in(library, os.path.dirname(where)), "named": title}
             if where in runs:
                 number, name = runs[where]
                 series = name or os.path.basename(os.path.dirname(where))
@@ -218,7 +233,7 @@ def gather(library, skip):
                 if stem.strip().isdigit():
                     comic["title"] = "{0} {1}".format(series, number)
             found.append(comic)
-    return split_chapters(library, found)
+    return lift_alone(split_chapters(library, found))
 
 
 def split_chapters(library, found):

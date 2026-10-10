@@ -117,6 +117,28 @@ def test_each_comic_says_where_it_is_shelved_and_what_its_comicinfo_calls_it(lib
     assert by_name["Alone"]["place"] == "", "a folder holding only its own comic is that comic"
 
 
+def test_a_comic_shares_the_folder_of_its_name_with_another_comic_shelved_in_it(library, make_app):
+    #a scraped comic's archive in the folder of its name, and later a spin-off from somewhere else put in
+    #that folder too - its parts beside the archive, or a folder of numbered parts below it. the folder is
+    #no longer just the comic: it is a folder of both, and the comic is shown in it, not above it
+    def part(path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(str(path), "w") as zf:
+            zf.writestr("01.png", png(4, 4))
+    folder = comic_folder(library, "MyComic", 2, settings={"cbz_path": "CBZs/mycomic/mycomic.cbz"})
+    cbz.write(str(library / "CBZs" / "mycomic" / "mycomic.cbz"), str(folder), page_names(folder))
+    for number in (1, 2, 3):
+        part(library / "CBZs" / "mycomic" / "spin-off" / "{0:03d}.cbz".format(number))
+    app = make_app()
+    places = {comic["title"]: comic["place"] for comic in app.state.library.comics.values()}
+    assert places["MyComic"] == "CBZs/mycomic"
+    assert places["spin-off 1"] == "CBZs/mycomic/spin-off"
+    part(library / "CBZs" / "mycomic" / "Another.cbz")
+    app = make_app()
+    places = {comic["title"]: comic["place"] for comic in app.state.library.comics.values()}
+    assert (places["MyComic"], places["Another"]) == ("CBZs/mycomic", "CBZs/mycomic")
+
+
 def test_a_comic_whose_archive_was_moved_since_its_metadata_was_written_is_still_one_comic(library, make_app):
     #metadata in the first way it was ever written - archive_path, not settings - naming where the archive
     #was before the shelf was sorted into a folder per author

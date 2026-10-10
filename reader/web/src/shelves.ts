@@ -29,10 +29,34 @@ export interface Reading {
   reading: ComicSummary[];
 }
 
-// what is being read: comics read to the end that have since gained pages, and comics read part way
+// the next issue of a series read to its end: an archive never opened, straight after one read through, that
+// was written after that one was finished. a comic packed a hundred pages to an archive starts a new one as it
+// grows, and that is new pages as surely as the last one gaining them. one already there when the last was
+// finished is only the rest of a series not read yet, and stays out
+export function nextIssues(comics: ComicSummary[]): Set<string> {
+  const out = new Set<string>();
+  const bySeries = groupedBy(comics.filter((comic) => comic.series !== null), (comic) => `${comic.place}\n${comic.series}`);
+  for (const list of bySeries.values()) {
+    list.sort(compareComics);
+    list.forEach((comic, at) => {
+      const before = list[at - 1];
+      if (before && comic.position === null && before.position !== null && before.unread <= 0
+          && before.read !== null && comic.updated > before.read) out.add(comic.id);
+    });
+  }
+  return out;
+}
+
+// what is being read: comics read to the end that have since gained pages - or gained a next issue - and
+// comics read part way
 export function reading(comics: ComicSummary[]): Reading {
   const out: Reading = { updated: [], reading: [] };
+  const next = nextIssues(comics);
   for (const comic of comics) {
+    if (next.has(comic.id)) {
+      out.updated.push(comic);
+      continue;
+    }
     if (comic.position === null || comic.unread <= 0) continue;
     if (comic.new > 0 && comic.unread <= comic.new) out.updated.push(comic);
     else out.reading.push(comic);

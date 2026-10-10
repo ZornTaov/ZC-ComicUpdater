@@ -41,6 +41,32 @@ describe("reading", () => {
     ]);
     expect([titles(now.updated), titles(now.reading)]).toEqual([["updated"], ["part way"]]);
   });
+
+  // a comic packed a hundred pages to an archive, read through to its last one
+  const run = (next: Partial<ComicSummary>) => [
+    comic({ title: "Pages 1-100", series: "MyComic", number: "1", place: "CBZs/MyComic", position: 99, unread: 0, read: 1000 }),
+    comic({ title: "Pages 101-200", series: "MyComic", number: "2", place: "CBZs/MyComic", updated: 2000, ...next }),
+  ];
+
+  it("counts the next archive of a series read to its end as new pages, once it arrives after", () => {
+    expect(titles(reading(run({})).updated)).toEqual(["Pages 101-200"]);
+  });
+
+  it("leaves out a next issue that was already there when the last was finished", () => {
+    expect(reading(run({ updated: 500 })).updated).toEqual([]);
+  });
+
+  it("leaves out a next issue after one not read to its end, or one already opened", () => {
+    const list = run({});
+    list[0].unread = 3;
+    expect(titles(reading(list).updated)).toEqual([]);
+    expect(titles(reading(run({ position: 4, unread: 95 })).reading)).toEqual(["Pages 101-200"]);
+  });
+
+  it("only counts the issue straight after the one read, not every one past it", () => {
+    const list = [...run({}), comic({ title: "Pages 201-300", series: "MyComic", number: "3", place: "CBZs/MyComic", updated: 3000 })];
+    expect(titles(reading(list).updated)).toEqual(["Pages 101-200"]);
+  });
 });
 
 describe("recently updated", () => {

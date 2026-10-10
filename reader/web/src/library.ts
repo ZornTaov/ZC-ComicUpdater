@@ -2,7 +2,7 @@
 // place being looked at is in the address, so the back button goes back up and a folder can be bookmarked
 import { api, type ComicSummary } from "./api";
 import { el, esc } from "./dom";
-import { BROWSE_LABELS, type Browse, type Group, matches, pathLabel, reading, recentlyUpdated, shelf, upTo } from "./shelves";
+import { BROWSE_LABELS, type Browse, type Group, matches, nextIssues, pathLabel, reading, recentlyUpdated, shelf, upTo } from "./shelves";
 
 export function browseHash(browse: Browse, path = ""): string {
   return path ? `#/browse/${browse}/${encodeURIComponent(path)}` : `#/browse/${browse}`;
@@ -55,8 +55,12 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     return `+${comic.added} page${comic.added === 1 ? "" : "s"} ${when}`;
   }
 
+  // the next issues of series read to their ends, which count as new pages though never opened
+  let next = new Set<string>();
+
   function card(comic: ComicSummary, away = true, growth = false): string {
     const badge = comic.new > 0 && comic.position !== null ? `<span class="badge new">${comic.new} new</span>`
+      : next.has(comic.id) ? `<span class="badge new">${comic.pages} new</span>`
       : comic.position !== null && comic.unread > 0 ? `<span class="badge">${comic.unread} left</span>`
       : comic.ended && comic.position !== null && comic.unread <= 0 ? '<span class="badge done">Ended</span>' : "";
     const read = comic.position === null ? 0 : Math.round(((comic.position + 1) / Math.max(comic.pages, 1)) * 100);
@@ -79,7 +83,7 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     // a folder, a series or an author: the cover of the first comic in it, stacked, with how many there are
     // and how many have pages waiting
     const first = group.comics.find((comic) => comic.cover) ?? group.comics[0];
-    const waiting = group.comics.filter((comic) => comic.new > 0 && comic.position !== null).length;
+    const waiting = group.comics.filter((comic) => (comic.new > 0 && comic.position !== null) || next.has(comic.id)).length;
     return `<a class="card group" href="${browseHash(browse, group.key)}">
       <div class="cover stack"><img loading="lazy" alt="" src="${api.coverUrl(first.id, first.cover)}">
         <span class="badge count">${group.comics.length}</span>${waiting ? `<span class="badge new left">${waiting} updated</span>` : ""}
@@ -109,6 +113,7 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
 
   function draw() {
     crumbs();
+    next = nextIssues(comics);
     const query = search.value.trim();
     if (!comics.length) {
       main.innerHTML = '<p class="empty">No comics yet. The library is looked over every few minutes; Refresh looks now.</p>';

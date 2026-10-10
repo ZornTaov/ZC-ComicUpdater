@@ -4,8 +4,11 @@ import { api, type ComicSummary } from "./api";
 import { el, esc } from "./dom";
 import { BROWSE_LABELS, type Browse, type Group, matches, nextIssues, pathLabel, reading, recentlyUpdated, shelf, upTo } from "./shelves";
 
+// each name encoded alone and joined with real slashes, so a folder's address reads as its path. the whole
+// rest of the address is decoded as one, so this comes back the same - a series named with a slash in it
+// too - and an address saved when the slashes were %2F still opens
 export function browseHash(browse: Browse, path = ""): string {
-  return path ? `#/browse/${browse}/${encodeURIComponent(path)}` : `#/browse/${browse}`;
+  return path ? `#/browse/${browse}/${path.split("/").map(encodeURIComponent).join("/")}` : `#/browse/${browse}`;
 }
 
 const REMEMBERED = "reader.browse";

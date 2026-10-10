@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Page } from "./api";
-import { chapterOf, keyAction, pageAt, placeStrip, tapAction, viewOf, views, wanted } from "./layout";
+import { chapterOf, chapterTarget, keyAction, pageAt, placeStrip, tapAction, typedPage, viewOf, views, wanted } from "./layout";
 import { clean, merged } from "./settings";
 
 const page = (w: number | null = 800, h: number | null = 1200, standin = false): Page => ({ v: "1", w, h, standin, media: null });
@@ -65,6 +65,50 @@ describe("taps and keys", () => {
     expect(keyAction("ArrowDown", false, "ltr")).toBe("down");
     expect(keyAction("ArrowUp", false, "rtl")).toBe("up");
     expect(keyAction("PageUp", false, "ltr")).toBe("back");
+  });
+
+  it("jumps to the ends, by ten with shift the same way round as the arrows, and by chapter with brackets", () => {
+    expect(keyAction("Home", false, "ltr")).toBe("first");
+    expect(keyAction("End", false, "rtl")).toBe("last");
+    expect(keyAction("ArrowRight", true, "ltr")).toBe("ahead");
+    expect(keyAction("ArrowLeft", true, "ltr")).toBe("behind");
+    expect(keyAction("ArrowLeft", true, "rtl")).toBe("ahead");
+    expect(keyAction("ArrowRight", true, "rtl")).toBe("behind");
+    expect(keyAction("]", false, "rtl")).toBe("nextChapter");
+    expect(keyAction("[", false, "ltr")).toBe("previousChapter");
+  });
+});
+
+describe("jumps", () => {
+  const starts = [0, 10, 20];
+  it("go on to the next chapter's start, or leave the comic past its last", () => {
+    expect(chapterTarget(starts, 3, true)).toBe(10);
+    expect(chapterTarget(starts, 10, true)).toBe(20);
+    expect(chapterTarget(starts, 25, true)).toBeNull();
+    expect(chapterTarget([5, 10], 2, true)).toBe(5);
+  });
+
+  it("go back to the start of the chapter being read, and from there to the one before", () => {
+    expect(chapterTarget(starts, 15, false)).toBe(10);
+    expect(chapterTarget(starts, 10, false)).toBe(0);
+    expect(chapterTarget(starts, 0, false)).toBeNull();
+    expect(chapterTarget([5, 10], 5, false)).toBe(0);
+    expect(chapterTarget([5, 10], 2, false)).toBeNull();
+  });
+
+  it("take a comic with no chapters inside it as one, so back goes to its start before the comic before", () => {
+    expect(chapterTarget([], 4, true)).toBeNull();
+    expect(chapterTarget([], 4, false)).toBe(0);
+    expect(chapterTarget([], 0, false)).toBeNull();
+  });
+
+  it("read a typed page from one, kept within the comic", () => {
+    expect(typedPage("12", 50)).toBe(11);
+    expect(typedPage(" 1 ", 50)).toBe(0);
+    expect(typedPage("0", 50)).toBe(0);
+    expect(typedPage("999", 50)).toBe(49);
+    expect(typedPage("", 50)).toBeNull();
+    expect(typedPage("abc", 50)).toBeNull();
   });
 });
 

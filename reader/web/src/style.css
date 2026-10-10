@@ -170,9 +170,16 @@ button {
 .menu .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .menu select { max-width: 45vw; background: #2a2724; border: 1px solid #444; border-radius: 8px; padding: 6px; }
 .menu button { background: #2a2724; border-color: #444; color: #eee; }
-.slider-row { display: flex; gap: 10px; align-items: center; }
-.slider-row input { flex: 1; accent-color: var(--accent); }
-.where { min-width: 84px; font-variant-numeric: tabular-nums; }
+/* the jumps either side of the slider, back on its left and on on its right, as its pages run */
+.slider-row { display: flex; gap: 6px; align-items: center; }
+.slider-row input { flex: 1; min-width: 60px; accent-color: var(--accent); }
+.slider-row button { padding: 6px 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.menu button:disabled { opacity: .4; }
+.where { display: flex; gap: 6px; align-items: center; font-variant-numeric: tabular-nums; }
+.where input {
+  width: 5ch; background: #2a2724; color: #eee; border: 1px solid #444; border-radius: 6px;
+  padding: 5px 6px; text-align: right; font: inherit;
+}
 .buttons { display: flex; gap: 6px; flex-wrap: wrap; }
 .sheet {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);

@@ -49,11 +49,15 @@ export function tapAction(x: number, width: number, settings: Pick<Settings, "zo
 
 // what a key does, the same way round as the taps: the arrows follow the reading direction, everything
 // else - space, page down, a page-turner's buttons - always goes forward
-// up and down are for moving the page a little, to put it just where it reads best: never a turn
-export function keyAction(key: string, shift: boolean, direction: "ltr" | "rtl"): Action | "first" | "last" | "up" | "down" | null {
+// up and down are for moving the page a little, to put it just where it reads best: never a turn. shift
+// with an arrow skips ahead or back by ten, the same way round as the arrow alone
+export type KeyAction = Action | "first" | "last" | "up" | "down" | "ahead" | "behind" | "nextChapter" | "previousChapter";
+export function keyAction(key: string, shift: boolean, direction: "ltr" | "rtl"): KeyAction | null {
   switch (key) {
-    case "ArrowRight": return direction === "rtl" ? "back" : "forward";
-    case "ArrowLeft": return direction === "rtl" ? "forward" : "back";
+    case "ArrowRight": return direction === "rtl" ? (shift ? "behind" : "back") : (shift ? "ahead" : "forward");
+    case "ArrowLeft": return direction === "rtl" ? (shift ? "ahead" : "forward") : (shift ? "behind" : "back");
+    case "]": return "nextChapter";
+    case "[": return "previousChapter";
     case "ArrowDown": return "down";
     case "ArrowUp": return "up";
     case "PageDown": case "Enter": return "forward";
@@ -144,4 +148,27 @@ export function chapterOf(starts: number[], page: number): number {
   let found = -1;
   for (let at = 0; at < starts.length; at++) if (starts[at] <= page) found = at;
   return found;
+}
+
+// the page a jump to the next or the previous chapter lands on, or null where that chapter is not in this
+// comic at all - past its last, or before its first - and is the comic either side, as a comic packed one
+// archive per chapter has it: a comic with no chapters inside it is one chapter from its first page. back
+// goes to the start of the chapter being read first, as a player's back goes to the start of the track,
+// and only from there to the one before
+export function chapterTarget(chapterStarts: number[], page: number, forward: boolean): number | null {
+  const starts = chapterStarts.length ? chapterStarts : [0];
+  const at = chapterOf(starts, page);
+  if (forward) return at + 1 < starts.length ? starts[at + 1] : null;
+  if (at >= 0 && page > starts[at]) return starts[at];
+  if (at >= 1) return starts[at - 1];
+  // pages before the first chapter - a cover, a foreword - are where back goes from the first chapter's start
+  return at === 0 && starts[0] > 0 ? 0 : null;
+}
+
+// the page a typed page number means: counted from one as the reader sees them, kept within the comic.
+// null for anything that is not a number, which leaves the reader where it is
+export function typedPage(text: string, count: number): number | null {
+  const n = Number.parseInt(text.trim(), 10);
+  if (!Number.isFinite(n) || count < 1) return null;
+  return Math.max(0, Math.min(count - 1, n - 1));
 }

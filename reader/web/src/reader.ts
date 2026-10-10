@@ -3,7 +3,7 @@
 // changes, by page rather than by number, so it survives the comic growing or being renumbered.
 import { api, type StandIn } from "./api";
 import { attachGestures } from "./gestures";
-import { chapterOf, keyAction, tapAction, viewOf, views, wanted } from "./layout";
+import { chapterOf, chapterTarget, keyAction, tapAction, typedPage, viewOf, views, wanted } from "./layout";
 import { Strip } from "./strip";
 import { clean, merged, type Settings } from "./settings";
 import { el, esc } from "./dom";
@@ -224,7 +224,8 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
 
   // past the end of a chapter, its next chapter from the start; before its start, the one before from its
   // end - as a comic in chapters reads straight through. at the end of the last, the end
-  function onward(forward: boolean) {
+  // a jump to the chapter before opens it at its start, where a turn back opens it at its end
+  function onward(forward: boolean, fromStart = forward) {
     const part = forward ? comic.next : comic.previous;
     if (!part) {
       if (!forward) return notify("This is the first page");
@@ -234,12 +235,24 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     saveTimer = undefined;
     save(true);
     notify(part.title);
-    location.hash = forward ? `#/read/${part.id}/1` : `#/read/${part.id}/999999`;
+    location.hash = fromStart ? `#/read/${part.id}/1` : `#/read/${part.id}/999999`;
   }
 
   function go(n: number) {
     view = viewOf(shown, clamp(n, 0, comic.pages.length - 1));
     render();
+  }
+
+  // jumps are counted from the first page on screen: a chapter always starts a view of its own, so that
+  // page is in the chapter being read, and back from a spread is back from what was read first
+  function jumpBy(pages: number) {
+    go(shown[view][0] + pages);
+  }
+
+  function jumpChapter(forward: boolean) {
+    const target = chapterTarget(starts, shown[view][0], forward);
+    if (target === null) return onward(forward, true);
+    go(target);
   }
 
   let toastTimer: number | undefined;
@@ -324,10 +337,16 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
       </header>
       <footer>
         <div class="slider-row">
-          <span class="where"></span>
-          <input type="range" min="0" max="${comic.pages.length - 1}" step="1" data-act="slider">
+          <button data-act="first" title="First page (Home)" aria-label="First page">⏮</button>
+          <button data-act="previousChapter" title="Previous chapter ([)" aria-label="Previous chapter">‹ Ch</button>
+          <button data-act="behind" title="Back ten pages (Shift and arrow)" aria-label="Back ten pages">−10</button>
+          <input type="range" min="0" max="${comic.pages.length - 1}" step="1" data-act="slider" aria-label="Page">
+          <button data-act="ahead" title="On ten pages (Shift and arrow)" aria-label="On ten pages">+10</button>
+          <button data-act="nextChapter" title="Next chapter (])" aria-label="Next chapter">Ch ›</button>
+          <button data-act="last" title="Last page (End)" aria-label="Last page">⏭</button>
         </div>
         <div class="buttons">
+          <label class="where">Page <input type="text" inputmode="numeric" data-act="page" aria-label="Go to page"> / ${comic.pages.length}</label>
           <button data-act="mode"></button>
           <button data-act="direction"></button>
           <button data-act="fit"></button>
@@ -339,8 +358,32 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     const chapterSelect = menu.querySelector<HTMLSelectElement>('[data-act="chapter"]');
     if (chapterSelect) chapterSelect.onchange = () => { go(comic.chapters[Number(chapterSelect.value)].start); };
     const slider = menu.querySelector<HTMLInputElement>('[data-act="slider"]')!;
-    slider.oninput = () => { menu.querySelector(".where")!.textContent = `${Number(slider.value) + 1} / ${comic.pages.length}`; };
+    const pageBox = menu.querySelector<HTMLInputElement>('[data-act="page"]')!;
+    slider.oninput = () => { pageBox.value = String(Number(slider.value) + 1); };
     slider.onchange = () => go(Number(slider.value));
+    // a page typed in is gone to on enter, or on leaving the box; anything not a number puts back where
+    // the reader is. the box lets go of the keyboard after, so the arrows turn pages again
+    pageBox.onfocus = () => pageBox.select();
+    pageBox.onchange = () => {
+      const n = typedPage(pageBox.value, comic.pages.length);
+      if (n === null) updateMenu();
+      else go(n);
+    };
+    pageBox.onkeydown = (event) => {
+      if (event.key === "Enter") pageBox.blur();
+      if (event.key === "Escape") { pageBox.value = ""; pageBox.blur(); }
+    };
+    const jumps: Record<string, () => void> = {
+      first: () => go(0),
+      last: () => go(comic.pages.length - 1),
+      behind: () => jumpBy(-10),
+      ahead: () => jumpBy(10),
+      previousChapter: () => jumpChapter(false),
+      nextChapter: () => jumpChapter(true),
+    };
+    for (const [act, jump] of Object.entries(jumps)) {
+      menu.querySelector<HTMLButtonElement>(`[data-act="${act}"]`)!.onclick = jump;
+    }
     const cycle = <K extends keyof Settings>(key: K, values: Settings[K][]) => () => {
       const now = values.indexOf(settings[key]);
       change({ [key]: values[(now + 1) % values.length] } as Partial<Settings>);
@@ -358,8 +401,21 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     const at = page();
     const slider = menu.querySelector<HTMLInputElement>('[data-act="slider"]');
     if (slider) slider.value = String(at);
-    const where = menu.querySelector(".where");
-    if (where) where.textContent = `${at + 1} / ${comic.pages.length}`;
+    // not while a page is being typed into it
+    const pageBox = menu.querySelector<HTMLInputElement>('[data-act="page"]');
+    if (pageBox && document.activeElement !== pageBox) pageBox.value = String(at + 1);
+    // what has nowhere to go is greyed: no page before the first, no chapter before the first of the first
+    const first = shown[view][0];
+    const disable = (act: string, off: boolean) => {
+      const button = menu.querySelector<HTMLButtonElement>(`[data-act="${act}"]`);
+      if (button) button.disabled = off;
+    };
+    disable("first", first === 0);
+    disable("behind", first === 0);
+    disable("last", at === comic.pages.length - 1);
+    disable("ahead", at === comic.pages.length - 1);
+    disable("previousChapter", chapterTarget(starts, first, false) === null && !comic.previous);
+    disable("nextChapter", chapterTarget(starts, first, true) === null && !comic.next);
     const chapterSelect = menu.querySelector<HTMLSelectElement>('[data-act="chapter"]');
     if (chapterSelect) chapterSelect.value = String(Math.max(0, chapterOf(starts, at)));
     const label = (act: string, text: string) => {
@@ -543,6 +599,8 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     if (action === "menu") return event.key === "Escape" && menu.classList.contains("hidden") ? (save(), leave()) : toggleMenu();
     if (action === "first") return go(0);
     if (action === "last") return go(comic.pages.length - 1);
+    if (action === "ahead" || action === "behind") return jumpBy(action === "ahead" ? 10 : -10);
+    if (action === "nextChapter" || action === "previousChapter") return jumpChapter(action === "nextChapter");
     if (action === "up" || action === "down") return nudge(action === "down" ? 1 : -1);
     turn(action === "forward");
   };

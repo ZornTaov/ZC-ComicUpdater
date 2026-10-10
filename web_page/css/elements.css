@@ -29,6 +29,10 @@
 .check-result pre { margin: 0; font-size: 12px; line-height: 1.45; white-space: pre-wrap;
   word-break: break-word; max-height: 46vh; overflow: auto; }
 .check-result { margin-top: 10px; font-size: 12.5px; }
+/*a result standing alone in its dialog - the chapter list check, a skipped page tried out - gets the log's
+  panel, so where the report starts and ends is plain. one inside a check-box already sits on it*/
+:not(.check-box) > .check-result:not(:empty) { background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 10px; }
 .check-result .hit { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; padding: 3px 0; }
 .check-result code { overflow-wrap: anywhere; }
 /*what the check worked out about the page, as opposed to which paths matched it: a comic serving several

@@ -4,6 +4,10 @@
 dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink);
   padding: 0; width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
 dialog[open] { display: flex; overflow: hidden; }
+/*a table of six columns, one of them a page picked by number and name: at the usual width that box showed
+  "1 ·" and the buttons beside it broke over two lines*/
+dialog#bounds { width: min(960px, calc(100vw - 32px)); }
+#bd-rows td:last-child { white-space: nowrap; }
 /*every dialog, not just the editor: the form has to be a column that may shrink, or it grows to its
   content, the dialog's overflow cuts it off at the screen's edge, and the buttons go with it. a check
   result or the opened help can push a dialog past a 720p screen*/

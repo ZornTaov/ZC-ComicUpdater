@@ -12,9 +12,11 @@ function pageSaid(page) {
 }
 
 //a browser filters its list by the option's value, so the value has to hold both things you might
-//type: the page number and the page's name. the number is read back off the front of it.
+//type: the page number and the page's name. the number is read back off the front of it. a comic whose
+//titles differ only by their number ("Page 1", "Page 2") has no name beyond it, and "9 · 9" says nothing
 function pageValue(page) {
-  return `${page.n} · ${pageSaid(page)}`.slice(0, 90);
+  const said = String(pageSaid(page)).trim();
+  return said === String(page.n) ? said : `${page.n} · ${said}`.slice(0, 90);
 }
 
 //what to send for a typed box: a page number if it names one, otherwise whatever was typed, so an

@@ -40,9 +40,11 @@ def test_a_page_chosen_as_a_comics_cover_is_its_cover_and_is_written_beside_its_
     comic = comic_of(api, "MyComic")
     first = comic["cover"]
     chosen = api.put("/api/covers", json={"target": "comic:" + comic["id"], "comic": comic["id"], "page": 2}).json()
-    assert chosen["shelf"] == "CBZs/MyComic.jpg" and chosen["note"] is None
-    beside = library / "CBZs" / "MyComic.jpg"
-    assert beside.is_file() and not (folder / "cover.jpg").exists()
+    #the page itself, as the png it is: not made into anything else
+    assert chosen["shelf"] == "CBZs/MyComic.png" and chosen["note"] is None
+    beside = library / "CBZs" / "MyComic.png"
+    assert beside.read_bytes() == (folder / "0003_page3.png").read_bytes()
+    assert not (folder / "cover.png").exists()
     comic = comic_of(api, "MyComic")
     assert comic["cover"] != first and comic["coverChosen"]
     #the third page's picture, shaded as conftest shades page 3
@@ -90,6 +92,34 @@ def test_a_folder_gets_a_cover_of_its_own_put_in_and_written_into_it(library, cl
     #what is not a picture is refused, saying so
     refused = api.put("/api/covers/upload", params={"target": "folder:CBZs/SomeAuthor"}, content=b"not a picture")
     assert refused.status_code == 400 and "not a picture" in refused.json()["detail"]
+
+
+def clear_png(width, height):
+    #a picture drawn on a see-through background
+    out = io.BytesIO()
+    found = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    found.putpixel((width // 2, height // 2), (255, 0, 0, 255))
+    found.save(out, "PNG")
+    return out.getvalue()
+
+
+def test_a_see_through_cover_stays_one_on_the_shelf_and_on_the_tile(library, client):
+    single(library, "MyComic", "CBZs/SomeAuthor")
+    single(library, "OtherComic", "CBZs/SomeAuthor")
+    api, _ = client()
+    target = {"target": "folder:CBZs/SomeAuthor"}
+    #a jpeg first, then a png with a clear background put in its place
+    api.put("/api/covers/upload", params=target, content=jpeg(300, 450, (10, 200, 30)))
+    assert (library / "CBZs" / "SomeAuthor" / "cover.jpg").is_file()
+    body = clear_png(300, 450)
+    uploaded = api.put("/api/covers/upload", params=target, content=body).json()
+    assert uploaded["shelf"] == "CBZs/SomeAuthor/cover.png"
+    assert (library / "CBZs" / "SomeAuthor" / "cover.png").read_bytes() == body, "byte for byte as it came"
+    assert not (library / "CBZs" / "SomeAuthor" / "cover.jpg").exists(), "the reader's own jpeg is taken off"
+    shown = api.get("/api/covers", params=target)
+    assert shown.headers["content-type"] == "image/png"
+    with Image.open(io.BytesIO(shown.content)) as tile:
+        assert tile.mode == "RGBA" and tile.getpixel((0, 0))[3] == 0, "the tile is see-through where the cover is"
 
 
 def test_a_comics_folder_of_pages_is_never_written_into(library, client):

@@ -4,7 +4,8 @@
 #
 #a cover chosen in the reader is kept in its data folder, and written onto the shelf as well where there is a
 #place for it, so other readers show it too: beside a comic's archive, or in a folder of the shelf. never in a
-#comic's own folder of pages, which the scraper would pack as a page
+#comic's own folder of pages, which the scraper would pack as a page. either way it is the picture itself,
+#byte for byte, under its own kind's ending: a png drawn with a clear background stays one
 import hashlib
 import io
 import os
@@ -16,8 +17,8 @@ KINDS = ("comic", "folder", "series", "author")
 #the names a folder's own picture goes by, in the order they are looked for, as other readers look for them
 FOLDER_NAMES = ("cover", "folder", "poster")
 ENDINGS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
-#the size a cover written onto the shelf is kept to: plenty for any reader's shelf, and no page-sized file
-SHELF_SIZE = (1200, 1800)
+#a picture's ending, by the kind Pillow reads it as
+KIND_ENDINGS = {"JPEG": ".jpg", "PNG": ".png", "GIF": ".gif", "WEBP": ".webp"}
 #what an upload can be at most
 MOST = 20 << 20
 
@@ -28,15 +29,30 @@ class Unusable(Exception):
 
 
 def picture(body, size, quality=85):
-    #a picture as a jpeg no bigger than size. Pillow, since it has to be scaled well and this is the
-    #reader's own image, not the scraper's
+    #a picture made small for the reader's own shelf, as (bytes, media type): a png where it has anything
+    #see-through in it, so a cover drawn on a clear background is shown on one, and a jpeg otherwise. Pillow,
+    #since it has to be scaled well and this is the reader's own image, not the scraper's
     from PIL import Image
     with Image.open(io.BytesIO(body)) as found:
-        found = found.convert("RGB")
+        clear = found.mode in ("RGBA", "LA", "PA") or (found.mode == "P" and "transparency" in found.info)
+        found = found.convert("RGBA" if clear else "RGB")
         found.thumbnail(size)
         out = io.BytesIO()
+        if clear:
+            found.save(out, "PNG", optimize=True)
+            return out.getvalue(), "image/png"
         found.save(out, "JPEG", quality=quality)
-    return out.getvalue()
+    return out.getvalue(), "image/jpeg"
+
+
+def ending_of(body):
+    #the ending a picture's own kind goes by, or None for anything that is not a picture a reader shows
+    from PIL import Image
+    try:
+        with Image.open(io.BytesIO(body)) as found:
+            return KIND_ENDINGS.get(found.format)
+    except Exception:  # noqa: BLE001 - whatever Pillow cannot open is not a picture
+        return None
 
 
 def split(target):
@@ -147,34 +163,57 @@ def body_of(library, where):
 
 
 def shelf_place(library, target):
-    #where on the shelf a target's cover is written for other readers, or None where there is nowhere: beside
-    #a comic's one archive, or in a folder of the shelf that is no comic's own folder of pages
+    #where on the shelf a target's cover is written for other readers, without its ending - that is the
+    #picture's own - or None where there is nowhere: beside a comic's one archive, or in a folder of the shelf
+    #that is no comic's own folder of pages
     kind, key = split(target)
     if kind == "comic":
         comic = library.comics.get(key)
         if comic is None or comic["kind"] != "archive" or len(comic["sources"]) != 1:
             return None
-        return os.path.splitext(comic["sources"][0])[0] + ".jpg"
+        return os.path.splitext(comic["sources"][0])[0]
     if kind == "folder":
         folder = folder_of(library, key)
         root = os.path.normpath(library.config.library)
         if folder == root or not folder.startswith(root + os.sep) or not os.path.isdir(folder) or \
                 os.path.isfile(os.path.join(folder, METADATA_FILE)):
             return None
-        return os.path.join(folder, "cover.jpg")
+        return os.path.join(folder, "cover")
     return None
 
 
-def write_to_shelf(library, target, body):
-    #the cover written onto the shelf, aside and moved into place. answers where, and what it was left as,
-    #or why it could not be: the cover is still the reader's either way
-    path = shelf_place(library, target)
-    if path is None:
-        return None, None
+def take_off(library, wrote):
+    #a picture this reader put on the shelf, taken off again if it is still just as it was left. one changed
+    #since is someone else's now, and stays. answers what there is to say about it, or None
+    path = wrote[0]
     try:
-        made = picture(body, SHELF_SIZE)
+        found = os.stat(path)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        return "{0} could not be taken off the shelf ({1})".format(os.path.basename(path), error.strerror or error)
+    if [found.st_size, found.st_mtime_ns] != wrote[1:]:
+        return "{0} was changed since the reader wrote it, so it was left on the shelf".format(os.path.basename(path))
+    try:
+        os.remove(path)
+    except OSError as error:
+        return "{0} could not be taken off the shelf ({1})".format(os.path.basename(path), error.strerror or error)
+    there = library.pictures.get(os.path.normpath(os.path.dirname(path))) or {}
+    there.pop(os.path.basename(path).lower(), None)
+    return None
+
+
+def write_to_shelf(library, target, body, ending, before=None):
+    #the cover written onto the shelf as it is, aside and moved into place. the one this reader wrote before -
+    #a jpeg, say, where this is a png - is taken off, so other readers find one cover, not two. answers where
+    #and what it was left as, or why it could not be: the cover is still the reader's either way
+    stem = shelf_place(library, target)
+    if stem is None:
+        return None, None
+    path = stem + ending
+    try:
         with open(path + ".writing", "wb") as f:
-            f.write(made)
+            f.write(body)
         os.replace(path + ".writing", path)
     except OSError as error:
         try:
@@ -182,6 +221,8 @@ def write_to_shelf(library, target, body):
         except OSError:
             pass
         return None, "kept in the reader only: it could not be written beside the comic ({0})".format(error.strerror or error)
+    if before and before[0] != path:
+        take_off(library, before)
     library.pictures.setdefault(os.path.normpath(os.path.dirname(path)), {})[os.path.basename(path).lower()] = path
     found = os.stat(path)
     return [path, found.st_size, found.st_mtime_ns], None
@@ -203,7 +244,11 @@ def choose_page(library, target, comic_id, n):
     if not 0 <= n < len(pages):
         raise Unusable("{0} has {1} pages".format(comic["title"], len(pages)))
     row = {"comic": comic_id, "key": pages[n]["key"], "position": n}
-    return keep(library, target, row, body_of(library, ("page", comic, n)))
+    body = body_of(library, ("page", comic, n))
+    ending = ending_of(body)
+    if ending is None:
+        raise Unusable("page {0} is not a picture a reader can show as a cover".format(n + 1))
+    return keep(library, target, row, body, ending)
 
 
 def choose_upload(library, target, body):
@@ -212,22 +257,28 @@ def choose_upload(library, target, body):
         raise Unusable("no picture came with the upload")
     if len(body) > MOST:
         raise Unusable("that picture is over {0} MB; a cover needs far less".format(MOST >> 20))
-    try:
-        kept = picture(body, SHELF_SIZE, 90)
-    except Exception:  # noqa: BLE001 - whatever Pillow cannot open is not a picture
-        raise Unusable("that file is not a picture the reader can open")
-    name = "custom/{0}.jpg".format(hashlib.sha1(target.encode("utf-8")).hexdigest()[:16])
+    ending = ending_of(body)
+    if ending is None:
+        raise Unusable("that file is not a picture the reader can open: a jpeg, png, gif or webp")
+    #kept as it came, under its own kind's ending
+    name = "custom/{0}{1}".format(hashlib.sha1(target.encode("utf-8")).hexdigest()[:16], ending)
     path = os.path.join(library.config.data, "covers", name)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path + ".writing", "wb") as f:
-        f.write(kept)
+        f.write(body)
     os.replace(path + ".writing", path)
-    return keep(library, target, {"file": name}, kept)
+    old = (library.chosen.get(target) or {}).get("file")
+    if old and old != name:
+        try:
+            os.remove(os.path.join(library.config.data, "covers", old))
+        except OSError:
+            pass
+    return keep(library, target, {"file": name}, body, ending)
 
 
-def keep(library, target, row, body):
+def keep(library, target, row, body, ending):
     old = library.chosen.get(target) or {}
-    wrote, note = write_to_shelf(library, target, body)
+    wrote, note = write_to_shelf(library, target, body, ending, old.get("wrote"))
     if wrote:
         row["wrote"] = wrote
     elif old.get("wrote"):
@@ -252,19 +303,7 @@ def forget(library, target):
             os.remove(os.path.join(library.config.data, "covers", row["file"]))
         except OSError:
             pass
-    wrote = row.get("wrote")
-    if wrote:
-        path = wrote[0]
-        try:
-            found = os.stat(path)
-            if [found.st_size, found.st_mtime_ns] == wrote[1:]:
-                os.remove(path)
-                there = library.pictures.get(os.path.normpath(os.path.dirname(path))) or {}
-                there.pop(os.path.basename(path).lower(), None)
-            else:
-                note = "{0} was changed since the reader wrote it, so it was left on the shelf".format(
-                    os.path.basename(path))
-        except OSError as error:
-            note = "{0} could not be taken off the shelf ({1})".format(os.path.basename(path), error.strerror or error)
+    if row.get("wrote"):
+        note = take_off(library, row["wrote"])
     comic = library.comics.get(target[6:]) if target.startswith("comic:") else None
     return {"target": target, "v": token(library, target, comic), "note": note}

@@ -177,18 +177,21 @@ def create_app(config=None, scan_in_background=True):
         if found is None:
             raise HTTPException(404, "no cover for {0}".format(target))
         name = comic["id"] if comic else hashlib.sha1(target.encode("utf-8")).hexdigest()[:16]
-        cached = os.path.join(config.data, "covers", "{0}-{1}.jpg".format(name, found[0]))
-        if not os.path.isfile(cached):
+        #a jpeg, or a png for a picture with anything see-through in it: whichever was made is the one kept
+        stem = os.path.join(config.data, "covers", "{0}-{1}".format(name, found[0]))
+        cached = next((stem + ending for ending in (".jpg", ".png") if os.path.isfile(stem + ending)), None)
+        if cached is None:
             try:
-                made = thumbnail(covers.body_of(library, found[1]))
+                made, media = thumbnail(covers.body_of(library, found[1]))
             except Exception as error:  # noqa: BLE001 - a picture Pillow cannot open is a missing cover
                 raise HTTPException(404, "no cover: {0}".format(error))
+            cached = stem + (".png" if media == "image/png" else ".jpg")
             os.makedirs(os.path.dirname(cached), exist_ok=True)
             with open(cached + ".writing", "wb") as f:
                 f.write(made)
             os.replace(cached + ".writing", cached)
         #kept for good only when asked for by what it is now: an old address must not keep an old picture
-        return FileResponse(cached, media_type="image/jpeg",
+        return FileResponse(cached, media_type="image/png" if cached.endswith(".png") else "image/jpeg",
                             headers={"Cache-Control": FOREVER if v and v == found[0] else "no-cache"})
 
     @app.get("/api/comics/{comic_id}/cover")
@@ -328,5 +331,5 @@ def keep_scanning(library, minutes):
 
 
 def thumbnail(body):
-    #a cover for the library shelf, small
+    #a cover for the library shelf, small, as (bytes, media type)
     return covers.picture(body, THUMB, 82)

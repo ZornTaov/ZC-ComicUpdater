@@ -69,7 +69,8 @@ async function openEditor(name) {
   $("edit-runs-box").hidden = !runs && !edits;
 
   $("e-move-into").value = parentOf(detail.name);
-  $("e-move-places").innerHTML = movePlaces(detail.name).map((place) => `<option value="${esc(place)}">`).join("");
+  showPlaces(movePlaces(detail.name));
+  placesAsked = false;
   $("edit-move-box").open = false;
   resetMove();
 
@@ -88,10 +89,10 @@ function parentOf(name) {
   return name.includes("/") ? name.slice(0, name.lastIndexOf("/")) : "";
 }
 
-//the folders a comic could be moved into: every folder another comic already sits in, and the ones above
-//those, taken from the library list the page already holds rather than another look at the share
-function movePlaces(name) {
-  const places = new Set();
+//the folders a comic could be moved into that the page knows already: every folder another comic sits in,
+//and the ones above those. shown at once, while the folders that hold no comic yet are asked for
+function movePlaces(name, more = []) {
+  const places = new Set(more);
   comics.forEach((comic) => {
     const parts = comic.name.split("/").slice(0, -1);
     parts.forEach((_, at) => places.add(parts.slice(0, at + 1).join("/")));
@@ -99,6 +100,28 @@ function movePlaces(name) {
   places.delete(parentOf(name));
   return [...places].sort((a, b) => a.localeCompare(b));
 }
+
+function showPlaces(places) {
+  $("e-move-places").innerHTML = places.map((place) => `<option value="${esc(place)}">`).join("");
+}
+
+//every folder under the pages folder, an author's holding nothing tracked yet among them. asked once a
+//dialog, when the move is opened, since it is a look through the library's folders
+let placesAsked = false;
+$("edit-move-box").addEventListener("toggle", async () => {
+  if (!$("edit-move-box").open || placesAsked || !editing) return;
+  placesAsked = true;
+  const name = editing.name;
+  try {
+    const response = await fetch(api("/api/places"));
+    const found = await response.json();
+    if (!response.ok) throw new Error(found.error || response.statusText);
+    if (editing && editing.name === name) showPlaces(movePlaces(name, found.places));
+  } catch (error) {
+    //the folders the comics are in are still offered, and any folder can be typed
+    placesAsked = false;
+  }
+});
 
 //the move button only ever does what was last shown, so a folder typed after looking has to be looked at
 let moveChecked = null;

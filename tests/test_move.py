@@ -176,9 +176,53 @@ def test_a_move_that_fails_part_way_puts_back_what_it_had_done(library, monkeypa
     assert read_meta(folder)["settings"]["cbz_path"] == "CBZs/MyComic.cbz"
 
 
+def test_the_places_offered_are_every_folder_a_comic_could_go_in(library):
+    comic(library)
+    #an author's folder with nothing tracked in it yet is the very place a comic is moved to
+    (library / "Uncompressed" / "SomeAuthor").mkdir()
+    (library / "Uncompressed" / "SomeAuthor" / "Series").mkdir()
+    #pages nobody has adopted yet are a comic, not a place to put one
+    (library / "Uncompressed" / "Loose").mkdir()
+    (library / "Uncompressed" / "Loose" / "0001.png").write_bytes(b"x")
+    (library / "Uncompressed" / ".uploads").mkdir()
+    deep = library / "Uncompressed" / "A" / "B" / "C" / "D"
+    deep.mkdir(parents=True)
+    assert moving.places(str(library), "Uncompressed", 5) == [
+        "Uncompressed", "Uncompressed/A", "Uncompressed/A/B", "Uncompressed/A/B/C",
+        "Uncompressed/SomeAuthor", "Uncompressed/SomeAuthor/Series"]
+    #a comic in D would be six deep, past the five searched, so D is not offered
+    assert moving.places(str(library), "Uncompressed", 3) == [
+        "Uncompressed", "Uncompressed/A", "Uncompressed/SomeAuthor"]
+    assert moving.places(str(library), "Nowhere", 5) == []
+
+
+def test_an_author_filed_only_on_the_shelf_is_offered_as_a_pages_folder(library):
+    #the author's archives are on the shelf by author, but no comic of theirs has its pages here yet
+    comic(library)
+    author = library / "CBZs" / "SomeAuthor"
+    author.mkdir()
+    (author / "AnotherComic.cbz").write_bytes(b"zip")
+    (author / "cover.jpg").write_bytes(b"jpg")
+    #a comic's own folder of chapter archives, and of its one archive, are comics, not places
+    (library / "CBZs" / "Chaptered").mkdir()
+    (library / "CBZs" / "Chaptered" / "Chaptered - c001 - One.cbz").write_bytes(b"zip")
+    (author / "Kept").mkdir()
+    (author / "Kept" / "Kept.cbz").write_bytes(b"zip")
+    #and a shelf folder matching a tracked comic is that comic
+    (library / "CBZs" / "MyComic").mkdir()
+    assert moving.places(str(library), "Uncompressed", 5, "CBZs") == ["Uncompressed", "Uncompressed/SomeAuthor"]
+    #without the shelf it is not known of at all, which was the trouble
+    assert moving.places(str(library), "Uncompressed", 5) == ["Uncompressed"]
+
+
 def test_the_page_shows_a_move_then_queues_it(library, web):
     folder = comic(library)
+    (library / "Uncompressed" / "SomeAuthor").mkdir()
+    (library / "CBZs" / "ShelvedAuthor").mkdir()
     page = web()
+    code, offered = page.call("/api/places")
+    assert code == 200 and offered["places"] == [
+        "Uncompressed", "Uncompressed/ShelvedAuthor", "Uncompressed/SomeAuthor"], offered
     code, shown = page.call("/api/move", {"name": "Uncompressed/MyComic", "into": "Uncompressed/SomeAuthor",
                                           "dry_run": True})
     assert code == 200 and shown["to"] == "Uncompressed/SomeAuthor/MyComic", shown
@@ -202,6 +246,7 @@ def test_the_page_shows_a_move_then_queues_it(library, web):
 def test_the_editor_moves_a_comic(library, web, browser):
     comic(library)
     comic(library, where=os.path.join("SomeAuthor", "Theirs"), archive=None)
+    (library / "Uncompressed" / "Untracked Author").mkdir()
     page = web()
     open_page(browser, page.base + "/")
     edit = "document.querySelector('[data-edit=\"Uncompressed/MyComic\"]')"
@@ -209,13 +254,15 @@ def test_the_editor_moves_a_comic(library, web, browser):
     browser.execute_script(edit + ".click()")
     wait_until(lambda: browser.execute_script("return document.getElementById('editor').open"),
                why="the editor never opened")
-    #the folders other comics sit in are offered, and the move waits until what it would do has been shown
-    offered = browser.execute_script("return [...document.querySelectorAll('#e-move-places option')]"
-                                     ".map(o => o.value)")
-    assert "Uncompressed/SomeAuthor" in offered, offered
+    offered = "return [...document.querySelectorAll('#e-move-places option')].map(o => o.value)"
+    #the folders other comics sit in are offered at once; a folder holding none yet once the move is opened
+    assert "Uncompressed/SomeAuthor" in browser.execute_script(offered)
+    browser.execute_script("document.getElementById('edit-move-box').open = true")
+    wait_until(lambda: "Uncompressed/Untracked Author" in browser.execute_script(offered),
+               why="a folder with no comic in it was never offered")
+    #and the move waits until what it would do has been shown
     assert browser.execute_script("return document.getElementById('e-move-go').disabled")
-    browser.execute_script("document.getElementById('edit-move-box').open = true;"
-                           "document.getElementById('e-move-into').value = 'Uncompressed/SomeAuthor';"
+    browser.execute_script("document.getElementById('e-move-into').value = 'Uncompressed/SomeAuthor';"
                            "document.getElementById('e-move-check').click()")
     wait_until(lambda: not browser.execute_script("return document.getElementById('e-move-go').disabled"),
                why="what would move was never shown")

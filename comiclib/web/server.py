@@ -11,6 +11,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from comiclib import moving
 from comiclib.paths import PROJECT
 from comiclib.web.adding import parse_entries
 from comiclib.web.edits import discard_walk, fix_chapter, insert_page, preview_move, save_config, save_settings
@@ -128,6 +129,12 @@ def make_handler(runner, args, uc, tee):
                 self.reply(element_settings(args, uc))
             elif where.path == "/api/comics":
                 self.reply(library_view(args, uc))
+            elif where.path == "/api/places":
+                #the folders a comic can be moved into, asked for when the move is opened rather than with
+                #every comic, since it is a look through the library's folders
+                chosen = uc.with_config(args)
+                self.reply({"places": moving.places(args.root, chosen.pages_folder, chosen.max_depth,
+                                                    chosen.cbz_folder)})
             elif where.path == "/api/comic":
                 name = (parse_qs(where.query).get("name") or [""])[0]
                 detail, problem = comic_detail(args, uc, runner, name)

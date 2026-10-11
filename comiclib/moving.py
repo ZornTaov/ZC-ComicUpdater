@@ -12,6 +12,7 @@ from comiclib.cbz import PAGES_TREE, SHELF, default_path, shelf
 from comiclib.chapters.index import index_path
 from comiclib.chapters.packing import chapter_folder
 from comiclib.metadata import METADATA_FILE
+from comiclib.pages import PICTURE
 
 #the same fifty the editor keeps, since a move is shown among its edits
 kept_edits = 50
@@ -70,6 +71,70 @@ def own_folder(path, folder):
     #one. a folder of chapters recorded as an author's would otherwise take every other comic in it along
     name = os.path.basename(folder)
     return plain(os.path.basename(path)) in (plain(name), plain(name + "_chapters"))
+
+
+#how packing names a chapter's archive, "<Comic> - c007 - <label>.cbz": a shelf folder holding its own
+#name's chapters is that comic's, not a folder of comics
+CHAPTER_FILE = re.compile(r"^(?P<series>.+?) - c\d+(?: - .*)?\.cbz$", re.I)
+
+
+def inside_library(root, folder):
+    return os.path.join(root, *[part for part in str(folder or "").replace("\\", "/").split("/") if part])
+
+
+def places(root, under, max_depth=5, shelf=None):
+    #every folder a comic could be moved into, as the place its pages would go: each folder below the pages
+    #folder, and each on the archive shelf as the pages folder matching it. an author whose archives are filed
+    #on the shelf has no pages folder until a comic of theirs is moved there, and a list made from the comics
+    #alone never offered one. a comic is never gone into, nor offered; nor is a folder of loose pages - a
+    #comic not adopted yet - or a comic's own folder of chapter archives; nor anything so deep that a comic put
+    #in it would be past where the library is searched. one listing a folder, never one of a comic's pages
+    root = os.path.abspath(root)
+    pages_at = inside_library(root, under)
+    found = set()
+
+    def visit(folder, depth, place, offered):
+        try:
+            with os.scandir(folder) as listing:
+                entries = [entry for entry in listing if not entry.name.startswith(".")]
+        except OSError:
+            return
+        here = os.path.join(pages_at, os.path.relpath(folder, place)) if place else folder
+        if not offered(folder, entries, here):
+            return
+        found.add(relative(here, root))
+        #a comic put in a folder sits one deeper than it, and has to be within the depth searched
+        if depth + 2 > max_depth:
+            return
+        for entry in entries:
+            if entry.is_dir() and not os.path.isfile(os.path.join(entry.path, METADATA_FILE)):
+                visit(entry.path, depth + 1, place, offered)
+
+    def pages_folder(folder, entries, here):
+        #pages straight inside it are a comic's, if not one tracked yet
+        return not any(PICTURE.search(entry.name) and entry.is_file() for entry in entries)
+
+    def shelf_folder(folder, entries, here):
+        #a comic's own folder on the shelf - its archive, or its chapters, named as the folder is - is that
+        #comic, whether or not it is tracked; as is one whose matching pages folder is a comic
+        name = plain(os.path.basename(folder))
+
+        def named_for(entry):
+            chapter = CHAPTER_FILE.match(entry.name)
+            stem = chapter.group("series") if chapter else os.path.splitext(entry.name)[0]
+            return entry.name.lower().endswith(".cbz") and plain(stem) == name
+
+        own = any(entry.is_file() and named_for(entry) for entry in entries)
+        return not own and not os.path.isfile(os.path.join(here, METADATA_FILE))
+
+    depth = 0 if same(pages_at, root) else len(relative(pages_at, root).split("/"))
+    if os.path.isdir(pages_at) and not os.path.isfile(os.path.join(pages_at, METADATA_FILE)):
+        visit(pages_at, depth, None, pages_folder)
+    shelf_at = inside_library(root, shelf) if shelf else None
+    if shelf_at and os.path.isdir(shelf_at) and not same(shelf_at, pages_at):
+        visit(shelf_at, depth, shelf_at, shelf_folder)
+    found.discard(".")
+    return sorted(found, key=str.lower)
 
 
 def plan(folder, root, into, max_depth=5):

@@ -14,8 +14,8 @@ services:
     container_name: comic-reader
     restart: unless-stopped
 
-    # the library's owner, as the scraper runs: the reader only reads the library, but its data folder
-    # has to be its own to write
+    # the library's owner, as the scraper runs: what the info page writes into the library - a comic's
+    # metadata, an archive's ComicInfo - stays the library owner's, and the data folder has to be its own
     user: "${READER_USER:-1001:100}"
 
     environment:
@@ -30,8 +30,10 @@ services:
       - "${READER_PORT:-8082}:8082"
 
     volumes:
-      # read-only: the reader never writes to the library, and this makes sure it cannot
-      - ${LIBRARY:?set LIBRARY to the library root}:/library:ro
+      # read-write, for the info page: what a comic is said to be goes into its metadata and its archives'
+      # ComicInfo, and nothing else is ever written. put :ro on the end to keep the reader read-only; the
+      # info page then shows what a comic is but says it cannot change it
+      - ${LIBRARY:?set LIBRARY to the library root}:/library
       - ${READER_DATA_DIR:?set READER_DATA_DIR to a folder for the reader's own data}:/data
 
     logging:

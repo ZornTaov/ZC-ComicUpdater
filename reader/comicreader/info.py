@@ -80,5 +80,10 @@ def describe(library, comic):
         "files": [shown(path) for path in comic["sources"]],
         "pageCount": (metadata.get("state") or {}).get("page_count"),
         "lastRun": last_run(metadata),
+        #what an edit is checked against, so one made over a change it never saw is refused: the metadata's
+        #stamp for a comic the scraper keeps, the archive's version for one from elsewhere
         "updated": metadata.get("updated"),
+        "version": stream["versions"][0] if stream["versions"] else None,
+        #whether the page offers to change what it says
+        "editable": bool(comic.get("folder")) or (comic["kind"] == "archive" and len(comic["sources"]) == 1),
     }

@@ -89,7 +89,13 @@ export interface ComicInfo {
   lastRun: { updated: string | null; pages_saved: number | null; completed: boolean | null;
              stop_reason: string | null; exit_code: number | null } | null;
   updated: string | null;
+  version: string | null;
+  editable: boolean;
 }
+
+// what can be said about a comic on its info page, as its metadata's info block and ComicInfo call it
+export const SAYABLE = ["title", "series", "summary", "year", "writer", "penciller", "genre", "tags", "web"] as const;
+export type Said = Partial<Record<(typeof SAYABLE)[number], string>>;
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
@@ -112,6 +118,9 @@ export const api = {
     return { ...raw, pages: raw.pages.map(([v, w, h, s, media]) => ({ v, w, h, standin: s === 1, media: media ?? null })) };
   },
   info: (id: string) => call<ComicInfo>(`/api/comics/${id}/info`),
+  // checked against what the page was showing, so a change made over one it never saw is refused
+  saveInfo: (info: ComicInfo, said: Said) =>
+    put<ComicInfo & { told: number }>(`/api/comics/${info.id}/info`, { info: said, updated: info.updated, version: info.version }),
   pageUrl: (id: string, n: number, v: string) => `/api/comics/${id}/pages/${n}?v=${v}`,
   coverUrl: (id: string, v: string | null) => `/api/comics/${id}/cover${v ? `?v=${v}` : ""}`,
   standIn: (id: string, n: number) => call<StandIn>(`/api/comics/${id}/pages/${n}/standin`),

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Page } from "./api";
 import { chapterOf, chapterTarget, keyAction, pageAt, placeStrip, tapAction, typedPage, viewOf, views, wanted } from "./layout";
 import { clean, merged } from "./settings";
-import { runLine } from "./info";
+import { refusal, runLine, startingValues } from "./info";
 
 const page = (w: number | null = 800, h: number | null = 1200, standin = false): Page => ({ v: "1", w, h, standin, media: null });
 
@@ -164,6 +164,31 @@ describe("the info page", () => {
     expect(runLine({ ...run, pages_saved: 0, completed: false, exit_code: 4, stop_reason: null }))
       .toBe("at an unknown time · nothing new · stopped (exit 4)");
     expect(runLine(null)).toBe("");
+  });
+
+  const info = {
+    id: "a", title: "MyComic", name: "MyComic", author: null, cover: null, kind: "archive", place: "", pages: 3,
+    ended: false, links: [], folder: null, files: [], pageCount: null, lastRun: null, updated: null,
+    version: null, editable: true,
+    about: { title: "MyComic", series: "MyComic", web: "https://example.com/" },
+    said: { writer: "SomeAuthor", year: 2014 },
+  };
+
+  it("starts editing a scraped comic from what was said by hand, with the rest greyed in", () => {
+    expect(startingValues({ ...info, scraped: true })).toEqual({
+      values: { writer: "SomeAuthor", year: "2014" },
+      worked: { title: "MyComic", series: "MyComic", web: "https://example.com/" },
+    });
+  });
+
+  it("starts editing an archive from elsewhere from everything its ComicInfo says", () => {
+    expect(startingValues({ ...info, scraped: false }).values)
+      .toEqual({ title: "MyComic", series: "MyComic", web: "https://example.com/" });
+  });
+
+  it("says why a change was refused in the server's own words", () => {
+    expect(refusal(new Error('409 {"detail":"Try again in a few minutes."}'))).toBe("Try again in a few minutes.");
+    expect(refusal(new Error("500 Internal Server Error"))).toBe("500 Internal Server Error");
   });
 });
 

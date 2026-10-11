@@ -217,6 +217,19 @@ button {
 .link-row { display: flex; gap: 8px; align-items: center; }
 .link-url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); }
 .info .toast { position: fixed; }
+.info button.primary { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 600; }
+.edit-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 14px; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field span { color: var(--muted); font-size: 13px; }
+.field.long { grid-column: 1 / -1; }
+.field input, .field textarea {
+  font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 8px; padding: 7px 9px; width: 100%;
+}
+.field textarea { resize: vertical; }
+.field ::placeholder { color: var(--muted); opacity: .7; }
+.form-actions { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.form-message { color: var(--muted); flex: 1 1 200px; }
 @media (max-width: 520px) {
   .info-top { flex-direction: column; align-items: stretch; }
   .info-top .cover { width: 120px; }

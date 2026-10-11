@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from comicreader.config import Config
+from comicreader.editing import Refused, edit
 from comicreader.info import describe
 from comicreader.library import Library
 from comicreader.sources import VIDEO_MEDIA, Busy, original
@@ -96,6 +97,15 @@ def create_app(config=None, scan_in_background=True):
     @app.get("/api/comics/{comic_id}/info")
     def comic_info(comic_id: str):
         return describe(library, comic_or_404(comic_id))
+
+    @app.put("/api/comics/{comic_id}/info")
+    async def save_comic_info(comic_id: str, request: Request):
+        comic = comic_or_404(comic_id)
+        try:
+            told = edit(library, comic, await request.json())
+        except Refused as refused:
+            raise HTTPException(refused.status, str(refused))
+        return dict(describe(library, comic), told=told)
 
     def page_of(comic_id, n):
         comic = comic_or_404(comic_id)

@@ -290,6 +290,9 @@ class Library:
         self.comics = {}
         self.neighbours = {}
         self.kept_otherwise = {}
+        #each archive the reader itself last wrote a ComicInfo into, as it was left: a change of its own
+        #making is no sign the scraper is at work on it
+        self.written = {}
         self.scanned = None
         self.scanning = threading.Lock()
 

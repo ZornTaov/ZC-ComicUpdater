@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ComicSummary } from "./api";
-import { compareComics, reading, recentlyUpdated, shelf, upTo } from "./shelves";
+import { compareComics, grewBy, reading, recentlyUpdated, shelf, upTo } from "./shelves";
 
 const comic = (over: Partial<ComicSummary>): ComicSummary => ({
   id: over.name ?? over.title ?? "x", name: over.title ?? "x", title: "MyComic", series: null, number: null,
@@ -85,6 +85,14 @@ describe("recently updated", () => {
   it("leaves out what is already shown under new pages", () => {
     const grown = comic({ id: "a", title: "a", grew: now - 60, added: 1 });
     expect(recentlyUpdated([grown], now, [grown])).toEqual([]);
+  });
+
+  it("says what it gained short enough for a cover's corner, and in full for its tooltip", () => {
+    expect(grewBy(1, now - 60, now)).toEqual({ short: "+1 today", long: "+1 page today" });
+    expect(grewBy(2, now - day - 60, now)).toEqual({ short: "+2 yesterday", long: "+2 pages yesterday" });
+    expect(grewBy(12, now - 4 * day, now)).toEqual({ short: "+12 4d ago", long: "+12 pages 4 days ago" });
+    //a clock a little behind the server's is still today, not "-1 days ago"
+    expect(grewBy(1, now + 30, now).short).toBe("+1 today");
   });
 });
 

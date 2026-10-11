@@ -310,7 +310,9 @@ class Library:
     def __init__(self, config, store):
         self.config = config
         self.store = store
-        self.sources = Sources(store)
+        #set when something the last scan found has gone from the library, which brings the next scan forward
+        self.wanted = threading.Event()
+        self.sources = Sources(store, gone=self.wanted.set)
         self.comics = {}
         self.neighbours = {}
         self.kept_otherwise = {}

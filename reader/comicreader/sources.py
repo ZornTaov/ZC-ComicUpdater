@@ -240,8 +240,12 @@ def read_folder(path):
 
 class Sources:
     #every source the reader has read, by path, kept as current as their files
-    def __init__(self, store):
+    def __init__(self, store, gone=None):
         self.store = store
+        #told when a source the last scan found is no longer there: the library has changed under it - a
+        #comic moved, renamed or cut into chapters - and what is shown of it points at nothing until the
+        #next scan. an archive the scraper adds to is replaced by moving the new one over it, never missing
+        self.gone = gone or (lambda: None)
         self.known = store.sources()
         self.lock = threading.Lock()
         #a few archives held open, so turning pages does not read a zip's whole directory for every one.
@@ -257,6 +261,7 @@ class Sources:
             #an archive is replaced by moving the new one over it, so it is never missing in between
             with self.lock:
                 self.known.pop(path, None)
+            self.gone()
             return None
         except OSError:
             return held
@@ -293,8 +298,14 @@ class Sources:
             lines = held_otherwise(source["path"], entry)
             if lines:
                 return drawn(tuple(lines)), "image/png"
-            with open(os.path.join(source["path"], entry), "rb") as f:
-                return f.read(), MEDIA.get(os.path.splitext(entry)[1].lower(), "application/octet-stream")
+            try:
+                with open(os.path.join(source["path"], entry), "rb") as f:
+                    return f.read(), MEDIA.get(os.path.splitext(entry)[1].lower(), "application/octet-stream")
+            except FileNotFoundError:
+                if not os.path.isdir(source["path"]):
+                    #the whole folder gone, not one page of it: the comic has moved
+                    self.gone()
+                raise
         with self.lock:
             body = self.archive(source).read(entry)
         return body, MEDIA.get(os.path.splitext(entry)[1].lower(), "application/octet-stream")
@@ -304,7 +315,13 @@ class Sources:
         handle = (source["path"], tuple(source["stamp"]))
         zf = self.open.pop(handle, None)
         if zf is None:
-            zf = zipfile.ZipFile(source["path"])
+            try:
+                zf = zipfile.ZipFile(source["path"])
+            except FileNotFoundError:
+                #a page or cover asked of an archive moved since the last scan, which is how a moved comic
+                #first shows itself: a tile whose cover will not load
+                self.gone()
+                raise
         self.open[handle] = zf
         while len(self.open) > 8:
             _, oldest = self.open.popitem(last=False)

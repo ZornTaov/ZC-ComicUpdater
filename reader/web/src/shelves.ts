@@ -77,6 +77,17 @@ export function recentlyUpdated(comics: ComicSummary[], now: number, shown: Comi
     .sort((a, b) => (b.grew ?? 0) - (a.grew ?? 0));
 }
 
+// how much a comic under "recently updated" gained and when: short enough for the corner of its cover, as
+// "new pages" says its count there, so the line under the title can still say which folder it is from
+export function grewBy(added: number, grew: number | null, now: number): { short: string; long: string } {
+  const days = Math.max(0, Math.floor((now - (grew ?? 0)) / 86400));
+  const when = days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+  return {
+    short: `+${added} ${days <= 1 ? when : `${days}d ago`}`,
+    long: `+${added} page${added === 1 ? "" : "s"} ${when}`,
+  };
+}
+
 export interface Group {
   key: string;
   label: string;

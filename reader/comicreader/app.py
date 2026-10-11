@@ -30,6 +30,8 @@ mimetypes.add_type("application/wasm", ".wasm")
 #long as it likes: turning back to a page is then instant, with no request at all
 FOREVER = "private, max-age=31536000, immutable"
 THUMB = (360, 540)
+#seconds a scan brought forward waits after the first sign of something gone, for the rest of a move
+SETTLE = 5
 
 
 def create_app(config=None, scan_in_background=True):
@@ -358,13 +360,19 @@ def ranged(request, size, read, media_type):
                     headers={"Accept-Ranges": "bytes", "Content-Range": "bytes {0}-{1}/{2}".format(start, end, size)})
 
 
-def keep_scanning(library, minutes):
+def keep_scanning(library, minutes, settle=None):
+    #every so many minutes, or sooner when something the last scan found has gone - a comic moved to another
+    #folder showed for a quarter of an hour as tiles pointing at nothing. a move is several renames, so the
+    #scan waits a few seconds for the rest before it looks
+    settle = SETTLE if settle is None else settle
     while True:
+        library.wanted.clear()
         try:
             library.scan()
         except Exception as error:  # noqa: BLE001 - one bad scan must not stop the next
             print("scan failed: {0}".format(error), flush=True)
-        time.sleep(max(minutes, 1) * 60)
+        if library.wanted.wait(max(minutes, 1) * 60):
+            time.sleep(settle)
 
 
 def thumbnail(body):

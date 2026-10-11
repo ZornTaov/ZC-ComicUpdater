@@ -3,7 +3,7 @@
 import { api, type ComicSummary, type Fit, type GroupCovers } from "./api";
 import { openCoverDialog, type CoverTarget } from "./coverdialog";
 import { el, esc, fitClass, refusal } from "./dom";
-import { BROWSE_LABELS, type Browse, type Group, matches, nextIssues, pathLabel, reading, recentlyUpdated, shelf, upTo } from "./shelves";
+import { BROWSE_LABELS, type Browse, type Group, grewBy, matches, nextIssues, pathLabel, reading, recentlyUpdated, shelf, upTo } from "./shelves";
 
 // each name encoded alone and joined with real slashes, so a folder's address reads as its path. the whole
 // rest of the address is decoded as one, so this comes back the same - a series named with a slash in it
@@ -89,15 +89,6 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     };
   }
 
-  // away from its own folder - in what is being read, a search, a series - a comic says which folder it is
-  // from, since a shelf of archives named "Ch.01", "Ch.02" says nothing about which comic they are
-  // under "recently updated", a comic says how many pages it gained and when, in place of what it says elsewhere
-  function grewBy(comic: ComicSummary): string {
-    const days = Math.floor((Date.now() / 1000 - (comic.grew ?? 0)) / 86400);
-    const when = days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
-    return `+${comic.added} page${comic.added === 1 ? "" : "s"} ${when}`;
-  }
-
   // the next issues of series read to their ends, which count as new pages though never opened
   let next = new Set<string>();
 
@@ -110,11 +101,16 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     // under the title, whichever says most: which issue of which series, or who made it
     const issue = comic.series && comic.series !== comic.title
       ? `${comic.series}${comic.number ? ` #${comic.number}` : ""}` : comic.number ? `#${comic.number}` : "";
+    // away from its own folder - in what is being read, a search, a series - a comic says which folder it is
+    // from, since a shelf of archives named "Ch.01", "Ch.02" says nothing about which comic they are
     const folder = away && comic.place ? comic.place.split("/").pop()! : "";
-    const under = growth ? grewBy(comic)
-      : [issue || folder || comic.author, `${comic.pages} pages`].filter(Boolean).join(" · ");
+    const under = [issue || folder || comic.author, `${comic.pages} pages`].filter(Boolean).join(" · ");
+    // under "recently updated", what it gained and when goes in the corner the ⋯ leaves free below, as "new
+    // pages" says its count in a corner: it once took the line under the title, and with it the folder
+    const gained = growth ? grewBy(comic.added, comic.grew, Date.now() / 1000) : null;
+    const grown = gained ? `<span class="badge new left" title="${esc(gained.long)}">${esc(gained.short)}</span>` : "";
     return `<a class="card" href="#/read/${comic.id}" data-id="${comic.id}" title="${esc(comic.name)}">
-      <div class="cover"><img loading="lazy" alt="" class="${fitClass(comic.coverFit)}" src="${api.coverUrl(comic.id, comic.cover)}">${badge}
+      <div class="cover"><img loading="lazy" alt="" class="${fitClass(comic.coverFit)}" src="${api.coverUrl(comic.id, comic.cover)}">${badge}${grown}
         <button class="card-menu" type="button" aria-label="More for ${esc(comic.title)}" data-menu="${comic.id}">⋯</button></div>
       <div class="bar"><div style="width:${read}%"></div></div>
       <div class="name">${esc(comic.title)}</div>

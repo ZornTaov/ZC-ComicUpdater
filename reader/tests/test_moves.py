@@ -81,6 +81,44 @@ def test_a_moved_comic_keeps_its_place_settings_growth_and_cover(library, client
     assert not (library / "CBZs" / "SomeAuthor" / "MyComic.png").exists()
 
 
+def test_a_moved_comic_asked_for_brings_the_next_scan_forward(library, make_app):
+    #between a move and the next scan the reader still shows the comic where it was: its tile's cover, or the
+    #comic opened, asks for an archive that is no longer there - which is the sign to look again now
+    folder = single(library)
+    app = make_app()
+    reader = app.state.library
+    old = by_title(app, "MyComic")
+    source = reader.sources.cached(old["sources"][0])
+    reader.sources.forget(set())
+    reader.sources.known[source["path"]] = source
+    move(folder, library, "Uncompressed/SomeAuthor")
+    assert not reader.wanted.is_set()
+    with pytest.raises(FileNotFoundError):
+        reader.sources.page(source, source["pages"][0])
+    assert reader.wanted.is_set(), "a cover asked of a moved archive did not ask for a scan"
+    reader.wanted.clear()
+    reader.stream(old, fresh=True)
+    assert reader.wanted.is_set(), "a moved comic opened did not ask for a scan"
+
+
+def test_the_scan_comes_early_when_asked_rather_than_a_quarter_hour_later(library, make_app):
+    import threading
+    import time
+
+    from comicreader.app import keep_scanning
+    folder = single(library)
+    app = make_app()
+    reader = app.state.library
+    threading.Thread(target=keep_scanning, args=(reader, 60, 0), daemon=True).start()
+    move(folder, library, "Uncompressed/SomeAuthor")
+    reader.wanted.set()
+    #waited for, not slept: the comic shows at its new place as soon as the brought-forward scan is done
+    deadline = time.time() + 30
+    while by_title(app, "MyComic")["place"] != "CBZs/SomeAuthor" and time.time() < deadline:
+        time.sleep(0.05)
+    assert by_title(app, "MyComic")["place"] == "CBZs/SomeAuthor"
+
+
 def test_each_chapter_keeps_its_place_and_the_chapter_folder_its_cover(library, client):
     folder = chaptered(library)
     api, app = client()

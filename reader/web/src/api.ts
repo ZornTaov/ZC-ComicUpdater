@@ -148,6 +148,8 @@ export const api = {
   // a picture of one's own, sent as it is
   uploadCover: (target: string, file: Blob) => call<CoverSet>(`/api/covers/upload?target=${encodeURIComponent(target)}`,
     { method: "PUT", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file }),
+  // a picture's web address, fetched once by the reader and kept as an upload is
+  coverFromAddress: (target: string, address: string) => put<CoverSet>("/api/covers/address", { target, address }),
   resetCover: (target: string) => call<CoverSet>(`/api/covers?target=${encodeURIComponent(target)}`, { method: "DELETE" }),
   standIn: (id: string, n: number) => call<StandIn>(`/api/comics/${id}/pages/${n}/standin`),
   saveProgress: (id: string, position: number, part = 0, closing = false) =>

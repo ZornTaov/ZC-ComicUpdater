@@ -16,6 +16,12 @@ export function pickPicture(): Promise<File | null> {
   });
 }
 
+// a picture's web address, asked for; null when none is given
+export function askAddress(): string | null {
+  const given = window.prompt("The cover picture's web address (https://…)");
+  return given && given.trim() ? given.trim() : null;
+}
+
 // what a cover being set has to say: where on the shelf it went, or why it did not
 export function coverMessage(set: { shelf?: string | null; note: string | null }): string {
   if (set.note) return `Cover set, ${set.note}`;

@@ -1,7 +1,7 @@
 // the library: what is being read at the top, then the library laid out by folder, series or author. the
 // place being looked at is in the address, so the back button goes back up and a folder can be bookmarked
 import { api, type ComicSummary, type CoverSet, type GroupCovers } from "./api";
-import { coverMessage, el, esc, pickPicture } from "./dom";
+import { askAddress, coverMessage, el, esc, pickPicture } from "./dom";
 import { refusal } from "./info";
 import { BROWSE_LABELS, type Browse, type Group, matches, nextIssues, pathLabel, reading, recentlyUpdated, shelf, upTo } from "./shelves";
 
@@ -76,6 +76,16 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     const file = await pickPicture();
     if (!file) return null;
     const set = await api.uploadCover(target, file);
+    notify(coverMessage(set));
+    return set;
+  }
+
+  // a picture from the web as a cover, by its address
+  async function fromAddress(target: string): Promise<CoverSet | null> {
+    const address = askAddress();
+    if (!address) return null;
+    notify("Fetching the picture…");
+    const set = await api.coverFromAddress(target, address);
     notify(coverMessage(set));
     return set;
   }
@@ -200,6 +210,7 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     if (comic.position !== null) choices.push(["Mark as unread", () => api.forgetProgress(comic.id), true]);
     choices.push(["About this comic", () => { location.hash = `#/info/${comic.id}`; }, false]);
     choices.push(["Set a cover picture…", () => upload(`comic:${comic.id}`), true]);
+    choices.push(["Cover from a web address…", () => fromAddress(`comic:${comic.id}`), true]);
     if (comic.coverChosen) {
       choices.push(["Reset the cover", async () => notify((await api.resetCover(`comic:${comic.id}`)).note ?? "Cover reset"), true]);
     }
@@ -213,6 +224,7 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
       choices.push(["Mark all as unread", () => api.markMany(ids, false), true]);
     }
     choices.push(["Set a cover picture…", () => upload(targetOf(group)), true]);
+    choices.push(["Cover from a web address…", () => fromAddress(targetOf(group)), true]);
     if (covers[targetOf(group)]?.chosen) {
       choices.push(["Reset the cover", async () => notify((await api.resetCover(targetOf(group))).note ?? "Cover reset"), true]);
     }

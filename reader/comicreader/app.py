@@ -220,6 +220,15 @@ def create_app(config=None, scan_in_background=True):
         except covers.Unusable as error:
             raise HTTPException(400, str(error))
 
+    @app.put("/api/covers/address")
+    async def cover_from_address(request: Request):
+        #a picture's web address, fetched once and kept as an upload is
+        body = await request.json()
+        try:
+            return covers.choose_address(library, str(body.get("target") or ""), str(body.get("address") or ""))
+        except covers.Unusable as error:
+            raise HTTPException(400, str(error))
+
     @app.delete("/api/covers")
     def forget_cover(target: str):
         try:

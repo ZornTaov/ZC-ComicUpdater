@@ -9,6 +9,7 @@
 import hashlib
 import io
 import os
+import re
 
 from comiclib.metadata import METADATA_FILE
 
@@ -251,7 +252,31 @@ def choose_page(library, target, comic_id, n):
     return keep(library, target, row, body, ending)
 
 
-def choose_upload(library, target, body):
+def fetch_picture(address):
+    #a picture from the web, by its address: only a web address, only as much as a cover can be, and said
+    #plainly when the site will not give it. the standard library's, since the reader's image has no other
+    import urllib.error
+    import urllib.request
+    if not re.match(r"^https?://[^/\s]+", address or ""):
+        raise Unusable("give the picture's web address, starting http:// or https://")
+    asking = urllib.request.Request(address, headers={"User-Agent": "Mozilla/5.0", "Accept": "image/*"})
+    try:
+        with urllib.request.urlopen(asking, timeout=30) as answer:
+            body = answer.read(MOST + 1)
+    except urllib.error.HTTPError as error:
+        raise Unusable("the site answered {0} for that address".format(error.code))
+    except (urllib.error.URLError, OSError, ValueError) as error:
+        raise Unusable("that address could not be reached ({0})".format(getattr(error, "reason", error)))
+    return body
+
+
+def choose_address(library, target, address):
+    #a cover from a picture's web address: fetched once, then kept exactly as an upload is
+    check_target(library, target)
+    return choose_upload(library, target, fetch_picture(address.strip()), source=address.strip())
+
+
+def choose_upload(library, target, body, source=None):
     check_target(library, target)
     if not body:
         raise Unusable("no picture came with the upload")
@@ -273,7 +298,9 @@ def choose_upload(library, target, body):
             os.remove(os.path.join(library.config.data, "covers", old))
         except OSError:
             pass
-    return keep(library, target, {"file": name}, body, ending)
+    #where it came from, when it came from the web, so the address can be seen again later
+    row = {"file": name, "from": source} if source else {"file": name}
+    return keep(library, target, row, body, ending)
 
 
 def keep(library, target, row, body, ending):

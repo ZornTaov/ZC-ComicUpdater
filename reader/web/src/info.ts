@@ -1,7 +1,7 @@
 // a comic's info page: what its ComicInfo says it is, the addresses it came from on the web - each to open or
 // to copy - where it is kept in the library, and how the scraper's last update of it went
 import { api, SAYABLE, type ComicInfo, type Said } from "./api";
-import { coverMessage, esc, pickPicture } from "./dom";
+import { askAddress, coverMessage, esc, pickPicture } from "./dom";
 
 // what the page shows of a ComicInfo, in this order, and what it calls each
 export const FIELDS: [key: keyof ComicInfo["about"], label: string][] = [
@@ -173,6 +173,7 @@ export async function openInfo(root: HTMLElement, id: string, back: () => void):
                 <a class="button" href="#/read/${info.id}/1">From the start</a>
                 ${info.editable ? '<button data-act="edit">Edit</button>' : ""}
                 <button data-act="upload-cover">Set a cover picture…</button>
+                <button data-act="address-cover">Cover from a web address…</button>
                 ${info.coverChosen ? '<button data-act="reset-cover">Reset the cover</button>' : ""}
               </div>
             </div>
@@ -208,6 +209,10 @@ export async function openInfo(root: HTMLElement, id: string, back: () => void):
     };
     root.querySelector<HTMLButtonElement>('[data-act="upload-cover"]')!.onclick = () => covered(
       pickPicture().then((file) => file ? api.uploadCover(`comic:${info.id}`, file) : null), coverMessage);
+    root.querySelector<HTMLButtonElement>('[data-act="address-cover"]')!.onclick = () => {
+      const address = askAddress();
+      if (address) covered(api.coverFromAddress(`comic:${info.id}`, address), coverMessage);
+    };
     const reset = root.querySelector<HTMLButtonElement>('[data-act="reset-cover"]');
     if (reset) reset.onclick = () => covered(api.resetCover(`comic:${info.id}`), (set) => set.note ?? "Cover reset");
     root.querySelectorAll<HTMLButtonElement>("[data-copy]").forEach((button) => {

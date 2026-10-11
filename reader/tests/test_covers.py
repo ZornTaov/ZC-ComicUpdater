@@ -1,9 +1,12 @@
 #covers: a page chosen in the reader, or a picture put in, for a comic or a folder, series or author; kept
 #by the reader and written onto the shelf beside the comic's archive or in the folder, where other readers
 #look - never into a comic's folder of pages - and a picture already on the shelf shown when nothing is chosen.
+import http.server
 import io
 import os
+import threading
 
+import pytest
 from PIL import Image
 
 from conftest import comic_folder, page_names, png
@@ -120,6 +123,48 @@ def test_a_see_through_cover_stays_one_on_the_shelf_and_on_the_tile(library, cli
     assert shown.headers["content-type"] == "image/png"
     with Image.open(io.BytesIO(shown.content)) as tile:
         assert tile.mode == "RGBA" and tile.getpixel((0, 0))[3] == 0, "the tile is see-through where the cover is"
+
+
+@pytest.fixture
+def web():
+    #a site of two addresses on this machine: a picture, and a page that is not one
+    body = clear_png(200, 300)
+
+    class Site(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            picture = self.path.endswith(".png")
+            sent = body if picture else b"<html>not a picture</html>"
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png" if picture else "text/html")
+            self.send_header("Content-Length", str(len(sent)))
+            self.end_headers()
+            self.wfile.write(sent)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Site)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield "http://127.0.0.1:{0}".format(server.server_address[1]), body
+    server.shutdown()
+
+
+def test_a_cover_from_a_web_address_is_fetched_once_and_kept_as_it_is(library, client, web):
+    site, body = web
+    single(library, "MyComic", "CBZs/SomeAuthor")
+    single(library, "OtherComic", "CBZs/SomeAuthor")
+    api, _ = client()
+    target = "folder:CBZs/SomeAuthor"
+    chosen = api.put("/api/covers/address", json={"target": target, "address": site + "/art/Cover.png"})
+    assert chosen.status_code == 200, chosen.text
+    assert chosen.json()["shelf"] == "CBZs/SomeAuthor/cover.png"
+    assert (library / "CBZs" / "SomeAuthor" / "cover.png").read_bytes() == body, "byte for byte as the site has it"
+    assert api.get("/api/library").json()["covers"][target]["chosen"]
+    #a page that is not a picture, and an address that is not a web address, are refused saying so
+    refused = api.put("/api/covers/address", json={"target": target, "address": site + "/a-page"})
+    assert refused.status_code == 400 and "not a picture" in refused.json()["detail"]
+    refused = api.put("/api/covers/address", json={"target": target, "address": "file:///etc/passwd"})
+    assert refused.status_code == 400 and "web address" in refused.json()["detail"]
 
 
 def test_a_comics_folder_of_pages_is_never_written_into(library, client):

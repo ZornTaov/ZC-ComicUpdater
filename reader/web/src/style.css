@@ -192,6 +192,35 @@ button {
 .sheet input[type="number"] { width: 64px; }
 .sheet select, .sheet input[type="number"] { background: #2a2724; border: 1px solid #444; border-radius: 6px; padding: 4px 6px; }
 .sheet button { background: #2a2724; border-color: #444; color: #eee; }
+/* a comic's info page */
+.info main { padding: 16px 16px 40px; max-width: 860px; margin: 0 auto; }
+.info-title { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.info-top { display: flex; gap: 20px; align-items: flex-start; }
+.info-top .cover { width: 150px; flex: none; }
+.info-about { flex: 1; min-width: 0; }
+.info h1 { font-size: 22px; margin: 0 0 2px; overflow-wrap: anywhere; }
+.info h2 { font-size: 15px; margin: 24px 0 8px; }
+.info .muted { color: var(--muted); }
+.info dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 12px 0; }
+.info dt { color: var(--muted); }
+.info dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.info .path { font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 13px; }
+.info .summary { white-space: pre-wrap; margin: 0; }
+.info-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.button {
+  display: inline-block; padding: 8px 14px; border-radius: 8px; text-decoration: none; color: inherit;
+  background: var(--surface); border: 1px solid var(--line);
+}
+.button.primary { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 600; }
+.links { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.link-label { color: var(--muted); font-size: 13px; }
+.link-row { display: flex; gap: 8px; align-items: center; }
+.link-url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); }
+.info .toast { position: fixed; }
+@media (max-width: 520px) {
+  .info-top { flex-direction: column; align-items: stretch; }
+  .info-top .cover { width: 120px; }
+}
 .player { position: absolute; inset: 0; background: #000; display: flex; align-items: center; justify-content: center; }
 .player video { max-width: 100%; max-height: 100%; }
 .player-close { position: absolute; top: max(10px, env(safe-area-inset-top)); right: 10px; font-size: 22px; line-height: 1; padding: 6px 12px; }

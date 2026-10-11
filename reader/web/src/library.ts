@@ -165,6 +165,7 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     const before = search.value.trim() ? [] : upTo(comics, browse, path, comic.id);
     if (before.length > 1) choices.push(["Mark as read up to here", () => api.markMany(before.map((each) => each.id), true), true]);
     if (comic.position !== null) choices.push(["Mark as unread", () => api.forgetProgress(comic.id), true]);
+    choices.push(["About this comic", () => { location.hash = `#/info/${comic.id}`; }, false]);
     return choices;
   }
 

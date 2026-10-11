@@ -32,7 +32,7 @@ VIDEO_MEDIA = {".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", 
 
 
 #what a reading of a source holds. a reading kept from an older reader, holding less, is read again once
-FORMAT = 4
+FORMAT = 5
 
 
 def head_of(zf, info):
@@ -84,7 +84,8 @@ def about_from(text):
     except ET.ParseError:
         return {}
     about = {tag.lower(): root.findtext(tag).strip()
-             for tag in ("Title", "Series", "Number", "Count", "Volume", "Year", "Writer", "Penciller", "Web")
+             for tag in ("Title", "Series", "Number", "Count", "Volume", "Summary", "Year", "Writer", "Penciller",
+                         "Genre", "Tags", "Web")
              if (root.findtext(tag) or "").strip()}
     about["bookmarks"] = {str(at): page.get("Bookmark") for at, page in enumerate(root.iter("Page"))
                           if page.get("Bookmark")}

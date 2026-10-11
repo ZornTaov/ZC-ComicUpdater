@@ -67,6 +67,30 @@ export interface StandIn {
   name?: string;
 }
 
+// what the info page shows of a comic. about is its ComicInfo, said what its metadata keeps as said by hand
+export interface ComicInfo {
+  id: string;
+  title: string;
+  name: string;
+  author: string | null;
+  cover: string | null;
+  kind: string;
+  place: string;
+  pages: number;
+  ended: boolean;
+  about: Partial<Record<"title" | "series" | "number" | "count" | "volume" | "summary" | "year" | "writer"
+    | "penciller" | "genre" | "tags" | "web", string>>;
+  said: Record<string, string | number>;
+  scraped: boolean;
+  links: { label: string; url: string }[];
+  folder: string | null;
+  files: string[];
+  pageCount: number | null;
+  lastRun: { updated: string | null; pages_saved: number | null; completed: boolean | null;
+             stop_reason: string | null; exit_code: number | null } | null;
+  updated: string | null;
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
@@ -87,6 +111,7 @@ export const api = {
       `/api/comics/${id}`);
     return { ...raw, pages: raw.pages.map(([v, w, h, s, media]) => ({ v, w, h, standin: s === 1, media: media ?? null })) };
   },
+  info: (id: string) => call<ComicInfo>(`/api/comics/${id}/info`),
   pageUrl: (id: string, n: number, v: string) => `/api/comics/${id}/pages/${n}?v=${v}`,
   coverUrl: (id: string, v: string | null) => `/api/comics/${id}/cover${v ? `?v=${v}` : ""}`,
   standIn: (id: string, n: number) => call<StandIn>(`/api/comics/${id}/pages/${n}/standin`),

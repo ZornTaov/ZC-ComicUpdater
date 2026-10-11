@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from comicreader.config import Config
+from comicreader.info import describe
 from comicreader.library import Library
 from comicreader.sources import VIDEO_MEDIA, Busy, original
 from comicreader.store import Store
@@ -91,6 +92,10 @@ def create_app(config=None, scan_in_background=True):
                 "settings": store.settings("comic:" + comic_id),
                 #the parts either side of it in its series, for reading on past either end
                 **library.neighbours.get(comic_id, {"previous": None, "next": None})}
+
+    @app.get("/api/comics/{comic_id}/info")
+    def comic_info(comic_id: str):
+        return describe(library, comic_or_404(comic_id))
 
     def page_of(comic_id, n):
         comic = comic_or_404(comic_id)

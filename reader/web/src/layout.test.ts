@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Page } from "./api";
 import { chapterOf, chapterTarget, keyAction, pageAt, placeStrip, tapAction, typedPage, viewOf, views, wanted } from "./layout";
 import { clean, merged } from "./settings";
+import { runLine } from "./info";
 
 const page = (w: number | null = 800, h: number | null = 1200, standin = false): Page => ({ v: "1", w, h, standin, media: null });
 
@@ -153,6 +154,16 @@ describe("pages made ready", () => {
   it("know which chapter a page is in", () => {
     expect(chapterOf([0, 10, 20], 15)).toBe(1);
     expect(chapterOf([5, 10], 2)).toBe(-1);
+  });
+});
+
+describe("the info page", () => {
+  const run = { updated: null, pages_saved: 3, completed: true, stop_reason: "no next button", exit_code: 0 };
+  it("says how the last update went in a line", () => {
+    expect(runLine(run)).toBe("at an unknown time · 3 pages saved · caught up · no next button");
+    expect(runLine({ ...run, pages_saved: 0, completed: false, exit_code: 4, stop_reason: null }))
+      .toBe("at an unknown time · nothing new · stopped (exit 4)");
+    expect(runLine(null)).toBe("");
   });
 });
 

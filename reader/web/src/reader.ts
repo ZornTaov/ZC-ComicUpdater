@@ -334,6 +334,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
         <button data-act="back" aria-label="Library">‹ Library</button>
         <div class="title">${esc(comic.title)}</div>
         ${comic.chapters.length ? `<select data-act="chapter">${chapterOptions}</select>` : ""}
+        <button data-act="info" aria-label="About this comic" title="About this comic">Info</button>
       </header>
       <footer>
         <div class="slider-row">
@@ -355,6 +356,11 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
         </div>
       </footer>`;
     menu.querySelector<HTMLButtonElement>('[data-act="back"]')!.onclick = () => { save(true); leave(); };
+    // the place is saved first, so coming back from the info page opens the comic where it was left
+    menu.querySelector<HTMLButtonElement>('[data-act="info"]')!.onclick = () => {
+      save(true);
+      location.hash = `#/info/${comic.id}`;
+    };
     const chapterSelect = menu.querySelector<HTMLSelectElement>('[data-act="chapter"]');
     if (chapterSelect) chapterSelect.onchange = () => { go(comic.chapters[Number(chapterSelect.value)].start); };
     const slider = menu.querySelector<HTMLInputElement>('[data-act="slider"]')!;

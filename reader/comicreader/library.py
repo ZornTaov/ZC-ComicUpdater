@@ -372,7 +372,8 @@ class Library:
         ended = comic["ended"]
         if ended is None:
             ended = bool(((metadata or {}).get("settings") or {}).get("ended"))
-        return {"pages": pages, "chapters": chapters, "ended": ended, "versions": versions, "about": first or {}}
+        return {"pages": pages, "chapters": chapters, "ended": ended, "versions": versions, "about": first or {},
+                "metadata": metadata}
 
     def move_places(self, found):
         #a comic read as one before its chapters became comics of their own: the place kept in it moves to the

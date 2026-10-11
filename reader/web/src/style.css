@@ -89,7 +89,9 @@ button {
 }
 .cover img.fit-width { width: 100%; height: auto; }
 .cover img.fit-height { height: 100%; width: auto; max-width: none; }
-.cover.stack img.fit-width, .cover.stack img.fit-height { position: absolute; }
+/* a folder's tile lets the edge of the card behind it show, so its picture is cut to the card by a frame of
+   its own rather than by the tile */
+.cover.stack .clip { position: absolute; inset: 0; overflow: hidden; border-radius: 6px; z-index: 1; background: var(--line); }
 .badge {
   position: absolute; right: 6px; top: 6px;
   background: rgba(0, 0, 0, .72); color: #fff;

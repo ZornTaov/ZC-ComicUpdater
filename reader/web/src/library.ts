@@ -128,7 +128,7 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     const shown = tileCover(group);
     const waiting = group.comics.filter((comic) => (comic.new > 0 && comic.position !== null) || next.has(comic.id)).length;
     return `<a class="card group" href="${browseHash(browse, group.key)}">
-      <div class="cover stack"><img loading="lazy" alt="" class="${fitClass(shown.fit)}" src="${shown.src}">
+      <div class="cover stack"><div class="clip"><img loading="lazy" alt="" class="${fitClass(shown.fit)}" src="${shown.src}"></div>
         <span class="badge count">${group.comics.length}</span>${waiting ? `<span class="badge new left">${waiting} updated</span>` : ""}
         <button class="card-menu" type="button" aria-label="More for ${esc(group.label)}" data-group="${esc(group.key)}">⋯</button></div>
       <div class="name">${esc(group.label)}</div>

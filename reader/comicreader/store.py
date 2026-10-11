@@ -97,6 +97,29 @@ class Store:
                     self.db.execute("UPDATE growth SET pages = ? WHERE series = ?", (pages, series))
             self.db.commit()
 
+    def carry(self, old, new):
+        #what the reader keeps of a comic under one id moved to another: where it was read up to, how it has
+        #grown, its settings and its cover. nothing already kept under the new id is written over - it was
+        #read or set there since - except a count of its pages that has never seen it grow, which is only the
+        #first sight of the comic at its new place. answers whether anything moved
+        moved = 0
+        with self.lock:
+            self.db.execute("DELETE FROM growth WHERE series = ? AND grew IS NULL AND "
+                            "EXISTS (SELECT 1 FROM growth WHERE series = ?)", (new, old))
+            for table, column, prefix in (("progress", "series", ""), ("growth", "series", ""),
+                                          ("settings", "scope", "comic:"), ("covers", "target", "comic:")):
+                moved += self.db.execute("UPDATE OR IGNORE {0} SET {1} = ? WHERE {1} = ?".format(table, column),
+                                         (prefix + new, prefix + old)).rowcount
+            self.db.commit()
+        return moved > 0
+
+    def carry_cover(self, old, new):
+        #a cover chosen for a folder of the shelf - a comic's folder of chapter archives - that has moved
+        with self.lock:
+            moved = self.db.execute("UPDATE OR IGNORE covers SET target = ? WHERE target = ?", (new, old)).rowcount
+            self.db.commit()
+        return moved > 0
+
     def forget_progress(self, series):
         with self.lock:
             self.db.execute("DELETE FROM progress WHERE series = ?", (series,))

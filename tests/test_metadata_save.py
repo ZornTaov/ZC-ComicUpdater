@@ -107,3 +107,15 @@ def test_what_was_said_about_the_comic_by_hand_outlives_a_run(saving, mirror):
         json.dump({"schema": 2, "settings": {"url": "https://example.com/comic/1/"}, "info": info}, f)
     meta = load(mirror.metadata_save(StubDriver(), fresh_args(), completed=False, exit_code=0))
     assert meta["info"] == info
+
+
+def test_where_the_comic_was_moved_from_outlives_a_run(saving, mirror):
+    #the reader carries a comic's place over to where it was moved by this record: a run dropping it, as it
+    #once dropped every history key it did not name, would have the reader start the comic afresh
+    moves = [{"at": "2026-10-11T00:00:00Z", "moved": [
+        {"what": "pages", "from": "Uncompressed/TestComic", "to": "Uncompressed/SomeAuthor/TestComic"}]}]
+    with open(saving / "mirror_metadata.json", "w", encoding="utf-8") as f:
+        json.dump({"schema": 2, "settings": {"url": "https://example.com/comic/1/"},
+                   "history": {"moves": moves}}, f)
+    meta = load(mirror.metadata_save(StubDriver(), fresh_args(), completed=False, exit_code=0))
+    assert meta["history"]["moves"] == moves

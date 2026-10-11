@@ -118,6 +118,39 @@ def argv_to_settings(argv):
     return settings
 
 
+def moves(metadata):
+    #every move of the comic to another folder, oldest first: each a list of what was renamed, as
+    #{"what", "from", "to"} with paths relative to the library the scraper was given. written by comiclib's
+    #moving and read by the reader, which keys what it keeps of a comic by where the comic is
+    found = (((metadata or {}).get("history") or {}).get("moves")) or []
+    return [entry["moved"] for entry in found if isinstance(entry, dict) and isinstance(entry.get("moved"), list)]
+
+
+def before_moves(path, records):
+    #where a path in the library was before each of those moves, newest first. a path a move did not touch
+    #was where it is now, so that move adds nothing; paths are relative, with / between their parts
+    found = []
+    for record in reversed(records):
+        for step in record:
+            came, went = step.get("from"), step.get("to")
+            if came and went and (path == went or path.startswith(went + "/")):
+                path = came + path[len(went):]
+                found.append(path)
+                break
+    return found
+
+
+def after_moves(path, records):
+    #where a path from before the moves is now, the other way about
+    for record in records:
+        for step in record:
+            came, went = step.get("from"), step.get("to")
+            if came and went and (path == came or path.startswith(came + "/")):
+                path = went + path[len(came):]
+                break
+    return path
+
+
 def saved_command(old):
     #the scrape command a schema 1 file kept, as the arguments after the script's own name
     argv = old.get("resume_argv")

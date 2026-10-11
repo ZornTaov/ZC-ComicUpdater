@@ -9,7 +9,7 @@ import threading
 import time
 
 from comiclib import cbz
-from comiclib.metadata import METADATA_FILE, migrate, read as read_metadata
+from comiclib.metadata import METADATA_FILE, after_moves, before_moves, migrate, moves, read as read_metadata
 from comiclib.pages import sort_key
 from comiclib.standin import held_otherwise
 
@@ -128,6 +128,20 @@ def numbered_runs(paths):
     return runs
 
 
+def leading(here, records):
+    #what this library has in front of the paths the scraper wrote: nothing when both were given the same
+    #folder, "Webcomics/" when the reader was given the folder above the scraper's. none when the comic is not
+    #where its last move left it - moved again since, by hand - so where it was before is not known
+    latest = next((step.get("to") for step in records[-1] if step.get("what") == "pages"), None)
+    if not latest:
+        return None
+    if here == latest:
+        return ""
+    if here.endswith("/" + latest):
+        return here[:-len(latest)]
+    return None
+
+
 def chapter_order(path):
     found = CHAPTER.match(os.path.basename(path))
     return (int(found.group("number")) if found else 0, sort_key(os.path.basename(path)))
@@ -166,7 +180,7 @@ def gather(library, skip, pictures=None):
         where = {"chapters": shelf, "archive": os.path.dirname(single)}.get(kind, os.path.dirname(folder))
         comic = {"id": ident(os.path.relpath(folder, library)), "title": name, "author": None, "kind": kind,
                  "sources": sources, "folder": folder, "ended": bool(settings.get("ended")),
-                 "place": listed_in(library, where), "named": name}
+                 "place": listed_in(library, where), "named": name, "moves": moves(metadata)}
         found.append(comic)
         #a comic kept without an archive on purpose looks for none: an archive of its name is someone else's
         if kind != "folder" or settings.get("cbz") is not False:
@@ -265,7 +279,7 @@ def split_chapters(library, found):
                         "kind": "archive", "sources": [path], "folder": comic["folder"], "ended": comic["ended"],
                         "place": "" if shelf == "." else shelf, "series": comic["title"], "number": str(number),
                         #the comic these were read as before they were each their own, whose place moves into them
-                        "parent": comic["id"]})
+                        "parent": comic["id"], "moves": comic.get("moves")})
     return out
 
 
@@ -334,6 +348,8 @@ class Library:
             #forgotten, not served from its last reading
             self.store.forget_sources(in_use)
             self.sources.forget(in_use)
+            #before anything is counted or kept under a comic's id: a comic moved since is under a new one
+            self.carry_moves(found)
             #what each comic holds now, against what the last scan saw: a comic that has grown is noted as
             #recently updated
             self.store.saw({comic["id"]: len(self.stream(comic)["pages"]) for comic in found})
@@ -393,6 +409,73 @@ class Library:
             ended = bool(((metadata or {}).get("settings") or {}).get("ended"))
         return {"pages": pages, "chapters": chapters, "ended": ended, "versions": versions, "about": first or {},
                 "metadata": metadata}
+
+    def carry_moves(self, found):
+        #a comic the scraper moved - in under its author, say - is found at its new place, and so under a new
+        #id, since everything here is kept by an id made from where a comic is. the scraper writes each move
+        #into the comic's metadata, and what was kept under the old place is carried to the new one: a comic
+        #moved is not a comic started afresh, with its place, its settings and its cover lost
+        library = os.path.normpath(os.path.abspath(self.config.library))
+
+        def rel(path):
+            return os.path.relpath(path, library).replace(os.sep, "/")
+
+        renamed, followed = {}, []
+        for comic in found:
+            records = comic.get("moves")
+            if not records or not comic.get("folder"):
+                continue
+            here = rel(comic["folder"])
+            lead = leading(here, records)
+            if lead is None:
+                continue
+            followed.append((lead, records))
+
+            def earlier(path, lead=lead, records=records):
+                return [lead + old for old in before_moves(path[len(lead):], records)] if path.startswith(lead) else []
+
+            #a chapter is kept by its own archive, and the comic it was read as before by the comic's folder
+            targets = [(comic["id"], rel(comic["sources"][0]) if comic.get("parent") else here)]
+            if comic.get("parent"):
+                targets.append((comic["parent"], here))
+                shelf = rel(os.path.dirname(comic["sources"][0]))
+                for old in earlier(shelf):
+                    if self.store.carry_cover("folder:" + old, "folder:" + shelf):
+                        break
+            for new, path in targets:
+                olds = [ident(old) for old in earlier(path)]
+                if not olds or new in renamed.values():
+                    continue
+                renamed.update((old, new) for old in olds)
+                #the newest place that kept anything: a comic moved twice between scans kept it at the first
+                for old in olds:
+                    if self.store.carry(old, new):
+                        print("{0}: carried its place, settings and cover over from before it was moved".format(
+                            comic["title"]), flush=True)
+                        break
+        if followed:
+            self.follow_covers(renamed, followed, library)
+
+    def follow_covers(self, renamed, followed, library):
+        #a cover is kept by what it is a cover of, but can say which comic its page is from, and where on the
+        #shelf the reader wrote it - both of which a move changes. one written beside an archive went with it
+        for target, row in self.store.covers().items():
+            fresh = dict(row)
+            if fresh.get("comic") in renamed:
+                fresh["comic"] = renamed[fresh["comic"]]
+            wrote = fresh.get("wrote")
+            if wrote and not os.path.isfile(wrote[0]):
+                old = os.path.relpath(wrote[0], library).replace(os.sep, "/")
+                for lead, records in followed:
+                    if not old.startswith(lead):
+                        continue
+                    now = os.path.join(library, (lead + after_moves(old[len(lead):], records)).replace("/", os.sep))
+                    if now != os.path.normpath(wrote[0]) and os.path.isfile(now):
+                        fresh["wrote"] = [now] + list(wrote[1:])
+                        break
+            if fresh != row:
+                self.store.save_cover(target, fresh)
+        self.chosen = self.store.covers()
 
     def move_places(self, found):
         #a comic read as one before its chapters became comics of their own: the place kept in it moves to the

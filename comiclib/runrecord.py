@@ -213,6 +213,10 @@ def metadata_save(args, folder, *, scrape_state, run_id, run_start, stop_reason,
     #changes made by hand through the web page, kept so a later look can tell a setting was edited
     if old_history.get("edits"):
         metadata["history"]["edits"] = old_history["edits"]
+    #where the comic and its archives were before each move, which the reader goes by to carry its place,
+    #its settings and its cover over to the comic's new place. lost, the reader starts the comic afresh
+    if old_history.get("moves"):
+        metadata["history"]["moves"] = old_history["moves"]
     #what this comic is known to be missing, and which of its files were made by hand. worked out by
     #chapters.py, which takes minutes to do, so a scrape must not throw it away
     for kept in ("gaps", "gaps_note", "hand_made", "gaps_checked", "index_cache"):

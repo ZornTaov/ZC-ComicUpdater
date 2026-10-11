@@ -161,7 +161,8 @@ where it is cheap to (`standin.py` draws PNGs and `comicinfo.py` reads image siz
 - Exit codes from `mirror_base.py` mean something and are checked by callers:
   `0` ok, `1` interrupted, `2` usage, `3` no image found, `4` download failed, `5` driver,
   `6` timeout, `7` unexpected, `8` next link runs backwards, `9` the site reuses filenames,
-  `10` next link skips pages the comic's index lists.
+  `10` next link skips pages the comic's index lists, `11` the same picture found as the comic on page after
+  page.
 
 ## Testing
 

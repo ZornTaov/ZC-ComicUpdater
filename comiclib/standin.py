@@ -29,6 +29,23 @@ a_web_address = re.compile(r"(https?://\S+)")
 named_for_a_page = re.compile(r"^(\d+)(?:[._])")
 
 
+class NotAPicture(str):
+    #a page whose comic is there but is not a picture - one you play with, drawn by the page's own script -
+    #standing in a list of a page's pictures as the page's own address. kept as a note naming where it lives,
+    #so the page keeps its place and its number, and a reader opens the real thing
+    pass
+
+
+def note_name(number, address=None):
+    #what such a page is kept as: named like a page, so it is numbered as one, and read as a note
+    return "{0:04d}_link.url".format(number)
+
+
+def note_body(address):
+    #the shortcut format every desktop opens, which a_web_address reads back
+    return "[InternetShortcut]\r\nURL={0}\r\n".format(address).encode("utf-8")
+
+
 #five columns and seven rows of dots per letter, written out rather than packed into numbers so that a
 #letter that comes out wrong is a letter you can see is wrong. a nine keeps a straight stem and a g hooks
 #to the left, because a video's address must not be readable two ways.

@@ -11,6 +11,7 @@ UNEXPECTED = 7
 BACKWARDS = 8
 SAME_NAMES = 9
 SKIPS = 10
+REPEATS = 11
 
 class MirrorError(Exception):
     #a scrape failure that should end the run with a specific exit code
@@ -33,4 +34,5 @@ REASONS = {
     BACKWARDS: "next link runs backwards (check the site's next element)",
     SAME_NAMES: "the site reuses image names between chapters; this comic needs prefix turned on",
     SKIPS: "next link skips pages the comic's record lists (check the site's next element)",
+    REPEATS: "the same picture was found on page after page (check the site's image element)",
 }

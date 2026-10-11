@@ -10,6 +10,7 @@ from comiclib.chapters.index import read_index
 from comiclib.elements import next_ele_get, test_next_ele_get
 from comiclib.exits import USAGE as EXIT_USAGE, MirrorError
 from comiclib.pages import saved_name
+from comiclib.standin import NotAPicture, note_name
 
 def index_read(path):
     #what an earlier attempt already got through, so a walk that stopped can be carried on
@@ -97,9 +98,14 @@ def build_index(driver, args, page_images, next, still_on, first_paths=()):
             most_here = max(most_here, len(srcs))
             for src in (srcs or [None]):
                 at += 1
-                #the name a scrape gives this image, so the line can be matched against a saved file
-                line = {"n": at, "url": here, "src": src, "file": saved_name(src) if src else None,
-                        "title": driver.title}
+                #the name a scrape gives this image, so the line can be matched against a saved file. a page
+                #whose comic is not a picture is kept as a note of its address, named for its number
+                if isinstance(src, NotAPicture):
+                    line = {"n": at, "url": here, "src": None, "file": note_name(at, src),
+                            "title": driver.title}
+                else:
+                    line = {"n": at, "url": here, "src": src, "file": saved_name(src) if src else None,
+                            "title": driver.title}
                 out.write(json.dumps(line) + chr(10))
             out.flush()
             seen.add(here)

@@ -106,6 +106,34 @@ def merge_paths(shipped, saved):
     return ordered + [xpath for xpath in shipped if xpath not in known]
 
 
+def container_of(xpath):
+    #where a path looks, without what it looks for there: //*[@id="comic"] from //*[@id="comic"]/img[1].
+    #a page whose comic is wrapped in a link, or drawn by something other than a picture, still has the
+    #same container - so that is the place to look again, before the whole list is searched. None for a
+    #path with no container to speak of, //img[@id="cc-comic"], or one that is several paths in one
+    depth, quote, cut = 0, None, None
+    for at, char in enumerate(xpath or ""):
+        if quote:
+            quote = None if char == quote else quote
+        elif char in "\"'":
+            quote = char
+        elif char in "[(":
+            depth += 1
+        elif char in "])":
+            depth -= 1
+        elif depth == 0 and char == "|":
+            return None
+        elif depth == 0 and char == "/":
+            cut = at
+    if cut is None:
+        return None
+    container = xpath[:cut].rstrip("/")
+    #a container of nothing - //img - or of the whole page - /html/body - is no place to look again in
+    if not container or "[" not in container:
+        return None
+    return container
+
+
 def comic_images(srcs, where=None):
     #which of several images on one address are pages of the comic. a path that matches more than one is
     #usually a comic serving several pages at once, but a path written loosely enough can also catch the

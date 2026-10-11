@@ -18,7 +18,7 @@ from comiclib.chapters.index import KeptIndex
 from comiclib.chapters.links import same_page
 from comiclib.metadata import METADATA_FILE, now_stamp, read as read_metadata
 from comiclib.pages import clear_unfinished, held_pages, page_key, page_number, saved_name, write_page
-from comiclib.standin import held_otherwise
+from comiclib.standin import NotAPicture, held_otherwise, note_body, note_name
 from comiclib.paths import element_paths_file
 from comiclib.guards import would_lose_a_page
 #the scrape's own loop is this file; finding elements, pressing next and fetching an image are not, and
@@ -49,6 +49,16 @@ seen_on_pages = {}
 #own variables rather than written back into the lists above, so a re-search still has every candidate.
 image_xpath = None
 next_xpath = None
+#how many pages in a row the remembered image path has found nothing on, its place taken by another path
+#from the list. one odd page - a comic you play with, a page wrapped differently - is not the site changing,
+#and a path that happens to match something on it must not become the comic's from then on
+fallbacks_in_row = 0
+#pages in a row a path can find nowhere but the whole list before it becomes the remembered one: a site
+#that really changed its layout is past this in moments
+FALLBACKS_TO_SWITCH = 3
+#the same picture found as the comic on this many pages in a row, each at its own address, is the site's
+#furniture - a menu drawn as a picture, a banner - and not the comic, whatever path found it
+REPEATS_TO_STOP = 5
 current_url = None
 verbose = False
 
@@ -72,6 +82,7 @@ EXIT_UNEXPECTED = exits.UNEXPECTED
 EXIT_BACKWARDS = exits.BACKWARDS
 EXIT_SAME_NAMES = exits.SAME_NAMES
 EXIT_SKIPS = exits.SKIPS
+EXIT_REPEATS = exits.REPEATS
 
 #how long to let one page load before giving up on it. selenium otherwise waits for the page to finish
 #loading with no limit of its own, and the only thing that eventually breaks the wait is its internal
@@ -136,6 +147,9 @@ scrape_state = {
     "walked_to": None,
     #set when a page turns out to hold no comic image at all, after this run has already saved some
     "ran_out": None,
+    #the picture saved as the last page, and the pages in a row it has been saved as, by file
+    "repeat_src": None,
+    "repeat_files": [],
 }
 
 def setup():
@@ -306,7 +320,7 @@ def cbz_update(args):
 def page_images(driver, args):
     #every comic image on the page the browser is on, in reading order, with the path that found them
     #remembered for the pages that follow
-    global image_xpath
+    global image_xpath, fallbacks_in_row
     global last_page_url, last_page_srcs, seen_on_pages
     #whatever way this page was reached, the browser's own error page is never read as one of the comic's:
     #its picture would be saved or recorded as the page, and its missing next link taken for the comic's end
@@ -316,15 +330,49 @@ def page_images(driver, args):
         element = driver.find_elements(By.TAG_NAME, 'img')
         return [element[0].get_attribute('src')] if element else []
 
-    #try the path that worked last time, then fall back to searching the whole list. pages within one
-    #comic can differ: most themes wrap the image in a link to the next page, so the newest page - the
-    #one an update is there to fetch - has different markup to every page before it.
-    srcs = []
-    for element in ([image_xpath] if image_xpath else []) + element_names: #sends a possible path to be tested
-        srcs = ele_get_all(driver,element)
-        if srcs: #the path works, so it is remembered for the pages that follow
-            image_xpath = element
-            break
+    here = getattr(driver, "current_url", None)
+    #the path that worked last time first. pages within one comic differ: most themes wrap the image in a
+    #link to the next page, so the newest page - the one an update is there to fetch - has different markup
+    #to every page before it
+    srcs = ele_get_all(driver, image_xpath) if image_xpath else []
+    if image_xpath and not srcs:
+        #the same place again, looked through more loosely: a comic wrapped in a link on one page and not on
+        #the next is still in its container. a container holding no picture at all is a page whose comic
+        #is something else - one you play with, drawn by the page's script - and nothing else on the page is
+        #taken for it: a menu drawn as a picture below every comic would be found by some path in the list,
+        #and saved as page after page of the comic
+        container = elements.container_of(image_xpath)
+        if container:
+            srcs = ele_get_all(driver, container + "//img")
+            if not srcs and present(driver, container):
+                print("{0} holds no picture where this comic's pages are, so the page is something else - one "
+                      "you play with, say. Kept as a note of its address, to open on the site.".format(here))
+                return [NotAPicture(here)]
+    if srcs:
+        fallbacks_in_row = 0
+    else:
+        #nowhere the comic was before: the whole list, for this page. it becomes the comic's path only once
+        #the old one has found nothing several pages running, which is the site changing rather than one
+        #odd page - a path that matches something on that one page would otherwise be the comic's for good
+        found_by = None
+        for element in element_names:
+            if element == image_xpath:
+                continue
+            srcs = ele_get_all(driver, element)
+            if srcs:
+                found_by = element
+                break
+        if found_by and image_xpath is None:
+            image_xpath = found_by
+        elif found_by:
+            fallbacks_in_row += 1
+            if fallbacks_in_row >= FALLBACKS_TO_SWITCH:
+                print("The image path {0} has found nothing for {1} pages running, so this comic's pages are "
+                      "now found by {2}.".format(image_xpath, fallbacks_in_row, found_by))
+                image_xpath, fallbacks_in_row = found_by, 0
+            else:
+                print("The image path {0} found nothing on {1}, so {2} found it for this page only.".format(
+                    image_xpath, here, found_by))
     if len(srcs) > 1 and not getattr(args, "multi_page", True):
         #told to read this comic as one page an address whatever the page holds
         return srcs[:1]
@@ -335,7 +383,6 @@ def page_images(driver, args):
     #outside the numbering would otherwise count first.png and archive.png as pages.
     #this needs no list of what buttons are called, which is the point: it works on a site nobody has
     #described, and on one that renames its buttons tomorrow.
-    here = getattr(driver, "current_url", None)
     if here != last_page_url:
         was_here = last_page_srcs
         last_page_url, last_page_srcs = here, set(srcs)
@@ -350,6 +397,14 @@ def page_images(driver, args):
         if fresh:
             srcs = fresh
     return comic_images(srcs, here)
+
+
+def present(driver, xpath):
+    #whether anything on the page matches, a picture or not
+    try:
+        return bool(driver.find_elements(By.XPATH, xpath))
+    except se.WebDriverException:
+        return False
 
 
 def still_on(driver, before, settle=3.0):
@@ -425,17 +480,45 @@ def img_save(driver, increment, args):
     return True
 
 
+def same_picture_again(src):
+    #stops a run that has found one picture as the comic on page after page, each at its own address: that is
+    #something every page of the site shows, not the comic. said before the next is written, with the pages
+    #already saved as it named, since those are the ones to take out
+    if isinstance(src, NotAPicture):
+        scrape_state["repeat_src"], scrape_state["repeat_files"] = None, []
+        return
+    if src != scrape_state["repeat_src"] or current_url == scrape_state["last_page_url"]:
+        if src != scrape_state["repeat_src"]:
+            scrape_state["repeat_src"], scrape_state["repeat_files"] = src, []
+        return
+    if len(scrape_state["repeat_files"]) + 1 >= REPEATS_TO_STOP:
+        held = scrape_state["repeat_files"]
+        raise MirrorError(
+            "{0} has been found as the comic on {1} pages in a row, each at its own address, so it is something "
+            "every page of this site shows - a menu drawn as a picture, a banner - and not the comic. It was "
+            "found by the image path {2}. Run this comic with --check on {3} to see which path finds the "
+            "comic, and put that one first in the element paths. The pages already saved as that picture are "
+            "{4} to {5}: take them out before running it again.".format(
+                src, len(held) + 1, image_xpath, current_url, held[0], held[-1]),
+            EXIT_REPEATS, "the same picture found on page after page")
+
+
 def save_one(driver, src, increment, args, resuming):
     #fetched before it is named, since the name is what the site says it is and the site says it in the
     #answer. nothing is written until every check below has passed
-    req = fetch(src)
-    #named the way every page is, so the index, a page put in by hand and this all agree on it
-    image = saved_name(src, getattr(req, "headers", None), req.content)
-
-    #if increment prefix is required
-    if args.prefix:
-        #pad with 4 zeros for sorting purposes
-        image = '{0}_{1}'.format(str(increment).zfill(4), image)
+    same_picture_again(src)
+    if isinstance(src, NotAPicture):
+        #a page whose comic is not a picture: a note of its address, numbered as the page it is
+        body, image, src_kept = note_body(src), note_name(increment, src), None
+    else:
+        req = fetch(src)
+        body, src_kept = req.content, src
+        #named the way every page is, so the index, a page put in by hand and this all agree on it
+        image = saved_name(src, getattr(req, "headers", None), body)
+        #if increment prefix is required
+        if args.prefix:
+            #pad with 4 zeros for sorting purposes
+            image = '{0}_{1}'.format(str(increment).zfill(4), image)
 
     folder = output_folder(args)
     #creates the folder structure for the url origin if it does not exist
@@ -470,7 +553,7 @@ def save_one(driver, src, increment, args, resuming):
 
     #the whole of the address a resume starts on is exempt, not just its first page: every page on it is
     #being written over itself, which is what a re-save is
-    if would_lose_a_page(target, args.prefix, 0 if resuming else scrape_state["pages_saved"], req.content):
+    if would_lose_a_page(target, args.prefix, 0 if resuming else scrape_state["pages_saved"], body):
         raise MirrorError(
             "{0} is already saved here and holds a different image, so this site uses one filename for a "
             "page of every chapter. Saving it would write over the page already held. Run this comic with "
@@ -486,7 +569,7 @@ def save_one(driver, src, increment, args, resuming):
     #written aside and moved into place, like everything else here. a run killed part way through writing
     #a page - a timeout - otherwise left half a picture under the page's own name, which the next run then
     #took for a different page held under that name and stopped on, for a comic without --prefix, for good
-    write_page(target, req.content)
+    write_page(target, body)
 
     #track progress and rewrite the metadata each page, so it stays accurate even if the run is cut short
     if scrape_state["first_page_url"] is None:
@@ -494,8 +577,10 @@ def save_one(driver, src, increment, args, resuming):
         scrape_state["first_increment"] = increment
     scrape_state["last_page_url"] = current_url
     scrape_state["last_increment"] = increment
-    scrape_state["last_image_src"] = src
+    scrape_state["last_image_src"] = src_kept
     scrape_state["last_image_file"] = image
+    if src_kept is not None:
+        scrape_state["repeat_files"].append(image)
     #remembered so the next page can be compared against where this one sits, and so a page saved this
     #run is recognised as held if the comic doubles back onto it later
     if sits_at is None:
@@ -506,7 +591,7 @@ def save_one(driver, src, increment, args, resuming):
     visited_urls.add(current_url)
     #recorded under the name it was actually saved as, and with the size it really is, so the index needs
     #no guessing and no asking the site afterwards
-    kept_index.add(current_url, src, image, len(req.content), getattr(driver, "title", None))
+    kept_index.add(current_url, src_kept, image, len(body), getattr(driver, "title", None))
     metadata_save(driver, args)
 
     return True

@@ -37,8 +37,12 @@ class NotAPicture(str):
 
 
 def note_name(number, address=None):
-    #what such a page is kept as: named like a page, so it is numbered as one, and read as a note
-    return "{0:04d}_link.url".format(number)
+    #what such a page is kept as: named like a page, so it is numbered as one, and read as a note - and after
+    #the last part of its address, so no two notes share a name and lining them up by name can tell them apart
+    path = re.sub(r'[?#].*$', '', re.sub(r'^\w+://[^/]+', '', address or ''))
+    last = next((part for part in reversed(path.split('/')) if part), '')
+    slug = re.sub(r'[^A-Za-z0-9._-]+', '-', re.sub(r'\.\w+$', '', last)).strip('-.')[:40] or 'link'
+    return "{0:04d}_{1}.url".format(number, slug)
 
 
 def note_body(address):

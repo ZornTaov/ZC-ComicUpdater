@@ -66,13 +66,20 @@ def note_page(folder, args):
             if same_page(line.get("url") or "") == target:
                 if line["n"] != first:
                     continue
-                line = {"n": first, "url": line["url"], "src": None, "file": note_name(first, line["url"]),
-                        "title": line.get("title")}
+                line = {"n": first, "url": line["url"], "src": None, "title": line.get("title")}
             elif line["n"] > first:
                 line = dict(line, n=line["n"] - gone)
+            #a note carries its page's number in its name, so every note is named afresh for where it now sits
+            is_note = not line.get("src") and ((line.get("file") or "").endswith(".url")
+                                               or same_page(line.get("url") or "") == target)
+            if is_note:
+                line["file"] = note_name(line["n"], line["url"])
             out.append(line)
-        #the record as it was, beside it, then the new one written aside and moved into place
-        shutil.copyfile(cache, cache + ".before-note")
+        #the record as it was before any page was kept as a note, beside it - the first time only, so noting a
+        #second page keeps the walk's own record rather than one already changed - then the new one written
+        #aside and moved into place
+        if not os.path.exists(cache + ".before-note"):
+            shutil.copyfile(cache, cache + ".before-note")
         with open(cache + ".writing", "w", encoding="utf-8") as f:
             for line in out:
                 f.write(json.dumps(line) + "\n")

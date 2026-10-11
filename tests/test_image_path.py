@@ -75,8 +75,9 @@ def test_a_page_whose_comic_is_not_a_picture_is_kept_as_a_note_of_its_address(sc
     said, nxt = save(scrape, page.at("https://example.com/1/", comic=comic(1)), scrape_args(folder), 1)
     said, nxt = save(scrape, page.at("https://example.com/2/"), scrape_args(folder), nxt)
     assert "holds no picture where this comic's pages are" in said, said
-    assert pages(scrape, folder) == ["0001_strip_1.png", "0002_link.url"]
-    with open(folder + "/0002_link.url", encoding="utf-8") as f:
+    #named for its number and its address, so no two notes share a name
+    assert pages(scrape, folder) == ["0001_strip_1.png", "0002_2.url"]
+    with open(folder + "/0002_2.url", encoding="utf-8") as f:
         assert "URL=https://example.com/2/" in f.read()
     said, nxt = save(scrape, page.at("https://example.com/3/", comic=comic(3)), scrape_args(folder), nxt)
     assert pages(scrape, folder)[-1] == "0003_strip_3.png" and scrape.image_xpath == REMEMBERED

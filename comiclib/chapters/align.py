@@ -233,8 +233,12 @@ def describe(folder, pages, files, aligned, how, anchors, trouble, rescued=(), r
             len(filmed), filmed[:4], "..." if len(filmed) > 4 else ""))
     named = [(page, name) for page, name in zip(pages, aligned)
              if name and page.get("src") and not video_types.search(name)]
-    astray = [(page, name) for page, name in named
-              if page_key(os.path.basename(page["src"].split('?')[0])) != page_key(name)]
+    #a site's own name can start with a number of its own - 1337_part_1.png - which page_key takes for the
+    #number a scrape puts in front. the file numbered for this page, 0341_1337_part_1.png, is that very image
+    def named_after(src, name):
+        site = os.path.basename(src.split('?')[0])
+        return page_key(site) == page_key(name) or page_key(name) == site.lower()
+    astray = [(page, name) for page, name in named if not named_after(page["src"], name)]
     #only worth saying when most files ARE named after their image: then the few that are not stand out
     #as a page whose saved file is not its image - a scrape that caught a banner or an icon instead. on a
     #comic the site renamed wholesale, nothing matches and this says nothing.

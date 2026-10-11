@@ -16,6 +16,11 @@ export function pickPicture(): Promise<File | null> {
   });
 }
 
+// the class that lays a cover in its card as it was said to fit; nothing for filling it, the way it always was
+export function fitClass(fit: string | null | undefined): string {
+  return fit === "width" ? "fit-width" : fit === "height" ? "fit-height" : "";
+}
+
 // what a refusal says, out of the server's answer: its detail where it gave one
 export function refusal(error: unknown): string {
   const text = String(error instanceof Error ? error.message : error);

@@ -241,6 +241,15 @@ def create_app(config=None, scan_in_background=True):
         except (covers.Unusable, ValueError, TypeError) as error:
             raise HTTPException(400, str(error))
 
+    @app.put("/api/covers/fit")
+    async def fit_cover(request: Request):
+        #how a cover sits in its card: fill, width or height
+        body = await request.json()
+        try:
+            return covers.set_fit(library, str(body.get("target") or ""), str(body.get("fit") or ""))
+        except covers.Unusable as error:
+            raise HTTPException(400, str(error))
+
     @app.get("/api/covers/state")
     def cover_state(target: str):
         try:

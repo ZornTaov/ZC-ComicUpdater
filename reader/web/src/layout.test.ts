@@ -169,7 +169,7 @@ describe("the info page", () => {
   });
 
   const info = {
-    id: "a", title: "MyComic", name: "MyComic", author: null, cover: null, coverChosen: false, kind: "archive", place: "", pages: 3,
+    id: "a", title: "MyComic", name: "MyComic", author: null, cover: null, coverChosen: false, coverFit: "fill" as const, kind: "archive", place: "", pages: 3,
     ended: false, links: [], folder: null, files: [], pageCount: null, lastRun: null, updated: null,
     version: null, editable: true,
     about: { title: "MyComic", series: "MyComic", web: "https://example.com/" },
@@ -197,7 +197,8 @@ describe("the info page", () => {
 
   it("says what a cover is now, how it is turned, and where it is kept", () => {
     const state = { target: "folder:CBZs/SomeAuthor", v: "u1", chosen: true, how: "address" as const,
-                    from: "https://example.com/logo.png", page: null, turn: 90, shelf: "CBZs/SomeAuthor/cover.png",
+                    from: "https://example.com/logo.png", page: null, turn: 90, fit: "width" as const,
+                    shelf: "CBZs/SomeAuthor/cover.png",
                     shelfable: true };
     expect(describeCover(state, false))
       .toBe("From https://example.com/logo.png, turned 90°. Saved on the shelf as CBZs/SomeAuthor/cover.png.");

@@ -1,8 +1,8 @@
 // the library: what is being read at the top, then the library laid out by folder, series or author. the
 // place being looked at is in the address, so the back button goes back up and a folder can be bookmarked
-import { api, type ComicSummary, type GroupCovers } from "./api";
+import { api, type ComicSummary, type Fit, type GroupCovers } from "./api";
 import { openCoverDialog, type CoverTarget } from "./coverdialog";
-import { el, esc, refusal } from "./dom";
+import { el, esc, fitClass, refusal } from "./dom";
 import { BROWSE_LABELS, type Browse, type Group, matches, nextIssues, pathLabel, reading, recentlyUpdated, shelf, upTo } from "./shelves";
 
 // each name encoded alone and joined with real slashes, so a folder's address reads as its path. the whole
@@ -79,11 +79,14 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     });
   }
 
-  // what a folder, series or author's tile shows: its own cover, or its first comic's
-  function tileCover(group: Group): string {
+  // what a folder, series or author's tile shows: its own cover, or its first comic's, and how it fits
+  function tileCover(group: Group): { src: string; fit: Fit } {
     const first = group.comics.find((comic) => comic.cover) ?? group.comics[0];
     const own = covers[targetOf(group)];
-    return own ? api.groupCoverUrl(targetOf(group), own.v) : api.coverUrl(first.id, first.cover);
+    return {
+      src: own?.v ? api.groupCoverUrl(targetOf(group), own.v) : api.coverUrl(first.id, first.cover),
+      fit: own?.fit ?? "fill",
+    };
   }
 
   // away from its own folder - in what is being read, a search, a series - a comic says which folder it is
@@ -111,7 +114,7 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     const under = growth ? grewBy(comic)
       : [issue || folder || comic.author, `${comic.pages} pages`].filter(Boolean).join(" · ");
     return `<a class="card" href="#/read/${comic.id}" data-id="${comic.id}" title="${esc(comic.name)}">
-      <div class="cover"><img loading="lazy" alt="" src="${api.coverUrl(comic.id, comic.cover)}">${badge}
+      <div class="cover"><img loading="lazy" alt="" class="${fitClass(comic.coverFit)}" src="${api.coverUrl(comic.id, comic.cover)}">${badge}
         <button class="card-menu" type="button" aria-label="More for ${esc(comic.title)}" data-menu="${comic.id}">⋯</button></div>
       <div class="bar"><div style="width:${read}%"></div></div>
       <div class="name">${esc(comic.title)}</div>
@@ -122,10 +125,10 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
   function tile(group: Group): string {
     // a folder, a series or an author: its own cover where it has one, or the cover of the first comic in it,
     // stacked, with how many there are and how many have pages waiting
-    const src = tileCover(group);
+    const shown = tileCover(group);
     const waiting = group.comics.filter((comic) => (comic.new > 0 && comic.position !== null) || next.has(comic.id)).length;
     return `<a class="card group" href="${browseHash(browse, group.key)}">
-      <div class="cover stack"><img loading="lazy" alt="" src="${src}">
+      <div class="cover stack"><img loading="lazy" alt="" class="${fitClass(shown.fit)}" src="${shown.src}">
         <span class="badge count">${group.comics.length}</span>${waiting ? `<span class="badge new left">${waiting} updated</span>` : ""}
         <button class="card-menu" type="button" aria-label="More for ${esc(group.label)}" data-group="${esc(group.key)}">⋯</button></div>
       <div class="name">${esc(group.label)}</div>
@@ -214,7 +217,7 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     if (group.comics.some((each) => each.position !== null)) {
       choices.push(["Mark all as unread", () => api.markMany(ids, false), true]);
     }
-    choices.push(["Edit…", () => editCover({ target: targetOf(group), label: group.label, fallback: tileCover(group) }),
+    choices.push(["Edit…", () => editCover({ target: targetOf(group), label: group.label, fallback: tileCover(group).src }),
                   false]);
     return choices;
   }

@@ -22,6 +22,14 @@ ENDINGS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
 KIND_ENDINGS = {"JPEG": ".jpg", "PNG": ".png", "GIF": ".gif", "WEBP": ".webp"}
 #what an upload can be at most
 MOST = 20 << 20
+#how a cover sits in a card shaped for a page: filling it and cut to fit, or the whole of its width, or the
+#whole of its height. how the reader shows it, and nothing to do with the picture itself
+FITS = ("fill", "width", "height")
+
+
+def is_chosen(row):
+    #a picture chosen for the cover, as against only a say in how whatever it is fits
+    return bool(row and (row.get("file") or row.get("comic")))
 
 
 class Unusable(Exception):
@@ -138,11 +146,12 @@ def group_covers(library):
     #the covers of folders, series and authors that have one of their own, chosen or on the shelf, for the
     #library's tiles to show in place of their first comic's
     out = {}
-    for target in library.chosen:
+    for target, row in library.chosen.items():
         if not target.startswith("comic:"):
             found = token(library, target)
-            if found:
-                out[target] = {"v": found, "chosen": True}
+            #one with only a fit said for it is still its first comic's cover, fitted so
+            if found or row.get("fit"):
+                out[target] = {"v": found, "chosen": is_chosen(row), "fit": row.get("fit") or "fill"}
     root = os.path.normpath(library.config.library)
     for folder in library.pictures:
         if folder == root:
@@ -151,8 +160,28 @@ def group_covers(library):
         if target not in out:
             found = token(library, target)
             if found:
-                out[target] = {"v": found, "chosen": False}
+                out[target] = {"v": found, "chosen": False, "fit": "fill"}
     return out
+
+
+def set_fit(library, target, fit):
+    #how a cover sits in its card, kept whether or not a picture was chosen for it: a comic's own first page
+    #can want its whole width showing as much as a picture put in can
+    split(target)
+    if fit not in FITS:
+        raise Unusable("a cover fits as fill, width or height, not {0!r}".format(fit))
+    row = dict(library.chosen.get(target) or {})
+    if fit == "fill":
+        row.pop("fit", None)
+    else:
+        row["fit"] = fit
+    if row:
+        library.store.save_cover(target, row)
+        library.chosen[target] = row
+    else:
+        library.store.forget_cover(target)
+        library.chosen.pop(target, None)
+    return cover_state(library, target)
 
 
 def original_of(library, where):
@@ -340,7 +369,7 @@ def turn_cover(library, target, by):
     #gives the very bytes it was
     split(target)
     row = library.chosen.get(target)
-    if not row:
+    if not is_chosen(row):
         raise Unusable("there is no chosen cover to turn: choose a picture, an address or a page first")
     found = resolve(library, target, library.comics.get(target[6:]) if target.startswith("comic:") else None)
     if not found:
@@ -364,9 +393,9 @@ def cover_state(library, target):
     elif found:
         how = "shelf" if found[1][0] == "file" else "first page"
     wrote = row.get("wrote")
-    return {"target": target, "v": found[0] if found else None, "chosen": bool(row), "how": how,
+    return {"target": target, "v": found[0] if found else None, "chosen": is_chosen(row), "how": how,
             "from": row.get("from"), "page": found[1][2] + 1 if row.get("comic") and found else None,
-            "turn": row.get("turn") or 0,
+            "turn": row.get("turn") or 0, "fit": row.get("fit") or "fill",
             "shelf": os.path.relpath(wrote[0], library.config.library).replace(os.sep, "/") if wrote else None,
             #whether there is anywhere on the shelf for it at all, so the dialog can say where it goes
             "shelfable": shelf_place(library, target) is not None}
@@ -374,6 +403,9 @@ def cover_state(library, target):
 
 def keep(library, target, row, body, ending):
     old = library.chosen.get(target) or {}
+    #a new picture keeps the fit said for the cover: it is how this card shows its cover, whichever it is
+    if old.get("fit") and "fit" not in row:
+        row["fit"] = old["fit"]
     #the shelf's copy is the picture as it is shown, turned; the reader keeps the one it came as
     wrote, note = write_to_shelf(library, target, turned(body, row.get("turn")), ending, old.get("wrote"))
     if wrote:

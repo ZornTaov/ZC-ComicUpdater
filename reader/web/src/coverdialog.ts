@@ -1,8 +1,8 @@
 // the cover of a comic, folder, series or author, changed in one place: a picture of your own, one from a web
 // address, a page of the comic, turned a quarter at a time to stand up in a card shaped for a page, or put
 // back as it was. shown in the card's own shape as it changes, so what fits is plain before closing
-import { api, type CoverSet, type CoverState } from "./api";
-import { coverMessage, el, esc, pickPicture, refusal } from "./dom";
+import { api, type CoverSet, type CoverState, type Fit } from "./api";
+import { coverMessage, el, esc, fitClass, pickPicture, refusal } from "./dom";
 
 export interface CoverTarget {
   // "comic:<id>", "folder:<path>", "series:<name>", "author:<name>"
@@ -46,6 +46,12 @@ export function openCoverDialog(cover: CoverTarget, changed: () => void): void {
             <button data-turn="-90" title="Turn a quarter to the left">⟲ Rotate left</button>
             <button data-turn="90" title="Turn a quarter to the right">Rotate right ⟳</button>
           </div>
+          <div class="fits" role="group" aria-label="Fit in the card">
+            <span class="muted">Fit in the card</span>
+            <button data-fit="fill" title="Fill the card; what does not fit is cut off">Fill</button>
+            <button data-fit="width" title="Show the whole width, with space above and below">Whole width</button>
+            <button data-fit="height" title="Show the whole height, with space at the sides">Whole height</button>
+          </div>
         </div>
       </div>
       <div class="dialog-row"><button data-act="upload">Upload a picture…</button></div>
@@ -69,6 +75,7 @@ export function openCoverDialog(cover: CoverTarget, changed: () => void): void {
   const stateLine = dialog.querySelector<HTMLElement>(".cover-state")!;
   const message = dialog.querySelector<HTMLElement>(".form-message")!;
   const turns = [...dialog.querySelectorAll<HTMLButtonElement>("[data-turn]")];
+  const fits = [...dialog.querySelectorAll<HTMLButtonElement>("[data-fit]")];
   const reset = dialog.querySelector<HTMLButtonElement>('[data-act="reset"]')!;
   let touched = false;
 
@@ -81,9 +88,12 @@ export function openCoverDialog(cover: CoverTarget, changed: () => void): void {
     try {
       const state = await api.coverState(cover.target);
       preview.src = urlOf(state.v);
+      preview.className = fitClass(state.fit);
       stateLine.textContent = describeCover(state, isComic);
       turns.forEach((button) => { button.disabled = !state.chosen; });
-      reset.disabled = !state.chosen;
+      fits.forEach((button) => { button.classList.toggle("on", button.dataset.fit === state.fit); });
+      //a fit alone is something to put back as well
+      reset.disabled = !state.chosen && state.fit === "fill";
     } catch (error) {
       stateLine.textContent = refusal(error);
     }
@@ -137,6 +147,12 @@ export function openCoverDialog(cover: CoverTarget, changed: () => void): void {
   turns.forEach((button) => {
     button.onclick = () => act("Turning it…", () => api.turnCover(cover.target, Number(button.dataset.turn)),
                                 () => "Turned.");
+  });
+  fits.forEach((button) => {
+    button.onclick = () => act("", async () => {
+      await api.fitCover(cover.target, button.dataset.fit as Fit);
+      return { target: cover.target, v: null, note: null };
+    }, () => "");
   });
   reset.onclick = () => act("Putting it back…", () => api.resetCover(cover.target),
                             (set) => set.note ?? "Back to how it was.");

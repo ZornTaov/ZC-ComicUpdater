@@ -194,6 +194,30 @@ def test_a_cover_turns_a_quarter_at_a_time_from_the_picture_as_it_came(library, 
     assert shelf.read_bytes() == body
 
 
+def test_how_a_cover_fits_its_card_is_said_with_or_without_a_picture_chosen(library, client):
+    single(library, "MyComic", "CBZs/SomeAuthor")
+    single(library, "OtherComic", "CBZs/SomeAuthor")
+    api, _ = client()
+    comic = comic_of(api, "MyComic")
+    assert comic["coverFit"] == "fill"
+    #a comic's own first page, its whole width showing: no picture chosen, and none written anywhere
+    state = api.put("/api/covers/fit", json={"target": "comic:" + comic["id"], "fit": "width"}).json()
+    assert (state["fit"], state["chosen"]) == ("width", False)
+    assert comic_of(api, "MyComic")["coverFit"] == "width" and not comic_of(api, "MyComic")["coverChosen"]
+    #a folder's too, and a picture put in afterwards keeps the fit
+    target = {"target": "folder:CBZs/SomeAuthor"}
+    api.put("/api/covers/fit", json=dict(target, fit="height"))
+    assert api.get("/api/library").json()["covers"]["folder:CBZs/SomeAuthor"] == \
+        {"v": None, "chosen": False, "fit": "height"}, "its first comic's cover, fitted so"
+    api.put("/api/covers/upload", params=target, content=clear_png(300, 100))
+    assert api.get("/api/covers/state", params=target).json()["fit"] == "height"
+    refused = api.put("/api/covers/fit", json=dict(target, fit="sideways"))
+    assert refused.status_code == 400
+    #reset puts all of it back
+    api.delete("/api/covers", params=target)
+    assert "folder:CBZs/SomeAuthor" not in api.get("/api/library").json()["covers"]
+
+
 def test_a_comics_folder_of_pages_is_never_written_into(library, client):
     #a comic kept only as loose pages has nowhere on the shelf for a cover: it is the reader's alone
     comic_folder(library, "MyComic", 3, settings={"cbz": False})

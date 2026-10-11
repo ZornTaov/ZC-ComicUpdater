@@ -492,6 +492,8 @@ class Library:
                 #the cover named by what it is - a chosen page's version, a picture's stamp - so the same
                 #picture keeps the same address, and a new one gets a new address
                 "chapters": len(stream["chapters"]), "cover": covers.token(self, "comic:" + comic["id"], comic, stream),
-                "coverChosen": ("comic:" + comic["id"]) in self.chosen,
+                "coverChosen": covers.is_chosen(self.chosen.get("comic:" + comic["id"])),
+                #how the cover sits in its card: filling it, or the whole of its width or height showing
+                "coverFit": (self.chosen.get("comic:" + comic["id"]) or {}).get("fit") or "fill",
                 "updated": max((source["stamp"][1] for path in comic["sources"]
                                 for source in [self.sources.cached(path)] if source), default=0) / 1e9}

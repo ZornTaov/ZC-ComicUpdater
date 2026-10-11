@@ -28,11 +28,16 @@ export interface ComicSummary {
   // what the cover is a picture of now, so a new one has a new address; and whether one was chosen
   cover: string | null;
   coverChosen: boolean;
+  coverFit: Fit;
 }
 
+// how a cover sits in a card shaped for a page: filling it and cut to fit, or its whole width or height
+export type Fit = "fill" | "width" | "height";
+
 // the covers of folders, series and authors that have one of their own, by "folder:<path>" and so on:
-// chosen in the reader, or a picture already on the shelf
-export type GroupCovers = Record<string, { v: string; chosen: boolean }>;
+// chosen in the reader, or a picture already on the shelf. v is null for one with only a fit said for it,
+// which shows its first comic's cover
+export type GroupCovers = Record<string, { v: string | null; chosen: boolean; fit: Fit }>;
 
 // what a cover is now, for the dialog that changes it
 export interface CoverState {
@@ -43,6 +48,7 @@ export interface CoverState {
   from: string | null;
   page: number | null;
   turn: number;
+  fit: Fit;
   shelf: string | null;
   shelfable: boolean;
 }
@@ -106,6 +112,7 @@ export interface ComicInfo {
   author: string | null;
   cover: string | null;
   coverChosen: boolean;
+  coverFit: Fit;
   kind: string;
   place: string;
   pages: number;
@@ -166,6 +173,7 @@ export const api = {
   coverState: (target: string) => call<CoverState>(`/api/covers/state?target=${encodeURIComponent(target)}`),
   // the chosen cover a quarter turn clockwise (90) or back (-90), always made from the picture as it came
   turnCover: (target: string, by: number) => put<CoverSet>("/api/covers/turn", { target, by }),
+  fitCover: (target: string, fit: Fit) => put<CoverState>("/api/covers/fit", { target, fit }),
   resetCover: (target: string) => call<CoverSet>(`/api/covers?target=${encodeURIComponent(target)}`, { method: "DELETE" }),
   standIn: (id: string, n: number) => call<StandIn>(`/api/comics/${id}/pages/${n}/standin`),
   saveProgress: (id: string, position: number, part = 0, closing = false) =>

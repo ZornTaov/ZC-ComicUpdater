@@ -83,6 +83,13 @@ button {
    sticky bar at the top of the library, and scroll up over it */
 .cover { position: relative; isolation: isolate; aspect-ratio: 2 / 3; border-radius: 6px; overflow: hidden; background: var(--line); }
 .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* a cover said to fit by its whole width or height, centred in the card, the rest of the card left plain */
+.cover img.fit-width, .cover img.fit-height {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); object-fit: fill;
+}
+.cover img.fit-width { width: 100%; height: auto; }
+.cover img.fit-height { height: 100%; width: auto; max-width: none; }
+.cover.stack img.fit-width, .cover.stack img.fit-height { position: absolute; }
 .badge {
   position: absolute; right: 6px; top: 6px;
   background: rgba(0, 0, 0, .72); color: #fff;
@@ -247,7 +254,10 @@ button {
 .dialog-preview { width: 120px; flex: none; }
 .dialog-side { flex: 1; min-width: 0; }
 .dialog-side .cover-state { margin: 0 0 10px; overflow-wrap: anywhere; }
-.turns { display: flex; gap: 6px; flex-wrap: wrap; }
+.turns, .fits { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.fits { margin-top: 10px; }
+.fits .muted { flex: 1 1 100%; font-size: 13px; }
+.fits button.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .dialog .muted { color: var(--muted); }
 .dialog-row { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
 .dialog-row.end { justify-content: flex-end; margin-top: 12px; }

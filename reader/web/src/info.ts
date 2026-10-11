@@ -2,7 +2,7 @@
 // to copy - where it is kept in the library, and how the scraper's last update of it went
 import { api, SAYABLE, type ComicInfo, type Said } from "./api";
 import { openCoverDialog } from "./coverdialog";
-import { esc, refusal } from "./dom";
+import { esc, fitClass, refusal } from "./dom";
 
 // what the page shows of a ComicInfo, in this order, and what it calls each
 export const FIELDS: [key: keyof ComicInfo["about"], label: string][] = [
@@ -152,7 +152,7 @@ export async function openInfo(root: HTMLElement, id: string, back: () => void):
         </header>
         <main>
           <div class="info-top">
-            <div class="cover"><img alt="" src="${api.coverUrl(info.id, info.cover)}"></div>
+            <div class="cover"><img alt="" class="${fitClass(info.coverFit)}" src="${api.coverUrl(info.id, info.cover)}"></div>
             <div class="info-about">
               <h1>${esc(info.title)}</h1>
               ${info.name !== info.title ? `<div class="muted">${esc(info.name)}</div>` : ""}

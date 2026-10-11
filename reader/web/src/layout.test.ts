@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { Page } from "./api";
 import { chapterOf, chapterTarget, keyAction, pageAt, placeStrip, tapAction, typedPage, viewOf, views, wanted } from "./layout";
 import { clean, merged } from "./settings";
-import { refusal, runLine, startingValues } from "./info";
-import { coverMessage } from "./dom";
+import { runLine, startingValues } from "./info";
+import { coverMessage, refusal } from "./dom";
+import { describeCover } from "./coverdialog";
 
 const page = (w: number | null = 800, h: number | null = 1200, standin = false): Page => ({ v: "1", w, h, standin, media: null });
 
@@ -192,6 +193,18 @@ describe("the info page", () => {
     expect(coverMessage({ shelf: null, note: null })).toBe("Cover set");
     expect(coverMessage({ note: "kept in the reader only: it could not be written beside the comic (Permission denied)" }))
       .toBe("Cover set, kept in the reader only: it could not be written beside the comic (Permission denied)");
+  });
+
+  it("says what a cover is now, how it is turned, and where it is kept", () => {
+    const state = { target: "folder:CBZs/SomeAuthor", v: "u1", chosen: true, how: "address" as const,
+                    from: "https://example.com/logo.png", page: null, turn: 90, shelf: "CBZs/SomeAuthor/cover.png",
+                    shelfable: true };
+    expect(describeCover(state, false))
+      .toBe("From https://example.com/logo.png, turned 90°. Saved on the shelf as CBZs/SomeAuthor/cover.png.");
+    expect(describeCover({ ...state, how: "page", page: 3, turn: 0, shelf: null, shelfable: false }, true))
+      .toBe("Page 3. Kept in the reader only: there is nowhere on the shelf for this one.");
+    expect(describeCover({ ...state, chosen: false, how: null, from: null, turn: 0, shelf: null }, false))
+      .toBe("The first comic's cover");
   });
 
   it("says why a change was refused in the server's own words", () => {

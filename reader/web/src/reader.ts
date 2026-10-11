@@ -6,8 +6,7 @@ import { attachGestures } from "./gestures";
 import { chapterOf, chapterTarget, keyAction, tapAction, typedPage, viewOf, views, wanted } from "./layout";
 import { Strip } from "./strip";
 import { clean, merged, type Settings } from "./settings";
-import { coverMessage, el, esc } from "./dom";
-import { refusal } from "./info";
+import { coverMessage, el, esc, refusal } from "./dom";
 import { embedFor } from "./media";
 
 const CACHE = 24;

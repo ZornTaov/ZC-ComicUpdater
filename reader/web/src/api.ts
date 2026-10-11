@@ -34,6 +34,19 @@ export interface ComicSummary {
 // chosen in the reader, or a picture already on the shelf
 export type GroupCovers = Record<string, { v: string; chosen: boolean }>;
 
+// what a cover is now, for the dialog that changes it
+export interface CoverState {
+  target: string;
+  v: string | null;
+  chosen: boolean;
+  how: "picture" | "address" | "page" | "shelf" | "first page" | null;
+  from: string | null;
+  page: number | null;
+  turn: number;
+  shelf: string | null;
+  shelfable: boolean;
+}
+
 // what a cover was set to: its new version, where on the shelf it was written, and anything to say about it
 export interface CoverSet {
   target: string;
@@ -150,6 +163,9 @@ export const api = {
     { method: "PUT", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file }),
   // a picture's web address, fetched once by the reader and kept as an upload is
   coverFromAddress: (target: string, address: string) => put<CoverSet>("/api/covers/address", { target, address }),
+  coverState: (target: string) => call<CoverState>(`/api/covers/state?target=${encodeURIComponent(target)}`),
+  // the chosen cover a quarter turn clockwise (90) or back (-90), always made from the picture as it came
+  turnCover: (target: string, by: number) => put<CoverSet>("/api/covers/turn", { target, by }),
   resetCover: (target: string) => call<CoverSet>(`/api/covers?target=${encodeURIComponent(target)}`, { method: "DELETE" }),
   standIn: (id: string, n: number) => call<StandIn>(`/api/comics/${id}/pages/${n}/standin`),
   saveProgress: (id: string, position: number, part = 0, closing = false) =>

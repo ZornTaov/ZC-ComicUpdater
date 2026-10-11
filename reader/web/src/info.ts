@@ -1,7 +1,8 @@
 // a comic's info page: what its ComicInfo says it is, the addresses it came from on the web - each to open or
 // to copy - where it is kept in the library, and how the scraper's last update of it went
 import { api, SAYABLE, type ComicInfo, type Said } from "./api";
-import { askAddress, coverMessage, esc, pickPicture } from "./dom";
+import { openCoverDialog } from "./coverdialog";
+import { esc, refusal } from "./dom";
 
 // what the page shows of a ComicInfo, in this order, and what it calls each
 export const FIELDS: [key: keyof ComicInfo["about"], label: string][] = [
@@ -59,17 +60,6 @@ export function startingValues(info: ComicInfo): { values: Said; worked: Said } 
     if (info.scraped && info.about[key]) worked[key] = String(info.about[key]);
   }
   return { values, worked };
-}
-
-// what a refusal says, out of the server's answer: its detail where it gave one
-export function refusal(error: unknown): string {
-  const text = String(error instanceof Error ? error.message : error);
-  const body = text.replace(/^\d+\s+/, "");
-  try {
-    const detail = (JSON.parse(body) as { detail?: unknown }).detail;
-    if (typeof detail === "string") return detail;
-  } catch { /* not json: said as it came */ }
-  return text;
 }
 
 export async function openInfo(root: HTMLElement, id: string, back: () => void): Promise<() => void> {
@@ -172,9 +162,7 @@ export async function openInfo(root: HTMLElement, id: string, back: () => void):
                 <a class="button primary" href="#/read/${info.id}">Read</a>
                 <a class="button" href="#/read/${info.id}/1">From the start</a>
                 ${info.editable ? '<button data-act="edit">Edit</button>' : ""}
-                <button data-act="upload-cover">Set a cover picture…</button>
-                <button data-act="address-cover">Cover from a web address…</button>
-                ${info.coverChosen ? '<button data-act="reset-cover">Reset the cover</button>' : ""}
+                <button data-act="cover">Edit cover…</button>
               </div>
             </div>
           </div>
@@ -196,25 +184,11 @@ export async function openInfo(root: HTMLElement, id: string, back: () => void):
     root.querySelector<HTMLButtonElement>('[data-act="back"]')!.onclick = back;
     const editButton = root.querySelector<HTMLButtonElement>('[data-act="edit"]');
     if (editButton) editButton.onclick = () => edit(info);
-    // a cover changed is shown at once: the page is drawn again from what the server now says
-    const covered = async (set: Promise<{ shelf?: string | null; note: string | null } | null>, said: (s: { shelf?: string | null; note: string | null }) => string) => {
-      try {
-        const done = await set;
-        if (!done) return;
-        draw(await api.info(info.id));
-        notify(said(done));
-      } catch (error) {
-        notify(refusal(error));
-      }
-    };
-    root.querySelector<HTMLButtonElement>('[data-act="upload-cover"]')!.onclick = () => covered(
-      pickPicture().then((file) => file ? api.uploadCover(`comic:${info.id}`, file) : null), coverMessage);
-    root.querySelector<HTMLButtonElement>('[data-act="address-cover"]')!.onclick = () => {
-      const address = askAddress();
-      if (address) covered(api.coverFromAddress(`comic:${info.id}`, address), coverMessage);
-    };
-    const reset = root.querySelector<HTMLButtonElement>('[data-act="reset-cover"]');
-    if (reset) reset.onclick = () => covered(api.resetCover(`comic:${info.id}`), (set) => set.note ?? "Cover reset");
+    // the cover dialog; a cover changed there is shown at once, the page drawn again from what the server says
+    root.querySelector<HTMLButtonElement>('[data-act="cover"]')!.onclick = () => openCoverDialog(
+      { target: `comic:${info.id}`, label: info.title, comicId: info.id, pages: info.pages,
+        fallback: api.coverUrl(info.id, info.cover) },
+      async () => draw(await api.info(info.id)));
     root.querySelectorAll<HTMLButtonElement>("[data-copy]").forEach((button) => {
       button.onclick = async () => {
         const link = info.links[Number(button.dataset.copy)];

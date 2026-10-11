@@ -167,6 +167,33 @@ def test_a_cover_from_a_web_address_is_fetched_once_and_kept_as_it_is(library, c
     assert refused.status_code == 400 and "web address" in refused.json()["detail"]
 
 
+def test_a_cover_turns_a_quarter_at_a_time_from_the_picture_as_it_came(library, client):
+    #a wide logo, see-through, made to stand up in a card shaped for a page
+    single(library, "MyComic", "CBZs/SomeAuthor")
+    single(library, "OtherComic", "CBZs/SomeAuthor")
+    api, _ = client()
+    target = {"target": "folder:CBZs/SomeAuthor"}
+    body = clear_png(300, 100)
+    api.put("/api/covers/upload", params=target, content=body)
+    refused = api.put("/api/covers/turn", json={"target": "folder:CBZs/Nowhere", "by": 90})
+    assert refused.status_code == 400 and "no chosen cover" in refused.json()["detail"]
+    turned = api.put("/api/covers/turn", json=dict(target, by=90)).json()
+    shelf = library / "CBZs" / "SomeAuthor" / "cover.png"
+    with Image.open(str(shelf)) as now:
+        assert now.size == (100, 300) and now.mode == "RGBA", "stood up, and still see-through"
+        #the one red dot, a quarter turn clockwise: (150, 50) in a 300x100 picture lands at (100-1-50, 150)
+        assert now.getpixel((49, 150))[:3] == (255, 0, 0)
+    state = api.get("/api/covers/state", params=target).json()
+    assert (state["turn"], state["how"], state["chosen"], state["shelf"]) == \
+        (90, "picture", True, "CBZs/SomeAuthor/cover.png")
+    shown = api.get("/api/covers", params=dict(target, v=turned["v"]))
+    with Image.open(io.BytesIO(shown.content)) as tile:
+        assert tile.height > tile.width, "the tile is turned too"
+    #turned back round, it is the very picture that came
+    api.put("/api/covers/turn", json=dict(target, by=-90))
+    assert shelf.read_bytes() == body
+
+
 def test_a_comics_folder_of_pages_is_never_written_into(library, client):
     #a comic kept only as loose pages has nowhere on the shelf for a cover: it is the reader's alone
     comic_folder(library, "MyComic", 3, settings={"cbz": False})

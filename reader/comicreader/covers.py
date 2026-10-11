@@ -102,26 +102,30 @@ def chosen_page(library, row):
 
 
 def resolve(library, target, comic=None, stream=None):
-    #(token, where) for a target's cover: where is ("file", path) or ("page", comic, n). None for a folder,
-    #series or author with nothing of its own, which is shown with its first comic's cover
+    #(token, where) for a target's cover: where is ("file", path, turn) or ("page", comic, n, turn), turn the
+    #quarter turns clockwise it is shown at, in degrees. None for a folder, series or author with nothing of
+    #its own, which is shown with its first comic's cover
     row = library.chosen.get(target)
+    turn = (row or {}).get("turn") or 0
+    #a turned cover is another picture to a browser that has the unturned one kept
+    turned_as = "r{0}".format(turn) if turn else ""
     if row and row.get("file"):
         path = os.path.join(library.config.data, "covers", row["file"])
         if os.path.isfile(path):
-            return "u" + stamped(path), ("file", path)
+            return "u" + stamped(path) + turned_as, ("file", path, turn)
     if row and row.get("comic"):
         found = chosen_page(library, row)
         if found:
-            return "p" + found[2]["v"], ("page", found[0], found[1])
+            return "p" + found[2]["v"] + turned_as, ("page", found[0], found[1], turn)
     kind, key = target.partition(":")[::2]
     on_shelf = comic_shelf_picture(library, comic) if kind == "comic" and comic else \
         folder_shelf_picture(library, key) if kind == "folder" else None
     if on_shelf and os.path.isfile(on_shelf):
-        return "s" + stamped(on_shelf), ("file", on_shelf)
+        return "s" + stamped(on_shelf), ("file", on_shelf, 0)
     if comic is not None:
         pages = (stream or library.stream(comic))["pages"]
         if pages:
-            return pages[0]["v"], ("page", comic, 0)
+            return pages[0]["v"], ("page", comic, 0, 0)
     return None
 
 
@@ -151,8 +155,8 @@ def group_covers(library):
     return out
 
 
-def body_of(library, where):
-    #the picture's own bytes
+def original_of(library, where):
+    #the picture's own bytes, as it came, unturned
     if where[0] == "file":
         with open(where[1], "rb") as f:
             return f.read()
@@ -161,6 +165,34 @@ def body_of(library, where):
     source = library.sources.cached(comic["sources"][page["source"]]) or library.sources.get(
         comic["sources"][page["source"]], "folder" if comic["kind"] == "folder" else "archive")
     return library.sources.page(source, page)[0]
+
+
+def body_of(library, where):
+    #the picture as it is shown: its own bytes, turned as it was chosen to be
+    return turned(original_of(library, where), where[-1])
+
+
+def turned(body, turn):
+    #a picture turned clockwise by whole quarter turns, in its own kind. not turned, it is the very bytes it
+    #came as. a png turns without losing a thing, transparency and all; a jpeg cannot turn without being
+    #written again, so it is written at a quality that keeps it as it was - the original is kept regardless,
+    #and every turn is made from it, so turning back and forth loses nothing
+    turn = (turn or 0) % 360
+    if not turn:
+        return body
+    from PIL import Image
+    way = {90: Image.Transpose.ROTATE_270, 180: Image.Transpose.ROTATE_180, 270: Image.Transpose.ROTATE_90}[turn]
+    with Image.open(io.BytesIO(body)) as found:
+        kind, info = found.format, dict(found.info)
+        made = found.transpose(way)
+        out = io.BytesIO()
+        options = {}
+        if kind == "JPEG":
+            options = {"quality": 95}
+        elif "transparency" in info:
+            options = {"transparency": info["transparency"]}
+        made.save(out, kind, **options)
+    return out.getvalue()
 
 
 def shelf_place(library, target):
@@ -245,7 +277,7 @@ def choose_page(library, target, comic_id, n):
     if not 0 <= n < len(pages):
         raise Unusable("{0} has {1} pages".format(comic["title"], len(pages)))
     row = {"comic": comic_id, "key": pages[n]["key"], "position": n}
-    body = body_of(library, ("page", comic, n))
+    body = original_of(library, ("page", comic, n, 0))
     ending = ending_of(body)
     if ending is None:
         raise Unusable("page {0} is not a picture a reader can show as a cover".format(n + 1))
@@ -303,9 +335,47 @@ def choose_upload(library, target, body, source=None):
     return keep(library, target, row, body, ending)
 
 
+def turn_cover(library, target, by):
+    #the chosen cover turned a quarter at a time, always from the picture as it came, so turning it back
+    #gives the very bytes it was
+    split(target)
+    row = library.chosen.get(target)
+    if not row:
+        raise Unusable("there is no chosen cover to turn: choose a picture, an address or a page first")
+    found = resolve(library, target, library.comics.get(target[6:]) if target.startswith("comic:") else None)
+    if not found:
+        raise Unusable("the chosen cover is gone; choose it again")
+    body = original_of(library, found[1])
+    turn = ((row.get("turn") or 0) + by) % 360
+    return keep(library, target, dict(row, turn=turn), body, ending_of(body) or ".png")
+
+
+def cover_state(library, target):
+    #what a cover is now, for the dialog that changes it: chosen or not, how, from where, and turned how far
+    kind, key = split(target)
+    comic = library.comics.get(key) if kind == "comic" else None
+    row = library.chosen.get(target) or {}
+    found = resolve(library, target, comic)
+    how = None
+    if row.get("file"):
+        how = "address" if row.get("from") else "picture"
+    elif row.get("comic"):
+        how = "page"
+    elif found:
+        how = "shelf" if found[1][0] == "file" else "first page"
+    wrote = row.get("wrote")
+    return {"target": target, "v": found[0] if found else None, "chosen": bool(row), "how": how,
+            "from": row.get("from"), "page": found[1][2] + 1 if row.get("comic") and found else None,
+            "turn": row.get("turn") or 0,
+            "shelf": os.path.relpath(wrote[0], library.config.library).replace(os.sep, "/") if wrote else None,
+            #whether there is anywhere on the shelf for it at all, so the dialog can say where it goes
+            "shelfable": shelf_place(library, target) is not None}
+
+
 def keep(library, target, row, body, ending):
     old = library.chosen.get(target) or {}
-    wrote, note = write_to_shelf(library, target, body, ending, old.get("wrote"))
+    #the shelf's copy is the picture as it is shown, turned; the reader keeps the one it came as
+    wrote, note = write_to_shelf(library, target, turned(body, row.get("turn")), ending, old.get("wrote"))
     if wrote:
         row["wrote"] = wrote
     elif old.get("wrote"):

@@ -16,10 +16,15 @@ export function pickPicture(): Promise<File | null> {
   });
 }
 
-// a picture's web address, asked for; null when none is given
-export function askAddress(): string | null {
-  const given = window.prompt("The cover picture's web address (https://…)");
-  return given && given.trim() ? given.trim() : null;
+// what a refusal says, out of the server's answer: its detail where it gave one
+export function refusal(error: unknown): string {
+  const text = String(error instanceof Error ? error.message : error);
+  const body = text.replace(/^\d+\s+/, "");
+  try {
+    const detail = (JSON.parse(body) as { detail?: unknown }).detail;
+    if (typeof detail === "string") return detail;
+  } catch { /* not json: said as it came */ }
+  return text;
 }
 
 // what a cover being set has to say: where on the shelf it went, or why it did not

@@ -229,6 +229,25 @@ def create_app(config=None, scan_in_background=True):
         except covers.Unusable as error:
             raise HTTPException(400, str(error))
 
+    @app.put("/api/covers/turn")
+    async def turn_cover(request: Request):
+        #the chosen cover turned a quarter clockwise, or back
+        body = await request.json()
+        try:
+            by = int(body.get("by", 90))
+            if by % 90:
+                raise ValueError("a cover turns a quarter at a time: 90 or -90")
+            return covers.turn_cover(library, str(body.get("target") or ""), by)
+        except (covers.Unusable, ValueError, TypeError) as error:
+            raise HTTPException(400, str(error))
+
+    @app.get("/api/covers/state")
+    def cover_state(target: str):
+        try:
+            return covers.cover_state(library, target)
+        except covers.Unusable as error:
+            raise HTTPException(400, str(error))
+
     @app.delete("/api/covers")
     def forget_cover(target: str):
         try:

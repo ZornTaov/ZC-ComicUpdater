@@ -1,8 +1,8 @@
 // the library: what is being read at the top, then the library laid out by folder, series or author. the
 // place being looked at is in the address, so the back button goes back up and a folder can be bookmarked
-import { api, type ComicSummary, type CoverSet, type GroupCovers } from "./api";
-import { askAddress, coverMessage, el, esc, pickPicture } from "./dom";
-import { refusal } from "./info";
+import { api, type ComicSummary, type GroupCovers } from "./api";
+import { openCoverDialog, type CoverTarget } from "./coverdialog";
+import { el, esc, refusal } from "./dom";
 import { BROWSE_LABELS, type Browse, type Group, matches, nextIssues, pathLabel, reading, recentlyUpdated, shelf, upTo } from "./shelves";
 
 // each name encoded alone and joined with real slashes, so a folder's address reads as its path. the whole
@@ -71,23 +71,19 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
   // what a folder, series or author is the cover of: its own name for one, as the server keys them
   const targetOf = (group: Group) => `${browse}:${group.key}`;
 
-  // a picture from the device as a cover. given up, nothing changes
-  async function upload(target: string): Promise<CoverSet | null> {
-    const file = await pickPicture();
-    if (!file) return null;
-    const set = await api.uploadCover(target, file);
-    notify(coverMessage(set));
-    return set;
+  // the cover dialog; whatever it changed, the library is drawn again from the server once it closes
+  function editCover(cover: CoverTarget) {
+    openCoverDialog(cover, async () => {
+      await reload();
+      draw();
+    });
   }
 
-  // a picture from the web as a cover, by its address
-  async function fromAddress(target: string): Promise<CoverSet | null> {
-    const address = askAddress();
-    if (!address) return null;
-    notify("Fetching the picture…");
-    const set = await api.coverFromAddress(target, address);
-    notify(coverMessage(set));
-    return set;
+  // what a folder, series or author's tile shows: its own cover, or its first comic's
+  function tileCover(group: Group): string {
+    const first = group.comics.find((comic) => comic.cover) ?? group.comics[0];
+    const own = covers[targetOf(group)];
+    return own ? api.groupCoverUrl(targetOf(group), own.v) : api.coverUrl(first.id, first.cover);
   }
 
   // away from its own folder - in what is being read, a search, a series - a comic says which folder it is
@@ -126,9 +122,7 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
   function tile(group: Group): string {
     // a folder, a series or an author: its own cover where it has one, or the cover of the first comic in it,
     // stacked, with how many there are and how many have pages waiting
-    const first = group.comics.find((comic) => comic.cover) ?? group.comics[0];
-    const own = covers[targetOf(group)];
-    const src = own ? api.groupCoverUrl(targetOf(group), own.v) : api.coverUrl(first.id, first.cover);
+    const src = tileCover(group);
     const waiting = group.comics.filter((comic) => (comic.new > 0 && comic.position !== null) || next.has(comic.id)).length;
     return `<a class="card group" href="${browseHash(browse, group.key)}">
       <div class="cover stack"><img loading="lazy" alt="" src="${src}">
@@ -209,11 +203,8 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     if (before.length > 1) choices.push(["Mark as read up to here", () => api.markMany(before.map((each) => each.id), true), true]);
     if (comic.position !== null) choices.push(["Mark as unread", () => api.forgetProgress(comic.id), true]);
     choices.push(["About this comic", () => { location.hash = `#/info/${comic.id}`; }, false]);
-    choices.push(["Set a cover picture…", () => upload(`comic:${comic.id}`), true]);
-    choices.push(["Cover from a web address…", () => fromAddress(`comic:${comic.id}`), true]);
-    if (comic.coverChosen) {
-      choices.push(["Reset the cover", async () => notify((await api.resetCover(`comic:${comic.id}`)).note ?? "Cover reset"), true]);
-    }
+    choices.push(["Edit…", () => editCover({ target: `comic:${comic.id}`, label: comic.title, comicId: comic.id,
+                                             pages: comic.pages, fallback: api.coverUrl(comic.id, comic.cover) }), false]);
     return choices;
   }
 
@@ -223,11 +214,8 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     if (group.comics.some((each) => each.position !== null)) {
       choices.push(["Mark all as unread", () => api.markMany(ids, false), true]);
     }
-    choices.push(["Set a cover picture…", () => upload(targetOf(group)), true]);
-    choices.push(["Cover from a web address…", () => fromAddress(targetOf(group)), true]);
-    if (covers[targetOf(group)]?.chosen) {
-      choices.push(["Reset the cover", async () => notify((await api.resetCover(targetOf(group))).note ?? "Cover reset"), true]);
-    }
+    choices.push(["Edit…", () => editCover({ target: targetOf(group), label: group.label, fallback: tileCover(group) }),
+                  false]);
     return choices;
   }
 

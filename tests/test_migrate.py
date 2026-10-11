@@ -29,5 +29,10 @@ def test_chapters_written_into_an_old_file_come_across():
     assert migrate(OLD)["chapters"] == OLD["chapters"]
 
 
+def test_what_was_said_about_the_comic_by_hand_comes_across():
+    said = dict(OLD, info={"title": "Their Comic", "writer": "SomeAuthor"})
+    assert migrate(said)["info"] == said["info"]
+
+
 def test_a_current_file_is_left_as_it_is():
     assert migrate({"schema": SCHEMA, "settings": {}}) is None

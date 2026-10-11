@@ -131,6 +131,51 @@ def test_the_whole_comic_names_its_site_not_the_page_it_was_read_up_to(tmp_path)
     assert about["series"] == "MyComic" and about.get("count") is None
 
 
+SAID = {"title": "My Comic", "series": "My Comic Saga", "summary": "Two friends & a <dragon>.", "year": "2014",
+        "writer": "SomeAuthor", "penciller": "SomeArtist", "genre": "Fantasy", "tags": "dragons, friends",
+        "web": "https://example.com/comic/"}
+
+
+def test_what_was_said_by_hand_is_what_the_whole_comic_says_in_the_schemas_order(tmp_path):
+    about = comicinfo.about_comic(str(tmp_path / "MyComic"),
+                                  {"settings": {"url": "https://example.com/comic/512"}, "info": SAID})
+    root = parsed(comicinfo.build(about, [comicinfo.page(10, (800, 1200), False)]))
+    tags = [child.tag for child in root]
+    assert tags == sorted(tags, key=SCHEMA_ORDER.index), tags
+    assert {tag: root.findtext(tag) for tag in ("Title", "Series", "Summary", "Year", "Writer", "Penciller",
+                                                "Genre", "Tags", "Web")} == \
+        {"Title": "My Comic", "Series": "My Comic Saga", "Summary": "Two friends & a <dragon>.", "Year": "2014",
+         "Writer": "SomeAuthor", "Penciller": "SomeArtist", "Genre": "Fantasy", "Tags": "dragons, friends",
+         "Web": "https://example.com/comic/"}
+
+
+def test_a_chapter_keeps_its_own_title_and_address_and_says_the_rest_of_what_was_said(tmp_path):
+    chapter = {"number": 3, "label": "Three", "start_page": 20, "end_page": 29, "start_url": "https://example.com/20"}
+    about = comicinfo.about_chapter(str(tmp_path / "MyComic"), {"info": SAID}, chapter, 7)
+    assert (about["title"], about["web"], about["series"], about["writer"]) == \
+        ("Three", "https://example.com/20", "My Comic Saga", "SomeAuthor")
+    #a chapter whose start was never recorded points at the comic instead of nowhere
+    del chapter["start_url"]
+    assert comicinfo.about_chapter(str(tmp_path / "MyComic"), {"info": SAID}, chapter, 7)["web"] == SAID["web"]
+
+
+def test_only_what_is_known_and_said_is_kept():
+    assert comicinfo.clean_info({"title": "  My Comic ", "writer": "", "year": "soon", "colour": "red",
+                                 "summary": None}) == {"title": "My Comic"}
+    assert comicinfo.clean_info({"year": " 2014"}) == {"year": 2014}
+
+
+def test_said_by_hand_is_written_into_the_archive_at_its_next_append(comic, tmp_path):
+    archive = tmp_path / "MyComic.cbz"
+    cbz.write(str(archive), str(comic), page_files(comic) + [METADATA_FILE])
+    (comic / METADATA_FILE).write_text('{"schema": 2, "settings": {"url": "https://example.com/3"}, '
+                                       '"info": {"title": "My Comic", "writer": "SomeAuthor"}}')
+    cbz.append(str(archive), str(comic), page_files(comic))
+    names, root = what_it_says(archive)
+    assert (root.findtext("Title"), root.findtext("Writer")) == ("My Comic", "SomeAuthor")
+    assert names.count("ComicInfo.xml") == 1, names
+
+
 def what_it_says(archive):
     with zipfile.ZipFile(str(archive)) as zf:
         names = zf.namelist()

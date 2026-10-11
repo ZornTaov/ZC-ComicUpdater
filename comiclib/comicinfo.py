@@ -101,27 +101,60 @@ def page(size, shape, standin):
             "standin": bool(standin)}
 
 
+#what someone may say about a comic themselves, kept in its metadata as "info" and written into every
+#archive it has: everything else in a ComicInfo is worked out, and would be worked out again over an edit
+INFO = ("title", "series", "summary", "year", "writer", "penciller", "genre", "tags", "web")
+
+
+def clean_info(info):
+    #an info block as it is kept: only what is known, as text, with nothing said left out. a year is a
+    #number, since a reader sorts by it; one that is not is not kept
+    out = {}
+    for key in INFO:
+        value = (info or {}).get(key)
+        if value is None:
+            continue
+        value = UNWRITABLE.sub("", str(value)).strip()
+        if not value:
+            continue
+        if key == "year":
+            if not value.isdigit():
+                continue
+            value = int(value)
+        out[key] = value
+    return out
+
+
 def about_comic(folder, metadata=None):
     #what an archive holding the whole comic says it is: the series, and the site it is mirrored from. the
-    #site, not the page it was last read up to, so the ComicInfo does not change every time the comic does
+    #site, not the page it was last read up to, so the ComicInfo does not change every time the comic does.
+    #what was said about it by hand says otherwise wherever it says anything
     if metadata is None:
         metadata = read_metadata(folder)
     series = os.path.basename(os.path.abspath(folder))
-    return {"title": series, "series": series, "web": site((metadata.get("settings") or {}).get("url")),
-            "notes": "Mirrored by ZC-ComicUpdater."}
+    about = {"title": series, "series": series, "web": site((metadata.get("settings") or {}).get("url")),
+             "notes": "Mirrored by ZC-ComicUpdater."}
+    about.update(clean_info(metadata.get("info")))
+    return about
 
 
 def about_chapter(folder, metadata, chapter, count):
     #what one chapter's archive says it is. how many chapters there are is said only once the reader has
     #said the comic has ended: a reader takes Count as the series being complete, and a comic still running
-    #has no last chapter yet
+    #has no last chapter yet. what was said about the comic by hand is said of each chapter, but for the
+    #chapter's own title and address: those are the chapter's, not the comic's
     series = os.path.basename(os.path.abspath(folder))
     ended = bool((metadata.get("settings") or {}).get("ended"))
-    return {"title": chapter["label"], "series": series, "number": chapter["number"],
-            "count": count if ended else None, "web": chapter.get("start_url"),
-            "notes": "Mirrored by ZC-ComicUpdater, pages {0} to {1} of the comic.".format(
-                chapter["start_page"], chapter["end_page"]),
-            "bookmark": chapter["label"]}
+    about = {"title": chapter["label"], "series": series, "number": chapter["number"],
+             "count": count if ended else None, "web": chapter.get("start_url"),
+             "notes": "Mirrored by ZC-ComicUpdater, pages {0} to {1} of the comic.".format(
+                 chapter["start_page"], chapter["end_page"]),
+             "bookmark": chapter["label"]}
+    info = clean_info(metadata.get("info"))
+    about.update((key, value) for key, value in info.items() if key not in ("title", "web"))
+    if not about.get("web"):
+        about["web"] = info.get("web")
+    return about
 
 
 def site(url):
@@ -146,7 +179,13 @@ def build(about, pages):
     field("Series", about.get("series"))
     field("Number", about.get("number"))
     field("Count", about.get("count"))
+    field("Summary", about.get("summary"))
     field("Notes", about.get("notes"))
+    field("Year", about.get("year"))
+    field("Writer", about.get("writer"))
+    field("Penciller", about.get("penciller"))
+    field("Genre", about.get("genre"))
+    field("Tags", about.get("tags"))
     field("Web", about.get("web"))
     field("PageCount", len(pages))
     field("Format", FORMAT)

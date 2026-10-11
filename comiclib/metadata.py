@@ -191,4 +191,7 @@ def migrate(old):
     #as a scrape carries them - dropped, the comic's chapter archives would be read as a comic of their own
     if old.get("chapters"):
         fresh["chapters"] = old["chapters"]
+    #what was said about the comic by hand, carried the same way: it is no part of how the file was written
+    if old.get("info"):
+        fresh["info"] = old["info"]
     return fresh

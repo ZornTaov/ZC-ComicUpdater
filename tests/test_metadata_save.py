@@ -97,3 +97,13 @@ def test_a_schema_1_file_is_upgraded_keeping_what_only_it_knows(saving, mirror):
     assert meta["history"]["adopted"] is True
     assert "adopted_from" in meta["history"]
     assert len(meta["history"]["runs"]) == 2, "the old run should be kept and the new one appended"
+
+
+def test_what_was_said_about_the_comic_by_hand_outlives_a_run(saving, mirror):
+    #said from the reader's info page while this run was going: read back from the file, not lost to what
+    #the run started with
+    info = {"title": "My Comic", "writer": "SomeAuthor", "summary": "A comic."}
+    with open(saving / "mirror_metadata.json", "w", encoding="utf-8") as f:
+        json.dump({"schema": 2, "settings": {"url": "https://example.com/comic/1/"}, "info": info}, f)
+    meta = load(mirror.metadata_save(StubDriver(), fresh_args(), completed=False, exit_code=0))
+    assert meta["info"] == info

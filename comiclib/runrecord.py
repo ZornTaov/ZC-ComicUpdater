@@ -226,6 +226,10 @@ def metadata_save(args, folder, *, scrape_state, run_id, run_start, stop_reason,
     #themselves. it describes the comic rather than this run, so a scrape must leave it alone.
     if previous.get("chapters"):
         metadata["chapters"] = previous["chapters"]
+    #what was said about the comic by hand - its title, who made it, a summary - read from the file as it is
+    #now, so one said while this run was going is kept, not written over by what the run started with
+    if previous.get("info"):
+        metadata["info"] = previous["info"]
 
     #written aside and moved into place: this is rewritten after every page, and a run killed halfway
     #through writing it would otherwise leave a comic with no readable settings at all

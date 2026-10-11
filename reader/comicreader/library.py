@@ -13,6 +13,7 @@ from comiclib.metadata import METADATA_FILE, migrate, read as read_metadata
 from comiclib.pages import sort_key
 from comiclib.standin import held_otherwise
 
+from comicreader import covers
 from comicreader.sources import ORIGINALS, Busy, Sources
 
 #how packing names a chapter's archive: "<Comic> - c007 - <label>.cbz"
@@ -24,9 +25,14 @@ def ident(text):
     return hashlib.sha1(text.replace(os.sep, "/").encode("utf-8")).hexdigest()[:12]
 
 
-def walk(library, skip):
+#a picture on the shelf that can be a cover: one beside an archive, named as it is, or a folder's own
+PICTURE = re.compile(r"\.(jpe?g|png|webp)$", re.I)
+
+
+def walk(library, skip, pictures=None):
     #every comic folder (one holding the scraper's metadata) and every archive, in one pass. a comic
-    #folder is not gone into further: whatever it keeps inside is its own
+    #folder is not gone into further: whatever it keeps inside is its own. pictures, given, gains each
+    #other folder's pictures by lower-cased name - its pages are never among them
     comics, archives = [], []
     library = os.path.normpath(os.path.abspath(library))
     for current, dirs, files in os.walk(library):
@@ -35,6 +41,10 @@ def walk(library, skip):
             comics.append(current)
             dirs[:] = []
             continue
+        if pictures is not None:
+            found = {name.lower(): os.path.join(current, name) for name in files if PICTURE.search(name)}
+            if found:
+                pictures[os.path.normpath(current)] = found
         dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in skip)
     return comics, archives
 
@@ -123,10 +133,10 @@ def chapter_order(path):
     return (int(found.group("number")) if found else 0, sort_key(os.path.basename(path)))
 
 
-def gather(library, skip):
+def gather(library, skip, pictures=None):
     #what the library holds, as comics: each with the sources it reads from, in order
     library = os.path.normpath(os.path.abspath(library))
-    comics, archives = walk(library, skip)
+    comics, archives = walk(library, skip, pictures)
     by_folder = {}
     for path in archives:
         by_folder.setdefault(os.path.dirname(path), []).append(path)
@@ -293,6 +303,10 @@ class Library:
         #each archive the reader itself last wrote a ComicInfo into, as it was left: a change of its own
         #making is no sign the scraper is at work on it
         self.written = {}
+        #the pictures in each folder of the shelf, from the last scan, and the cover chosen for each comic,
+        #folder, series and author that has one: kept here, as every shelf asks for every cover
+        self.pictures = {}
+        self.chosen = store.covers()
         self.scanned = None
         self.scanning = threading.Lock()
 
@@ -302,7 +316,9 @@ class Library:
         if not self.scanning.acquire(blocking=False):
             return False
         try:
-            found = gather(self.config.library, self.config.skip)
+            pictures = {}
+            found = gather(self.config.library, self.config.skip, pictures)
+            self.pictures = pictures
             #which comics there are is known at once; each archive is then read again only where it changed,
             #and the last reading of it is served until then - a scan that has to read everything again, after
             #the reader learns to keep something new, is minutes on a big library, not minutes of nothing
@@ -473,7 +489,9 @@ class Library:
                 #when a scan last saw it gain pages, and how many it gained then
                 "grew": (growth or {}).get("grew"), "added": (growth or {}).get("added") or 0,
                 "read": progress["updated"] if progress else None,
-                #the cover is the first page, so it is that page's version: the same picture, the same address
-                "chapters": len(stream["chapters"]), "cover": stream["pages"][0]["v"] if stream["pages"] else None,
+                #the cover named by what it is - a chosen page's version, a picture's stamp - so the same
+                #picture keeps the same address, and a new one gets a new address
+                "chapters": len(stream["chapters"]), "cover": covers.token(self, "comic:" + comic["id"], comic, stream),
+                "coverChosen": ("comic:" + comic["id"]) in self.chosen,
                 "updated": max((source["stamp"][1] for path in comic["sources"]
                                 for source in [self.sources.cached(path)] if source), default=0) / 1e9}

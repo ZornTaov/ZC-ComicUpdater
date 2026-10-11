@@ -6,7 +6,8 @@ import { attachGestures } from "./gestures";
 import { chapterOf, chapterTarget, keyAction, tapAction, typedPage, viewOf, views, wanted } from "./layout";
 import { Strip } from "./strip";
 import { clean, merged, type Settings } from "./settings";
-import { el, esc } from "./dom";
+import { coverMessage, el, esc } from "./dom";
+import { refusal } from "./info";
 import { embedFor } from "./media";
 
 const CACHE = 24;
@@ -352,6 +353,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
           <button data-act="direction"></button>
           <button data-act="fit"></button>
           <button data-act="fullscreen">Full screen</button>
+          <button data-act="cover">Cover…</button>
           <button data-act="more">More…</button>
         </div>
       </footer>`;
@@ -399,6 +401,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     menu.querySelector<HTMLButtonElement>('[data-act="fit"]')!.onclick = cycle("fit", ["screen", "width", "height", "original"]);
     menu.querySelector<HTMLButtonElement>('[data-act="fullscreen"]')!.onclick = toggleFullscreen;
     menu.querySelector<HTMLButtonElement>('[data-act="more"]')!.onclick = openSheet;
+    menu.querySelector<HTMLButtonElement>('[data-act="cover"]')!.onclick = openCoverSheet;
     menu.addEventListener("pointerdown", (event) => event.stopPropagation());
   }
 
@@ -534,6 +537,34 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
       await api.forgetProgress(comic.id).catch(() => undefined);
       leave();
     };
+    sheet.querySelector<HTMLButtonElement>('[data-act="close"]')!.onclick = () => sheet.classList.add("hidden");
+    sheet.addEventListener("pointerdown", (event) => event.stopPropagation());
+    sheet.classList.remove("hidden");
+  }
+
+  // the page on screen as a cover: of this comic, or of the folder, series or author it is in. the first page
+  // on screen, which in two pages side by side is the one read first
+  function openCoverSheet() {
+    const at = shown[view][0];
+    const folderName = comic.place ? comic.place.split("/").pop()! : "";
+    const targets: [target: string, label: string][] = [[`comic:${comic.id}`, "This comic"]];
+    if (comic.place) targets.push([`folder:${comic.place}`, `The folder ${folderName}`]);
+    if (comic.series) targets.push([`series:${comic.series}`, `The series ${comic.series}`]);
+    if (comic.author) targets.push([`author:${comic.author}`, `The author ${comic.author}`]);
+    sheet.innerHTML = `
+      <h2>Page ${at + 1} as the cover of</h2>
+      ${targets.map(([, label], n) => `<div class="row"><button data-target="${n}">${esc(label)}</button></div>`).join("")}
+      <div class="row buttons"><button data-act="close">Cancel</button></div>`;
+    sheet.querySelectorAll<HTMLButtonElement>("[data-target]").forEach((button) => {
+      button.onclick = async () => {
+        sheet.classList.add("hidden");
+        try {
+          notify(coverMessage(await api.chooseCover(targets[Number(button.dataset.target)][0], comic.id, at)));
+        } catch (error) {
+          notify(refusal(error));
+        }
+      };
+    });
     sheet.querySelector<HTMLButtonElement>('[data-act="close"]')!.onclick = () => sheet.classList.add("hidden");
     sheet.addEventListener("pointerdown", (event) => event.stopPropagation());
     sheet.classList.remove("hidden");

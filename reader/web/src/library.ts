@@ -1,7 +1,8 @@
 // the library: what is being read at the top, then the library laid out by folder, series or author. the
 // place being looked at is in the address, so the back button goes back up and a folder can be bookmarked
-import { api, type ComicSummary } from "./api";
-import { el, esc } from "./dom";
+import { api, type ComicSummary, type CoverSet, type GroupCovers } from "./api";
+import { coverMessage, el, esc, pickPicture } from "./dom";
+import { refusal } from "./info";
 import { BROWSE_LABELS, type Browse, type Group, matches, nextIssues, pathLabel, reading, recentlyUpdated, shelf, upTo } from "./shelves";
 
 // each name encoded alone and joined with real slashes, so a folder's address reads as its path. the whole
@@ -28,6 +29,7 @@ function remember(browse: Browse) {
 }
 
 let cached: ComicSummary[] | null = null;
+let cachedCovers: GroupCovers = {};
 
 export async function openLibrary(root: HTMLElement, browse: Browse, path: string,
                                   open: (id: string, at: number | null) => void): Promise<() => void> {
@@ -42,12 +44,41 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
         `<option value="${each}"${each === browse ? " selected" : ""}>${BROWSE_LABELS[each]}</option>`).join("")}</select>
       <button data-act="scan" title="Look for new pages now">Refresh</button>
     </header>
-    <main></main>`;
+    <main></main>
+    <div class="toast hidden"></div>`;
   root.append(page);
   const main = page.querySelector("main")!;
   const search = page.querySelector<HTMLInputElement>('input[type="search"]')!;
   const arrange = page.querySelector<HTMLSelectElement>("select")!;
   let comics: ComicSummary[] = cached ?? [];
+  let covers: GroupCovers = cachedCovers;
+
+  async function reload() {
+    const found = await api.library();
+    comics = cached = found.comics;
+    covers = cachedCovers = found.covers ?? {};
+  }
+
+  const toast = page.querySelector<HTMLElement>(".toast")!;
+  let toastTimer: number | undefined;
+  function notify(text: string) {
+    toast.textContent = text;
+    toast.classList.remove("hidden");
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => toast.classList.add("hidden"), 2600);
+  }
+
+  // what a folder, series or author is the cover of: its own name for one, as the server keys them
+  const targetOf = (group: Group) => `${browse}:${group.key}`;
+
+  // a picture from the device as a cover. given up, nothing changes
+  async function upload(target: string): Promise<CoverSet | null> {
+    const file = await pickPicture();
+    if (!file) return null;
+    const set = await api.uploadCover(target, file);
+    notify(coverMessage(set));
+    return set;
+  }
 
   // away from its own folder - in what is being read, a search, a series - a comic says which folder it is
   // from, since a shelf of archives named "Ch.01", "Ch.02" says nothing about which comic they are
@@ -83,12 +114,14 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
   }
 
   function tile(group: Group): string {
-    // a folder, a series or an author: the cover of the first comic in it, stacked, with how many there are
-    // and how many have pages waiting
+    // a folder, a series or an author: its own cover where it has one, or the cover of the first comic in it,
+    // stacked, with how many there are and how many have pages waiting
     const first = group.comics.find((comic) => comic.cover) ?? group.comics[0];
+    const own = covers[targetOf(group)];
+    const src = own ? api.groupCoverUrl(targetOf(group), own.v) : api.coverUrl(first.id, first.cover);
     const waiting = group.comics.filter((comic) => (comic.new > 0 && comic.position !== null) || next.has(comic.id)).length;
     return `<a class="card group" href="${browseHash(browse, group.key)}">
-      <div class="cover stack"><img loading="lazy" alt="" src="${api.coverUrl(first.id, first.cover)}">
+      <div class="cover stack"><img loading="lazy" alt="" src="${src}">
         <span class="badge count">${group.comics.length}</span>${waiting ? `<span class="badge new left">${waiting} updated</span>` : ""}
         <button class="card-menu" type="button" aria-label="More for ${esc(group.label)}" data-group="${esc(group.key)}">⋯</button></div>
       <div class="name">${esc(group.label)}</div>
@@ -166,6 +199,10 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     if (before.length > 1) choices.push(["Mark as read up to here", () => api.markMany(before.map((each) => each.id), true), true]);
     if (comic.position !== null) choices.push(["Mark as unread", () => api.forgetProgress(comic.id), true]);
     choices.push(["About this comic", () => { location.hash = `#/info/${comic.id}`; }, false]);
+    choices.push(["Set a cover picture…", () => upload(`comic:${comic.id}`), true]);
+    if (comic.coverChosen) {
+      choices.push(["Reset the cover", async () => notify((await api.resetCover(`comic:${comic.id}`)).note ?? "Cover reset"), true]);
+    }
     return choices;
   }
 
@@ -174,6 +211,10 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     const choices: Choice[] = [["Mark all as read", () => api.markMany(ids, true), true]];
     if (group.comics.some((each) => each.position !== null)) {
       choices.push(["Mark all as unread", () => api.markMany(ids, false), true]);
+    }
+    choices.push(["Set a cover picture…", () => upload(targetOf(group)), true]);
+    if (covers[targetOf(group)]?.chosen) {
+      choices.push(["Reset the cover", async () => notify((await api.resetCover(targetOf(group))).note ?? "Cover reset"), true]);
     }
     return choices;
   }
@@ -187,9 +228,14 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
       choice.onclick = async (event) => {
         event.stopPropagation();
         closeMenu();
-        await act();
+        try {
+          await act();
+        } catch (error) {
+          notify(refusal(error));
+          return;
+        }
         if (marks) {
-          comics = cached = (await api.library()).comics;
+          await reload();
           draw();
         }
       };
@@ -234,7 +280,7 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     button.textContent = "Looking…";
     try {
       await api.scan();
-      comics = cached = (await api.library()).comics;
+      await reload();
       draw();
     } finally {
       button.disabled = false;
@@ -244,6 +290,7 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
 
   const done = () => {
     closeMenu();
+    window.clearTimeout(toastTimer);
     document.removeEventListener("click", closeMenu);
     window.removeEventListener("keydown", escape);
   };
@@ -251,7 +298,7 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
   // the last answer is drawn at once, so going into a folder is instant, and replaced when the fresh one comes
   if (cached) draw();
   try {
-    comics = cached = (await api.library()).comics;
+    await reload();
   } catch (error) {
     if (!cached) main.innerHTML = `<p class="empty">Could not reach the reader: ${esc(String(error))}</p>`;
     return done;

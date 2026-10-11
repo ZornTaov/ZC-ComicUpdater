@@ -25,7 +25,21 @@ export interface ComicSummary {
   grew: number | null;
   added: number;
   chapters: number;
+  // what the cover is a picture of now, so a new one has a new address; and whether one was chosen
   cover: string | null;
+  coverChosen: boolean;
+}
+
+// the covers of folders, series and authors that have one of their own, by "folder:<path>" and so on:
+// chosen in the reader, or a picture already on the shelf
+export type GroupCovers = Record<string, { v: string; chosen: boolean }>;
+
+// what a cover was set to: its new version, where on the shelf it was written, and anything to say about it
+export interface CoverSet {
+  target: string;
+  v: string | null;
+  shelf?: string | null;
+  note: string | null;
 }
 
 export interface Page {
@@ -47,6 +61,10 @@ export interface Comic {
   title: string;
   kind: string;
   ended: boolean;
+  // where it is shelved, and the series and author it is in: what a page of it can be the cover of
+  place: string;
+  series: string | null;
+  author: string | null;
   position: number;
   // how far down that page the reader was, as a share of it, for a comic read by scrolling
   part: number;
@@ -74,6 +92,7 @@ export interface ComicInfo {
   name: string;
   author: string | null;
   cover: string | null;
+  coverChosen: boolean;
   kind: string;
   place: string;
   pages: number;
@@ -109,7 +128,7 @@ function put<T>(path: string, body: unknown, keepalive = false): Promise<T> {
 }
 
 export const api = {
-  library: () => call<{ scanned: number | null; comics: ComicSummary[] }>("/api/library"),
+  library: () => call<{ scanned: number | null; covers: GroupCovers; comics: ComicSummary[] }>("/api/library"),
   scan: () => call<{ scanned: number | null }>("/api/scan", { method: "POST" }),
   async comic(id: string): Promise<Comic> {
     // pages come as [version, width, height, stand-in, media] to keep a comic of thousands of pages one small answer
@@ -123,6 +142,13 @@ export const api = {
     put<ComicInfo & { told: number }>(`/api/comics/${info.id}/info`, { info: said, updated: info.updated, version: info.version }),
   pageUrl: (id: string, n: number, v: string) => `/api/comics/${id}/pages/${n}?v=${v}`,
   coverUrl: (id: string, v: string | null) => `/api/comics/${id}/cover${v ? `?v=${v}` : ""}`,
+  groupCoverUrl: (target: string, v: string) => `/api/covers?target=${encodeURIComponent(target)}&v=${v}`,
+  // a page of a comic as the cover of that comic, or of a folder, series or author it is in
+  chooseCover: (target: string, comic: string, page: number) => put<CoverSet>("/api/covers", { target, comic, page }),
+  // a picture of one's own, sent as it is
+  uploadCover: (target: string, file: Blob) => call<CoverSet>(`/api/covers/upload?target=${encodeURIComponent(target)}`,
+    { method: "PUT", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file }),
+  resetCover: (target: string) => call<CoverSet>(`/api/covers?target=${encodeURIComponent(target)}`, { method: "DELETE" }),
   standIn: (id: string, n: number) => call<StandIn>(`/api/comics/${id}/pages/${n}/standin`),
   saveProgress: (id: string, position: number, part = 0, closing = false) =>
     put(`/api/comics/${id}/progress`, { position, part }, closing),

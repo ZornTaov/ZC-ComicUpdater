@@ -68,7 +68,7 @@ def describe(library, comic):
     summary = library.summary(comic, None)
     return {
         "id": comic["id"], "title": summary["title"], "name": summary["name"], "author": summary["author"],
-        "cover": summary["cover"], "kind": comic["kind"], "place": comic.get("place", ""),
+        "cover": summary["cover"], "coverChosen": summary["coverChosen"], "kind": comic["kind"], "place": comic.get("place", ""),
         "pages": len(stream["pages"]), "ended": stream["ended"],
         "about": {key: about[key] for key in SHOWN if about.get(key)},
         #what was said about it by hand, as its metadata keeps it: what an edit starts from

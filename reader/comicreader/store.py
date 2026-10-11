@@ -33,6 +33,9 @@ class Store:
                 pages INTEGER NOT NULL,
                 grew REAL,
                 added INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS covers (
+                target TEXT PRIMARY KEY,
+                data TEXT NOT NULL);
         """)
         #how far down its page the reader was, for a comic read by scrolling: added after the table was
         #first made, so a data folder from before gains it here
@@ -137,4 +140,27 @@ class Store:
     def save_settings(self, scope, data):
         with self.lock:
             self.db.execute("INSERT OR REPLACE INTO settings (scope, data) VALUES (?, ?)", (scope, json.dumps(data)))
+            self.db.commit()
+
+    def covers(self):
+        #the cover chosen for each comic, folder, series and author that has one: a page of a comic, by the
+        #page itself so it survives renumbering, or a picture put in the data folder
+        with self.lock:
+            rows = self.db.execute("SELECT target, data FROM covers").fetchall()
+        found = {}
+        for target, data in rows:
+            try:
+                found[target] = json.loads(data)
+            except ValueError:
+                continue
+        return found
+
+    def save_cover(self, target, data):
+        with self.lock:
+            self.db.execute("INSERT OR REPLACE INTO covers (target, data) VALUES (?, ?)", (target, json.dumps(data)))
+            self.db.commit()
+
+    def forget_cover(self, target):
+        with self.lock:
+            self.db.execute("DELETE FROM covers WHERE target = ?", (target,))
             self.db.commit()

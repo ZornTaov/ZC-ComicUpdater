@@ -3,6 +3,7 @@ import type { Page } from "./api";
 import { chapterOf, chapterTarget, keyAction, pageAt, placeStrip, tapAction, typedPage, viewOf, views, wanted } from "./layout";
 import { clean, merged } from "./settings";
 import { refusal, runLine, startingValues } from "./info";
+import { coverMessage } from "./dom";
 
 const page = (w: number | null = 800, h: number | null = 1200, standin = false): Page => ({ v: "1", w, h, standin, media: null });
 
@@ -167,7 +168,7 @@ describe("the info page", () => {
   });
 
   const info = {
-    id: "a", title: "MyComic", name: "MyComic", author: null, cover: null, kind: "archive", place: "", pages: 3,
+    id: "a", title: "MyComic", name: "MyComic", author: null, cover: null, coverChosen: false, kind: "archive", place: "", pages: 3,
     ended: false, links: [], folder: null, files: [], pageCount: null, lastRun: null, updated: null,
     version: null, editable: true,
     about: { title: "MyComic", series: "MyComic", web: "https://example.com/" },
@@ -184,6 +185,13 @@ describe("the info page", () => {
   it("starts editing an archive from elsewhere from everything its ComicInfo says", () => {
     expect(startingValues({ ...info, scraped: false }).values)
       .toEqual({ title: "MyComic", series: "MyComic", web: "https://example.com/" });
+  });
+
+  it("says where a cover went, or why it stayed in the reader", () => {
+    expect(coverMessage({ shelf: "CBZs/MyComic.jpg", note: null })).toBe("Cover set, and saved as CBZs/MyComic.jpg");
+    expect(coverMessage({ shelf: null, note: null })).toBe("Cover set");
+    expect(coverMessage({ note: "kept in the reader only: it could not be written beside the comic (Permission denied)" }))
+      .toBe("Cover set, kept in the reader only: it could not be written beside the comic (Permission denied)");
   });
 
   it("says why a change was refused in the server's own words", () => {

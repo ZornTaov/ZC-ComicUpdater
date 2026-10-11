@@ -216,7 +216,8 @@ button {
 .link-label { color: var(--muted); font-size: 13px; }
 .link-row { display: flex; gap: 8px; align-items: center; }
 .link-url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); }
-.info .toast { position: fixed; }
+.info .toast, .library .toast { position: fixed; z-index: 30; }
+.sheet .row > button[data-target] { flex: 1; text-align: left; }
 .info button.primary { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 600; }
 .edit-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 14px; }
 .field { display: flex; flex-direction: column; gap: 4px; }

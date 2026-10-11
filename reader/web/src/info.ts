@@ -1,7 +1,7 @@
 // a comic's info page: what its ComicInfo says it is, the addresses it came from on the web - each to open or
 // to copy - where it is kept in the library, and how the scraper's last update of it went
 import { api, SAYABLE, type ComicInfo, type Said } from "./api";
-import { esc } from "./dom";
+import { coverMessage, esc, pickPicture } from "./dom";
 
 // what the page shows of a ComicInfo, in this order, and what it calls each
 export const FIELDS: [key: keyof ComicInfo["about"], label: string][] = [
@@ -172,6 +172,8 @@ export async function openInfo(root: HTMLElement, id: string, back: () => void):
                 <a class="button primary" href="#/read/${info.id}">Read</a>
                 <a class="button" href="#/read/${info.id}/1">From the start</a>
                 ${info.editable ? '<button data-act="edit">Edit</button>' : ""}
+                <button data-act="upload-cover">Set a cover picture…</button>
+                ${info.coverChosen ? '<button data-act="reset-cover">Reset the cover</button>' : ""}
               </div>
             </div>
           </div>
@@ -193,6 +195,21 @@ export async function openInfo(root: HTMLElement, id: string, back: () => void):
     root.querySelector<HTMLButtonElement>('[data-act="back"]')!.onclick = back;
     const editButton = root.querySelector<HTMLButtonElement>('[data-act="edit"]');
     if (editButton) editButton.onclick = () => edit(info);
+    // a cover changed is shown at once: the page is drawn again from what the server now says
+    const covered = async (set: Promise<{ shelf?: string | null; note: string | null } | null>, said: (s: { shelf?: string | null; note: string | null }) => string) => {
+      try {
+        const done = await set;
+        if (!done) return;
+        draw(await api.info(info.id));
+        notify(said(done));
+      } catch (error) {
+        notify(refusal(error));
+      }
+    };
+    root.querySelector<HTMLButtonElement>('[data-act="upload-cover"]')!.onclick = () => covered(
+      pickPicture().then((file) => file ? api.uploadCover(`comic:${info.id}`, file) : null), coverMessage);
+    const reset = root.querySelector<HTMLButtonElement>('[data-act="reset-cover"]');
+    if (reset) reset.onclick = () => covered(api.resetCover(`comic:${info.id}`), (set) => set.note ?? "Cover reset");
     root.querySelectorAll<HTMLButtonElement>("[data-copy]").forEach((button) => {
       button.onclick = async () => {
         const link = info.links[Number(button.dataset.copy)];

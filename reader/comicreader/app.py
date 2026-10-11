@@ -3,7 +3,6 @@
 import base64
 import hashlib
 import hmac
-import io
 import mimetypes
 import os
 import posixpath
@@ -15,6 +14,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from comicreader import covers
 from comicreader.config import Config
 from comicreader.editing import Refused, edit
 from comicreader.info import describe
@@ -68,7 +68,7 @@ def create_app(config=None, scan_in_background=True):
     def everything():
         progress = store.every_progress()
         growth = store.growth()
-        return {"scanned": library.scanned,
+        return {"scanned": library.scanned, "covers": covers.group_covers(library),
                 "comics": sorted((library.summary(comic, progress.get(comic["id"]), growth.get(comic["id"]))
                                   for comic in library.comics.values()), key=lambda each: each["title"].lower())}
 
@@ -82,7 +82,10 @@ def create_app(config=None, scan_in_background=True):
         comic = comic_or_404(comic_id)
         stream = library.stream(comic, fresh=True)
         progress = store.progress(comic_id)
+        #where it is shelved, and which series and author it is in, for choosing a page as their cover
+        summary = library.summary(comic, None)
         return {"id": comic_id, "title": comic["title"], "kind": comic["kind"], "ended": stream["ended"],
+                "place": summary["place"], "series": summary["series"], "author": summary["author"],
                 "position": library.position(stream, progress), "seen": progress["seen"] if progress else 0,
                 "part": progress["part"] if progress else 0,
                 "chapters": stream["chapters"],
@@ -168,21 +171,58 @@ def create_app(config=None, scan_in_background=True):
         #a file response answers range requests, which a video needs to seek
         return FileResponse(found["path"], media_type=found["media"], filename=found["name"])
 
-    @app.get("/api/comics/{comic_id}/cover")
-    def cover(comic_id: str, v: str = ""):
-        comic, each, source = page_of(comic_id, 0)
-        cached = os.path.join(config.data, "covers", "{0}-{1}.jpg".format(comic_id, each["v"]))
+    def cover_file(target, comic, v):
+        #a cover made small for the shelf, kept by what it is a picture of, so a new choice is a new file
+        found = covers.resolve(library, target, comic)
+        if found is None:
+            raise HTTPException(404, "no cover for {0}".format(target))
+        name = comic["id"] if comic else hashlib.sha1(target.encode("utf-8")).hexdigest()[:16]
+        cached = os.path.join(config.data, "covers", "{0}-{1}.jpg".format(name, found[0]))
         if not os.path.isfile(cached):
             try:
-                body, _ = library.sources.page(source, each)
-                made = thumbnail(body)
+                made = thumbnail(covers.body_of(library, found[1]))
             except Exception as error:  # noqa: BLE001 - a picture Pillow cannot open is a missing cover
                 raise HTTPException(404, "no cover: {0}".format(error))
             os.makedirs(os.path.dirname(cached), exist_ok=True)
             with open(cached + ".writing", "wb") as f:
                 f.write(made)
             os.replace(cached + ".writing", cached)
-        return FileResponse(cached, media_type="image/jpeg", headers={"Cache-Control": FOREVER if v else "no-cache"})
+        #kept for good only when asked for by what it is now: an old address must not keep an old picture
+        return FileResponse(cached, media_type="image/jpeg",
+                            headers={"Cache-Control": FOREVER if v and v == found[0] else "no-cache"})
+
+    @app.get("/api/comics/{comic_id}/cover")
+    def cover(comic_id: str, v: str = ""):
+        return cover_file("comic:" + comic_id, comic_or_404(comic_id), v)
+
+    @app.get("/api/covers")
+    def group_cover(target: str, v: str = ""):
+        return cover_file(target, None, v)
+
+    @app.put("/api/covers")
+    async def choose_cover(request: Request):
+        #a page of a comic as the cover of that comic, or of a folder, series or author it is in
+        body = await request.json()
+        try:
+            return covers.choose_page(library, str(body.get("target") or ""), str(body.get("comic") or ""),
+                                      int(body.get("page", -1)))
+        except (covers.Unusable, ValueError, TypeError) as error:
+            raise HTTPException(400, str(error))
+
+    @app.put("/api/covers/upload")
+    async def upload_cover(target: str, request: Request):
+        #a picture of one's own, sent as it is, as the body: no form to take apart
+        try:
+            return covers.choose_upload(library, target, await request.body())
+        except covers.Unusable as error:
+            raise HTTPException(400, str(error))
+
+    @app.delete("/api/covers")
+    def forget_cover(target: str):
+        try:
+            return covers.forget(library, target)
+        except covers.Unusable as error:
+            raise HTTPException(400, str(error))
 
     @app.put("/api/comics/{comic_id}/progress")
     async def save_progress(comic_id: str, request: Request):
@@ -288,12 +328,5 @@ def keep_scanning(library, minutes):
 
 
 def thumbnail(body):
-    #a cover for the library shelf: the first page, small. Pillow, since a cover has to be scaled well and
-    #this is the reader's own image, not the scraper's
-    from PIL import Image
-    with Image.open(io.BytesIO(body)) as picture:
-        picture = picture.convert("RGB")
-        picture.thumbnail(THUMB)
-        out = io.BytesIO()
-        picture.save(out, "JPEG", quality=82)
-    return out.getvalue()
+    #a cover for the library shelf, small
+    return covers.picture(body, THUMB, 82)

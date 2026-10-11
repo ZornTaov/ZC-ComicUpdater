@@ -5,6 +5,7 @@ import html.parser
 import re
 import subprocess
 import sys
+import urllib.parse
 
 import requests
 
@@ -72,6 +73,15 @@ class ArchiveReader(html.parser.HTMLParser):
         self.inside = []
         self.link = None
         self.link_text = []
+        #the pictures inside the heading being read: a chapter's banner, drawn beside its name
+        self.pictures = []
+
+    def picture(self, src, how):
+        #a picture that may be a chapter's banner, given out as an event of its own: "heading" for one that
+        #belongs to the heading given out next, "link" for a thumbnail linked on its own, which is a
+        #chapter's only if a heading follows it before any page does
+        if src and not src.startswith("data:"):
+            self.events.append(("image", src, how))
 
     def handle_starttag(self, tag, attrs):
         got = dict(attrs)
@@ -92,8 +102,19 @@ class ArchiveReader(html.parser.HTMLParser):
             #the whole list on a page like this, is not a heading that can say anything
             drawn = drawn_heading(got)
             if drawn:
-                #ranked below a written heading, so a site that has both is named by its words
+                #ranked below a written heading, so a site that has both is named by its words. the picture
+                #is the chapter's banner as well as its name
+                self.picture(got.get("src"), "heading")
                 self.events.append(("heading", drawn, 1))
+            elif self.heading:
+                #inside a box that may yet turn out to be a storyline's: its thumbnail, kept with it
+                self.pictures.append(got.get("src"))
+            elif self.link is not None:
+                self.picture(got.get("src"), "link")
+            return
+        if tag == "img":
+            #a picture inside a written heading: the banner beside the chapter's name
+            self.pictures.append(got.get("src"))
             return
         #whole words only: a class called comic-archive-date holds "arc" inside "archive" and is a date,
         #not a heading
@@ -135,7 +156,14 @@ class ArchiveReader(html.parser.HTMLParser):
         said = re.sub(r'\s+', ' ', "".join(self.said_alone)).strip()
         if re.search(r'[^\W_]', said):
             #whatever words it has of its own can still name what follows; the bars between its links cannot
+            for src in self.pictures[:1]:
+                self.picture(src, "heading")
             self.events.append(("heading", said, self.rank))
+        else:
+            #a storyline's box giving way to the header inside it: its thumbnail is the storyline's, if a
+            #heading comes before any page does
+            for src in self.pictures[:1]:
+                self.picture(src, "link")
         for href, text in self.inside:
             self.give_link(href, text)
         self.heading = None
@@ -144,6 +172,7 @@ class ArchiveReader(html.parser.HTMLParser):
         self.said = []
         self.said_alone = []
         self.inside = []
+        self.pictures = []
 
     def give_link(self, href, said):
         if names_a_chapter(said):
@@ -185,6 +214,8 @@ class ArchiveReader(html.parser.HTMLParser):
                 #punctuation and the separators between links are not a name
                 said = ""
             if said:
+                for src in self.pictures[:1]:
+                    self.picture(src, "heading")
                 self.events.append(("heading", said, self.rank))
             for href, text in self.inside:
                 #a heading that holds the link names that chapter and nothing else does, whatever else
@@ -200,6 +231,7 @@ class ArchiveReader(html.parser.HTMLParser):
             self.said = []
             self.said_alone = []
             self.inside = []
+            self.pictures = []
 
     def handle_data(self, data):
         #a link inside a heading is part of what the heading says, as well as being the link
@@ -274,7 +306,7 @@ def beside_its_heading(events):
     kept = []
     for at, (kind, first, second) in enumerate(events):
         if kind == "link":
-            after = next((event for event in events[at + 1:] if event[0] != "heading"), None)
+            after = next((event for event in events[at + 1:] if event[0] not in ("heading", "image")), None)
             if after is not None and after[0] in ("link", "owned") and same_page(after[1]) == same_page(first):
                 continue
         kept.append((kind, first, second))
@@ -307,7 +339,7 @@ def through_chapter_pages(events, where, base, fetch):
         if kind == "heading":
             current = {"heading": at, "name": first, "links": []}
             groups.append(current)
-        elif current is not None:
+        elif current is not None and kind != "image":
             current["links"].append((first, second))
 
     def target(href):
@@ -404,6 +436,11 @@ def through_chapter_pages(events, where, base, fetch):
     return out
 
 
+def owner_image(waiting, said):
+    #the banner of the heading a link sat inside, which is the latest one saying what the link was named by
+    return next((held[3] for held in reversed(waiting) if held[2] == said), None)
+
+
 def chapters_from_events(events, where, base="", fetch=None, outer=False):
     #a chapter starts at the first page link after a heading. several headings can sit together - a title
     #and the summary underneath it - so the one that reads most like a title wins: a real heading tag
@@ -416,22 +453,37 @@ def chapters_from_events(events, where, base="", fetch=None, outer=False):
         events = through_chapter_pages(events, where, base, fetch)
     events = beside_its_heading(events)
     found, waiting, listed = [], [], set()
-    #the outer heading waiting for the first page under it
-    parent = None
+    #the outer heading waiting for the first page under it, and its banner
+    parent = parent_image = None
+    #a chapter's banner: the picture inside or drawn as the heading, given out just before it, or a thumbnail
+    #linked on its own just above it - a storyline's box. a thumbnail with a page after it and no heading
+    #between is that page's, in a gallery of every page, and no chapter's
+    heading_image = loose_image = None
     #a section gathered from across the comic - fillers, omake, guest pages, listed apart under a heading of
     #their own - is not a chapter. its pages were published in among the chapters, and stay where they were
     #published, so a reader of the archives meets them exactly where a reader of the site does
     gathered, seen = False, set()
     for step, (kind, first, second) in enumerate(events):
+        if kind == "image":
+            src = urllib.parse.urljoin(base, first) if base else first
+            if second == "heading":
+                heading_image = src
+            else:
+                loose_image = src
+            continue
         if kind == "heading":
-            if outer and step + 1 < len(events) and events[step + 1][0] == "heading":
-                parent = first
-            waiting.append((second if second is not None else 1, len(waiting), first))
+            image, heading_image, loose_image = heading_image or loose_image, None, None
+            #a picture between it and the heading under it is the next heading's banner, and stood aside
+            after = next((event[0] for event in events[step + 1:] if event[0] != "image"), None)
+            if outer and after == "heading":
+                parent, parent_image = first, image
+            waiting.append((second if second is not None else 1, len(waiting), first, image))
             continue
         owned = kind == "owned"
         at = walked_at(where, base, first)
         if at is None:
             continue
+        loose_image = None
         #each page once, however often it is linked: a storyline's name and its first row both lead to its
         #first page, and counting both said an archive listed more pages than the comic has
         listed.add(at)
@@ -443,9 +495,11 @@ def chapters_from_events(events, where, base="", fetch=None, outer=False):
             #cutting by the outer headings, the one this page is the first of does
             if not outer:
                 already["label"], already["pages_said"] = heading_says(second)
+                already["image"] = already.get("image") or owner_image(waiting, second)
             elif parent is not None:
                 already["label"], already["pages_said"] = heading_says(parent)
-                parent = None
+                already["image"] = already.get("image") or parent_image
+                parent = parent_image = None
             waiting = []
             continue
         if outer and found and parent is None and (owned or waiting):
@@ -465,14 +519,15 @@ def chapters_from_events(events, where, base="", fetch=None, outer=False):
             #a heading that held this very link names it outright. otherwise the most heading-like wins,
             #and among equals the one nearest the link: a page's own banner sits far above the first
             #chapter's title, and a summary sits just under it
-            label = (second if owned else
-                     min(waiting, key=lambda held: (held[0], -held[1]))[2] if waiting
-                     else "Chapter {0}".format(len(found) + 1))
+            best = min(waiting, key=lambda held: (held[0], -held[1])) if waiting else None
+            label = (second if owned else best[2] if best else "Chapter {0}".format(len(found) + 1))
+            #the banner of whichever heading named it
+            image = owner_image(waiting, second) if owned else best[3] if best else None
             if outer and parent is not None:
-                label, parent = parent, None
+                label, image, parent, parent_image = parent, parent_image, None, None
             label, says = heading_says(label)
             found.append({"label": label or "Chapter {0}".format(len(found) + 1),
-                          "start_page": at, "pages_listed": [], "pages_said": says})
+                          "start_page": at, "pages_listed": [], "pages_said": says, "image": image})
             waiting = []
         elif gathered:
             continue

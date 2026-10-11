@@ -17,7 +17,7 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 def make_site(pages, chapters):
     #the comic, and an archive page listing its chapters. both follow `state`, which a test changes to
     #have the site publish more
-    state = {"pages": pages, "chapters": chapters}
+    state = {"pages": pages, "chapters": chapters, "banners": False}
 
     class Serial(Site):
         def do_GET(self):
@@ -26,9 +26,18 @@ def make_site(pages, chapters):
                 starts = dict((at, label) for label, at in state["chapters"])
                 for n in range(1, state["pages"] + 1):
                     if n in starts:
-                        rows.append('<h3 class="comic-archive-chapter">{0}</h3>'.format(starts[n]))
+                        #a banner drawn beside each chapter's name, as some sites head their chapters
+                        banner = '<img src="banners/{0}.png"> '.format(n) if state["banners"] else ""
+                        rows.append('<h3 class="comic-archive-chapter">{0}{1}</h3>'.format(banner, starts[n]))
                     rows.append('<a href="/p/{0}">page {0}</a>'.format(n))
                 self.send("<html><body><h1>The Archive</h1>" + "".join(rows) + "</body></html>")
+                return
+            if self.path.startswith("/banners/"):
+                #a site that serves its pictures only to its own pages
+                if not (self.headers.get("Referer") or "").endswith("/archive"):
+                    self.send_error(403)
+                    return
+                self.send(PNG, "image/png")
                 return
             bit = self.path.rsplit("/", 1)[-1].split(".")[0]
             if not bit.isdigit():
@@ -123,6 +132,25 @@ def test_an_update_finds_new_pages_that_began_a_new_chapter(serve, library, conf
     assert held.chapter(4) == ["0013.png", "0014.png", "0015.png", "0016.png"]
     assert held.chapter(3) == ["0009.png", "0010.png", "0011.png", "0012.png"], \
         "chapter three should no longer hold the new pages"
+
+
+def test_each_chapters_banner_is_saved_beside_its_archive_as_its_cover(serve, library, config, chapters):
+    held = hold(serve, library, config, chapters, 12, THREE)
+    assert not [name for name in os.listdir(str(held.out)) if name.endswith(".png")], "no banners on the page yet"
+    #the site draws a banner over each chapter: reading the list again records them, and covers saves them
+    #beside the archives already packed, packing nothing again
+    held.state["banners"] = True
+    done = held.chapters_cli("--save")
+    assert done.returncode == 0 and "3 chapter(s) have a banner" in done.stdout, done.stdout[-400:]
+    assert read_meta(held.comic)["chapters"]["list"][1]["image"] == held.site + "/banners/5.png"
+    done = run("chapters.py", "covers", held.comic, "--root", library, timeout=300)
+    assert done.returncode == 0, done.stdout[-400:]
+    beside = sorted(name for name in os.listdir(str(held.out)) if name.endswith(".png"))
+    assert beside == ["MyComic - c001 - One.png", "MyComic - c002 - Two.png", "MyComic - c003 - Three.png"], beside
+    #one already there - a cover chosen in a reader - is never replaced
+    (held.out / "MyComic - c002 - Two.png").write_bytes(b"chosen")
+    run("chapters.py", "covers", held.comic, "--root", library, timeout=300)
+    assert (held.out / "MyComic - c002 - Two.png").read_bytes() == b"chosen"
 
 
 def test_an_archive_page_that_moves_a_written_chapter_is_refused_without_force(serve, library, config,

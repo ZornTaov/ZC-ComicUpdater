@@ -66,14 +66,21 @@ def apply_fixes(found, pages, fixes):
         if not at or at > len(pages):
             missed.append(fix.get("url") or fix.get("page"))
             continue
+        here = [chapter for chapter in found if chapter["start_page"] == at]
         found = [chapter for chapter in found if chapter["start_page"] != at]
         if not fix.get("drop"):
             label = fix.get("label") or "Chapter"
             #naming a chapter that is already there moves it here rather than making a second one of the
             #same name: a cover the artist named oddly is the same chapter, starting a page earlier. that
             #holds for one this rule found and for one an earlier correction put somewhere else.
+            named = [chapter for chapter in found if (chapter.get("label") or "") == label]
             found = [chapter for chapter in found if (chapter.get("label") or "") != label]
-            found.append({"label": label, "start_page": at, "by_hand": True})
+            #renamed or moved by hand, it is still the chapter the list showed a banner for
+            image = next((chapter.get("image") for chapter in here + named if chapter.get("image")), None)
+            made = {"label": label, "start_page": at, "by_hand": True}
+            if image:
+                made["image"] = image
+            found.append(made)
         took.append((at, None if fix.get("drop") else fix.get("label")))
     return found, took, missed
 
@@ -99,6 +106,10 @@ def show_chapters(folder, chapters, pages, listed=None):
             chapter["number"], (chapter["label"] or "")[:44], chapter["start_page"], chapter["end_page"],
             chapter["pages"], (chapter["start_file"] or "?"),
             "  <- by hand" if chapter.get("by_hand") else ""))
+    banners = [c for c in chapters if c.get("image")]
+    if banners:
+        print("  {0} chapter(s) have a banner on the chapter list, saved beside each archive when it is "
+              "packed: {1}{2}".format(len(banners), banners[0]["image"], " ..." if len(banners) > 1 else ""))
     odd = [c for c in chapters if c["pages"] <= 1]
     if odd:
         print("  {0} chapter(s) hold one page or none, which usually means a heading was read wrongly: "
@@ -111,6 +122,9 @@ def chapter_record(chapter):
             "start_file": chapter["start_file"]}
     if chapter.get("by_hand"):
         kept["by_hand"] = True
+    #the banner the chapter list shows for it, which pack saves beside the chapter's archive as its cover
+    if chapter.get("image"):
+        kept["image"] = chapter["image"]
     return kept
 
 
@@ -215,6 +229,10 @@ def try_archive(folder, args):
             (chapter["start_url"] or "")[-52:]))
     if len(found) > 40:
         print("  ... and {0} more".format(len(found) - 40))
+    banners = [chapter["image"] for chapter in found if chapter.get("image")]
+    if banners:
+        print("  {0} of these have a banner, which would be saved beside each chapter's archive: {1}{2}".format(
+            len(banners), banners[0], " ..." if len(banners) > 1 else ""))
     said = [chapter["pages_said"] for chapter in found if chapter.get("pages_said")]
     if said:
         print("  {0} of these say how long they are, adding up to {1} page(s), against {2} page(s) "

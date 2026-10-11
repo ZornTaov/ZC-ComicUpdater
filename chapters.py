@@ -18,6 +18,7 @@ from comiclib.chapters.align import (align, anchor_kinds, by_written_order, desc
 from comiclib.chapters.archive_page import (ArchiveReader, chapters_from_archive,  # noqa: F401
                                             chapters_from_events, drawn_heading, first_of_each,
                                             heading_says, names_a_chapter, pages_linked, read_archive)
+from comiclib.chapters.banners import covers, save_banners  # noqa: F401
 from comiclib.chapters.chapterlist import (apply_fixes, chapter_record, chapters_every, compare_chapters,  # noqa: F401
                                            edit_fixes, list_fixes, plan, save_chapters, say_fixes,
                                            settle_chapters, show_chapters, try_archive)
@@ -42,7 +43,8 @@ def setup():
     params = argparse.ArgumentParser(
         description="Line a comic's saved files up with the pages they came from.")
     params.add_argument("what", choices=["index", "align", "show", "chapters", "fix", "try", "pack",
-                                         "refetch", "repack", "renumber", "recovered", "insert", "comicinfo"],
+                                         "refetch", "repack", "renumber", "recovered", "insert", "comicinfo",
+                                         "covers"],
                         help="index: walk the comic (or, with --wordpress, read its list of posts) and "
                              "line it up. align: line up a walk already done. "
                              "show: what the last alignment says. refetch: fetch again any page whose file "
@@ -54,7 +56,9 @@ def setup():
                              "--original, the site's own name for it. "
                              "recovered: note a page the site has lost that you put back by hand. "
                              "insert: put in a page the comic's own links skip past. "
-                             "pack: write one .cbz per chapter. "
+                             "pack: write one .cbz per chapter, and beside each the banner the chapter list "
+                             "shows for it, as its cover. "
+                             "covers: save those banners for a comic already packed, packing nothing. "
                              "repack: write the .cbz afresh from the folder. "
                              "comicinfo: give an archive packed before archives carried a ComicInfo.xml one, "
                              "on its end, or bring it up to date; given a library, every comic in it.")
@@ -82,8 +86,8 @@ def setup():
     params.add_argument("--limit", type=int, default=0, help="Stop the walk after this many pages.")
     params.add_argument("--root", default=None, help="Library folder, used to name the cache.")
     params.add_argument("--dry-run", "-n", action='store_true', default=False,
-                        help="With refetch, say what would be fetched and change nothing. With pack or "
-                             "comicinfo, say what would be written and write nothing.")
+                        help="With refetch, say what would be fetched and change nothing. With pack, "
+                             "comicinfo or covers, say what would be written and write nothing.")
     params.add_argument("--all", action='store_true', default=False,
                         help="With refetch, fetch every page again, not only those that differ.")
     params.add_argument("--repack", action='store_true', default=False,
@@ -214,6 +218,8 @@ def main():
         return repack(folder, args)
     if args.what == "comicinfo":
         return retell(folder, args)
+    if args.what == "covers":
+        return covers(folder, args)
     if args.what == "index":
         if (wordpress_index if args.wordpress else walk)(folder, args) is None:
             return 2

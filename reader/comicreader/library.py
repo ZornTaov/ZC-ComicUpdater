@@ -26,7 +26,7 @@ def ident(text):
 
 
 #a picture on the shelf that can be a cover: one beside an archive, named as it is, or a folder's own
-PICTURE = re.compile(r"\.(jpe?g|png|webp)$", re.I)
+PICTURE = re.compile(r"\.(jpe?g|png|webp|gif)$", re.I)
 
 
 def walk(library, skip, pictures=None):

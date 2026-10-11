@@ -30,6 +30,13 @@ def chapter_folder(folder, metadata, root=None, given=None):
     #name is given that folder, rather than another one nested inside it.
     if given:
         return given
+    #where its chapters were packed before, or moved to since: the archives are there, and packing again
+    #anywhere else would write every chapter a second time beside the first
+    recorded = (metadata.get("chapters") or {}).get("folder")
+    if recorded:
+        full = recorded if os.path.isabs(recorded) or not root else os.path.join(root, recorded.replace('/', os.sep))
+        if os.path.isabs(full) and os.path.isdir(full):
+            return full
     cbz = (metadata.get("settings") or {}).get("cbz_path")
     if cbz:
         full = cbz if os.path.isabs(cbz) or not root else os.path.join(root, cbz.replace('/', os.sep))
@@ -41,8 +48,11 @@ def chapter_folder(folder, metadata, root=None, given=None):
         if not found:
             return os.path.abspath(folder) + "_chapters"
         full = os.path.join(found, os.path.relpath(os.path.abspath(folder), tree)) + ".cbz"
+    #the same name however its words are joined: a shelf folder named My_Comic is the folder of My Comic
+    def plain(text):
+        return re.sub(r'[\s_\-.]+', ' ', text).strip().lower()
     name = os.path.basename(os.path.abspath(folder))
-    if os.path.basename(os.path.dirname(full)).lower() == name.lower():
+    if plain(os.path.basename(os.path.dirname(full))) == plain(name):
         return os.path.dirname(full)
     return full[:-4] if full.lower().endswith(".cbz") else full
 
@@ -188,6 +198,10 @@ def pack(folder, args):
     #nothing is turned off here: a comic that has chapters is one mirror_base leaves alone, and whether it
     #has archives at all is the one cbz setting, the same switch as for a comic with no chapters
     write_metadata(folder, metadata)
+    #each chapter's banner from the chapter list, beside its archive as its cover, where it has none yet.
+    #one that cannot be fetched is said and left for the next pack: the archives are written either way
+    from comiclib.chapters.banners import save_banners
+    save_banners(folder, [chapter for chapter, _ in parcels], shelf, referer=block.get("source_url"))
 
     if args.replace:
         return drop_single(folder, metadata, args, shelf)

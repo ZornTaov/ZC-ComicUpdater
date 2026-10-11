@@ -15,7 +15,7 @@ from comiclib.metadata import METADATA_FILE
 KINDS = ("comic", "folder", "series", "author")
 #the names a folder's own picture goes by, in the order they are looked for, as other readers look for them
 FOLDER_NAMES = ("cover", "folder", "poster")
-ENDINGS = (".jpg", ".jpeg", ".png", ".webp")
+ENDINGS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
 #the size a cover written onto the shelf is kept to: plenty for any reader's shelf, and no page-sized file
 SHELF_SIZE = (1200, 1800)
 #what an upload can be at most

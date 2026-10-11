@@ -342,6 +342,21 @@
         <label>Status</label>
         <label class="check"><input type="checkbox" id="e-ended"> ended, leave it alone</label>
       </div>
+      <details id="edit-move-box"><summary>Move to another folder</summary>
+        <div class="field move-field">
+          <label for="e-move-into">Move into</label>
+          <input type="text" id="e-move-into" spellcheck="false" list="e-move-places" placeholder="Uncompressed/SomeAuthor">
+          <datalist id="e-move-places"></datalist>
+          <div class="note">A folder inside the library, made if it is not there. The comic keeps its name; its
+            archive or chapter archives move to the matching place on the CBZs shelf, and its record of which
+            page is which goes with it.</div>
+        </div>
+        <div class="move-plan" id="e-move-plan" hidden></div>
+        <div class="row move-row">
+          <button type="button" id="e-move-check">See what would move</button>
+          <button type="button" id="e-move-go" disabled>Move it</button>
+        </div>
+      </details>
       <details id="edit-runs-box"><summary>Recent runs and edits</summary><div id="edit-runs"></div></details>
     </div>
     <div class="dlg-foot">

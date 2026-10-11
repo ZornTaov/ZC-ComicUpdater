@@ -42,3 +42,12 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .decide-group label.check { display: flex; white-space: normal; overflow-wrap: anywhere; padding: 2px 0; }
 .decide .note { color: var(--muted); margin: 6px 0; }
 .decide .row { margin-top: 8px; }
+/*moving a comic: what would move, a line per folder or archive, shown before the move can be pressed. a
+  library path is long and has no spaces to break at, so it wraps anywhere rather than widen the dialog*/
+#edit-move-box { margin-bottom: 10px; }
+#edit-move-box > summary { margin-bottom: 8px; }
+.move-plan { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+  margin: 0 0 8px; font-size: 12px; overflow-wrap: anywhere; }
+.move-plan div { padding: 1px 0; }
+.move-plan .stays { color: var(--warn); }
+.move-row { justify-content: flex-end; }

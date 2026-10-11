@@ -68,11 +68,79 @@ async function openEditor(name) {
     (edits ? `<div class="muted" style="margin-top:10px">Edits</div>${edits}` : "");
   $("edit-runs-box").hidden = !runs && !edits;
 
-  const busy = detail.running;
-  ["edit-save", "edit-save-update"].forEach((id) => { $(id).disabled = busy; });
-  if (busy) { msg.className = "msg bad"; msg.textContent = "Being scraped right now; stop it or wait to edit."; }
+  $("e-move-into").value = parentOf(detail.name);
+  $("e-move-places").innerHTML = movePlaces(detail.name).map((place) => `<option value="${esc(place)}">`).join("");
+  $("edit-move-box").open = false;
+  resetMove();
+
+  const busy = detail.running || detail.moving;
+  ["edit-save", "edit-save-update", "e-move-check"].forEach((id) => { $(id).disabled = busy; });
+  if (busy) {
+    msg.className = "msg bad";
+    msg.textContent = detail.moving ? "Waiting to be moved; reopen it once the move has finished."
+      : "Being scraped right now; stop it or wait to edit.";
+  }
   $("editor").showModal();
 }
+
+//the folder a comic sits in, by its name in the library
+function parentOf(name) {
+  return name.includes("/") ? name.slice(0, name.lastIndexOf("/")) : "";
+}
+
+//the folders a comic could be moved into: every folder another comic already sits in, and the ones above
+//those, taken from the library list the page already holds rather than another look at the share
+function movePlaces(name) {
+  const places = new Set();
+  comics.forEach((comic) => {
+    const parts = comic.name.split("/").slice(0, -1);
+    parts.forEach((_, at) => places.add(parts.slice(0, at + 1).join("/")));
+  });
+  places.delete(parentOf(name));
+  return [...places].sort((a, b) => a.localeCompare(b));
+}
+
+//the move button only ever does what was last shown, so a folder typed after looking has to be looked at
+let moveChecked = null;
+function resetMove() {
+  moveChecked = null;
+  $("e-move-plan").hidden = true;
+  $("e-move-plan").innerHTML = "";
+  $("e-move-go").disabled = true;
+}
+
+$("e-move-into").addEventListener("input", resetMove);
+$("e-move-check").addEventListener("click", async () => {
+  const msg = $("edit-msg"), into = $("e-move-into").value.trim();
+  resetMove();
+  msg.className = "msg"; msg.textContent = "Looking…";
+  try {
+    const result = await post("/api/move", { name: editing.name, into, dry_run: true });
+    $("e-move-plan").innerHTML = result.lines.map((line) =>
+      `<div class="${line.stays ? "stays" : ""}">${esc(line.text)}</div>`).join("");
+    $("e-move-plan").hidden = false;
+    $("e-move-go").disabled = false;
+    moveChecked = into;
+    msg.textContent = "";
+  } catch (error) {
+    msg.className = "msg bad";
+    msg.textContent = error.message;
+  }
+});
+$("e-move-go").addEventListener("click", async () => {
+  const msg = $("edit-msg");
+  if (moveChecked === null) return;
+  try {
+    const result = await post("/api/move", { name: editing.name, into: moveChecked });
+    //the comic is about to have another name, so nothing more is saved under this one
+    ["edit-save", "edit-save-update", "e-move-check", "e-move-go"].forEach((id) => { $(id).disabled = true; });
+    msg.className = "msg good";
+    msg.textContent = `Queued; it becomes ${result.to} when its turn comes. Watch it under Running now.`;
+  } catch (error) {
+    msg.className = "msg bad";
+    msg.textContent = error.message;
+  }
+});
 
 async function saveEditor(updateAfter) {
   const msg = $("edit-msg");

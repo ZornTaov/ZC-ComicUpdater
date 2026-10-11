@@ -98,6 +98,19 @@ def is_running(runner, name):
     return bool(job) and any(c.name == name and c.started_at and c.code is None for c in job.comics)
 
 
+def move_label(name):
+    #what a job moving a comic is called, which is also how one waiting or running is found again
+    return "Move {0}".format(name)
+
+
+def is_moving(runner, name):
+    #a move queued or under way. anything that holds on to where the comic is - a chapters job queued
+    #behind the move, an edit written while the folder is being renamed - would find it gone
+    label = move_label(name)
+    return any(job is not None and job.kind == "move" and job.label == label
+               for job in [runner.current] + list(runner.waiting))
+
+
 def read_metadata(path):
     metadata = sidecar.load(path)
     #an old sidecar is brought up to date first, so the edit lands in the one place a run reads it
@@ -208,6 +221,7 @@ def comic_detail(args, uc, runner, name):
         "edits": (history.get("edits") or [])[-8:][::-1],
         "pages_in_folder": uc.folder_pages(comic.folder),
         "running": is_running(runner, comic.name),
+        "moving": is_moving(runner, comic.name),
     }, None
 
 

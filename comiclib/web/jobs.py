@@ -11,13 +11,14 @@ import time
 import traceback
 import zipfile
 
+from comiclib import moving
 from comiclib.batch import own_group
 from comiclib.chapters.index import index_path, numbering_trouble, set_aside, set_aside_pages
 from comiclib.exits import USAGE
 from comiclib.metadata import METADATA_FILE, write_json
 from comiclib.paths import config_folder
 from comiclib.web.uploads import Refused, mark_queued, place
-from comiclib.web.views import chapters_label, job_view
+from comiclib.web.views import chapters_label, find_comic, job_view, move_label
 
 #how far back the page's Recent list reaches. it is kept in the config folder, so a restart - which a
 #restart file makes routine - does not empty it; and capped by count too, against a week of something
@@ -456,6 +457,28 @@ class Runner:
 
         mark_queued(self.args.root, chosen["id"], True)
         return self.submit(Job("upload", "Upload {0}".format(chosen["pages_at"]), work))
+
+    def submit_move(self, name, into):
+        #a comic moved to another folder: in the queue, so it is never renamed out from under a scrape. it is
+        #looked up and planned again when its turn comes, since the library may have changed while it waited
+        def work(job):
+            args = self.uc.with_config(self.args)
+            comic = find_comic(args, self.uc, name)
+            try:
+                if comic is None:
+                    raise moving.Refused("there is no comic named {0} any more".format(name))
+                planned = moving.plan(comic.folder, args.root, into, args.max_depth)
+                for line in moving.carry_out(planned):
+                    print("{0}: {1}".format(name, line), flush=True)
+            except (moving.Refused, OSError, ValueError) as error:
+                job.error = str(error)
+                print("ERROR: {0}: {1}".format(job.label, error), flush=True)
+                return 1
+            job.outcome = "now {0}".format(planned["to"])
+            print("{0}: {1}".format(job.label, job.outcome), flush=True)
+            return 0
+
+        return self.submit(Job("move", move_label(name), work))
 
 
 def remember_chapters(comic, listing, every=None, make_folder=False):

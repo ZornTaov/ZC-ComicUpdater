@@ -7,10 +7,11 @@ import subprocess
 import sys
 import time
 
+from comiclib import moving
 from comiclib.chapters.index import index_path, set_aside
 from comiclib.metadata import write_json
 from comiclib.web.adding import clean_folder
-from comiclib.web.views import find_comic, is_running, read_metadata, walk_needed
+from comiclib.web.views import find_comic, is_moving, is_running, read_metadata, walk_needed
 
 #the settings a person may change from the page, and what each one has to be. output is left out on
 #purpose: a comic's folder is what says where it lives, and update_comics ignores a stored output anyway
@@ -160,6 +161,8 @@ def save_settings(args, uc, runner, name, given, expected_updated):
     #a running scrape rewrites this file after every page, and would quietly put back whatever it started with
     if is_running(runner, comic.name):
         return 409, {"error": "{0} is being scraped right now; stop it or wait for it to finish".format(name)}
+    if is_moving(runner, comic.name):
+        return 409, {"error": "{0} is being moved; reopen it once the move has finished".format(name)}
     cleaned, problems = clean_settings(given)
     if problems:
         return 400, {"error": "; ".join(problems)}
@@ -276,6 +279,17 @@ def save_config(args, uc, given):
         return 500, {"error": "could not write {0}: {1}".format(uc.config_path(), error)}
     print("Saved {0}".format(uc.config_path()), flush=True)
     return 200, {"saved": True, "path": uc.config_path(), "settings": uc.load_config(quiet=True)}
+
+
+def preview_move(args, comic, into):
+    #what moving a comic would do, said before anything is queued: a few looks at the share, no listing, so
+    #it answers at once. the job plans it again when its turn comes, in case the library changed meanwhile
+    try:
+        planned = moving.plan(comic.folder, args.root, into, args.max_depth)
+    except (moving.Refused, OSError, ValueError) as error:
+        return 400, {"error": str(error)}
+    return 200, {"to": planned["to"],
+                 "lines": [{"text": text, "stays": stays} for text, stays in moving.describe(planned)]}
 
 
 def discard_walk(args, uc, comic):

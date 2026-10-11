@@ -3,7 +3,6 @@
 #settings, so they never end up pinned into one.
 import os
 import shlex
-import shutil
 import sys
 from time import sleep
 
@@ -52,40 +51,63 @@ def process_alive(pid):
     return True
 
 
+def lock_file(handle):
+    #an exclusive lock on an open file, or OSError when another process - or another handle - has it. the
+    #system lets go of it when the process ends, however it ends
+    if os.name == "nt":
+        import msvcrt
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def chrome_holds(profile):
+    #whether a chrome still has the profile: its lock outlives the scrape that started it while its processes
+    #close, and a second chrome started on it then will not start at all. on windows the lock is a file chrome
+    #keeps open, which cannot be removed until it lets go; elsewhere a link naming the process holding it
+    if os.name == "nt":
+        held = os.path.join(profile, "lockfile")
+        if not os.path.exists(held):
+            return False
+        try:
+            os.remove(held)
+        except OSError:
+            return True
+        return False
+    try:
+        holder = os.readlink(os.path.join(profile, "SingletonLock")).rsplit("-", 1)[-1]
+    except OSError:
+        return False
+    return holder.isdigit() and process_alive(int(holder))
+
+
 def claim_profile(pool):
-    #a profile folder from the pool that no running chrome is using, and the claim that marks it as taken.
-    #the claim is a folder, which only one process can make, holding the process id of the one that made it,
-    #so a claim left by a process that has since died - killed part way through a run - is taken over
+    #a profile folder from the pool that no running chrome is using, and the claim that marks it as taken: a
+    #lock held for as long as the claim is. it was a folder holding the claimer's process id, and a process
+    #reading one in the moment between its making and its id being written took it for one left by the dead,
+    #tore it down and claimed the profile as well. two chromes on one profile, and the second never started
     os.makedirs(pool, exist_ok=True)
     for at in range(POOL_SIZE):
         profile = os.path.join(pool, str(at))
-        claim = profile + ".claim"
+        handle = open(profile + ".lock", "a")
         try:
-            os.mkdir(claim)
-        except FileExistsError:
-            try:
-                with open(os.path.join(claim, "pid")) as f:
-                    holder = int(f.read().strip() or 0)
-            except (OSError, ValueError):
-                #made a moment ago and not written yet: someone else's, still starting
-                continue
-            if holder and process_alive(holder):
-                continue
-            shutil.rmtree(claim, ignore_errors=True)
-            try:
-                os.mkdir(claim)
-            except FileExistsError:
-                continue
-        with open(os.path.join(claim, "pid"), "w") as f:
-            f.write(str(os.getpid()))
-        return profile, claim
+            lock_file(handle)
+        except OSError:
+            handle.close()
+            continue
+        if chrome_holds(profile):
+            handle.close()
+            continue
+        return profile, handle
     return None, None
 
 
 def release_profile(driver):
+    #closing the file lets go of its lock
     claim = getattr(driver, "profile_claim", None)
     if claim:
-        shutil.rmtree(claim, ignore_errors=True)
+        claim.close()
 
 
 def error_page(driver):
@@ -280,7 +302,7 @@ def build_driver(args, browser_images=False, page_timeout=60.0):
             driver = webdriver.Chrome(options=options, service=service) if service else webdriver.Chrome(options=options)
     except se.WebDriverException as error:
         if claim:
-            shutil.rmtree(claim, ignore_errors=True)
+            claim.close()
         print("\nERROR: Could not start the webdriver: {0}".format(error))
         sys.exit(EXIT_DRIVER)
     #let go of when the browser quits, by quit_quietly

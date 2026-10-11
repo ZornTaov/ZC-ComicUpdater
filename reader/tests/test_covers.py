@@ -63,6 +63,18 @@ def test_a_picture_already_beside_an_archive_is_its_cover_until_one_is_chosen(li
     assert colour_of(shown)[0] == 200
 
 
+def test_another_readers_folder_thumbnail_is_not_taken_for_a_cover(library, client):
+    #folder.png, as another reader leaves one: a folder icon drawn over the comic. cover.jpg is a cover
+    single(library, "MyComic", "CBZs/SomeAuthor")
+    single(library, "OtherComic", "CBZs/SomeAuthor")
+    (library / "CBZs" / "SomeAuthor" / "folder.png").write_bytes(png(30, 40, 200))
+    api, _ = client()
+    assert "folder:CBZs/SomeAuthor" not in api.get("/api/library").json()["covers"]
+    (library / "CBZs" / "SomeAuthor" / "cover.jpg").write_bytes(jpeg(30, 40, (200, 0, 0)))
+    api.post("/api/scan")
+    assert "folder:CBZs/SomeAuthor" in api.get("/api/library").json()["covers"]
+
+
 def test_a_folder_gets_a_cover_of_its_own_put_in_and_written_into_it(library, client):
     single(library, "MyComic", "CBZs/SomeAuthor")
     single(library, "OtherComic", "CBZs/SomeAuthor")

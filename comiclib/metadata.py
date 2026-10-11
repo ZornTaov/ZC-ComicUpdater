@@ -194,4 +194,6 @@ def migrate(old):
     #what was said about the comic by hand, carried the same way: it is no part of how the file was written
     if old.get("info"):
         fresh["info"] = old["info"]
+    if old.get("notes"):
+        fresh["notes"] = old["notes"]
     return fresh

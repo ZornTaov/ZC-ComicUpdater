@@ -230,6 +230,9 @@ def metadata_save(args, folder, *, scrape_state, run_id, run_start, stop_reason,
     #now, so one said while this run was going is kept, not written over by what the run started with
     if previous.get("info"):
         metadata["info"] = previous["info"]
+    #the pages said by hand to be kept as a note of their address, which every run goes on keeping so
+    if previous.get("notes"):
+        metadata["notes"] = previous["notes"]
 
     #written aside and moved into place: this is rewritten after every page, and a run killed halfway
     #through writing it would otherwise leave a comic with no readable settings at all

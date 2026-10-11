@@ -49,6 +49,9 @@ seen_on_pages = {}
 #own variables rather than written back into the lists above, so a re-search still has every candidate.
 image_xpath = None
 next_xpath = None
+#the pages, by same_page, this comic keeps as a note of their address whatever pictures they hold: a grid
+#of separate animations that is one comic, say. said by hand, with chapters.py note
+noted_pages = set()
 #how many pages in a row the remembered image path has found nothing on, its place taken by another path
 #from the list. one odd page - a comic you play with, a page wrapped differently - is not the site changing,
 #and a path that happens to match something on it must not become the comic's from then on
@@ -182,6 +185,7 @@ def setup():
     params.add_argument("--index",type=str,default=None,metavar="FILE",help="Walk the comic without downloading anything and write one line per page - its address, its image and its title - to this file. Used to work out which saved file came from which page. An existing file is carried on from where it stopped.")
     params.add_argument("--index-first",action='store_true',default=False,help="With --index, follow the comic's first-page link before walking, for a comic whose beginning was never recorded.")
     params.add_argument("--index-limit",type=int,default=0,metavar="PAGES",help="With --index, stop after this many pages. 0 means the whole comic.")
+    params.add_argument("--note-page",action='append',default=[],metavar="ADDRESS",help="Keep this page as a note of its address rather than the pictures on it; can be given more than once. A comic's own list, from chapters.py note, is read from its metadata; a walk is given it this way.")
     params.add_argument("--check",action='store_true',default=False,help="Load the page, report which of the known image and next element paths match it, and stop. Suggests paths for a site that matches none, which is the first step in adding a comic the script does not know yet.")
     params.add_argument("--prime",action='store_true',default=False,help="Save only the first page, check the next link works, write the metadata and archive, then stop. The comic is then ready for update_comics to download the rest, which is far quicker run on the machine holding the library than over a network share.")
     
@@ -248,8 +252,11 @@ def setup():
 
     #where the comic starts, as an earlier run recorded it, for telling a comic that wraps round from its
     #newest page to its first when it keeps no record of which page is which
-    global comic_start, image_xpath, next_xpath
+    global comic_start, image_xpath, next_xpath, noted_pages
     held = read_metadata(output_folder(args))
+    #pages said by hand to be kept as a note of their address rather than as the pictures on them
+    noted = (held.get("notes") or []) + (getattr(args, "note_page", None) or [])
+    noted_pages = {same_page(address) for address in noted}
     history = held.get("history") or {}
     comic_start = history.get("first_page_url") if history.get("first_page_number") in (0, 1, None) else None
     #the paths that found this comic's image and pressed its next link last time are tried first, ahead of
@@ -331,6 +338,8 @@ def page_images(driver, args):
         return [element[0].get_attribute('src')] if element else []
 
     here = getattr(driver, "current_url", None)
+    if here and same_page(here) in noted_pages:
+        return [NotAPicture(here)]
     #the path that worked last time first. pages within one comic differ: most themes wrap the image in a
     #link to the next page, so the newest page - the one an update is there to fetch - has different markup
     #to every page before it

@@ -30,7 +30,8 @@ from comiclib.chapters.links import (link_targets, looks_like_pages, page_at, pa
 from comiclib.chapters.packing import (already_packed, chapter_contents, chapter_file,  # noqa: F401
                                        chapter_folder, drop_single, pack, repack, retell, tidy_name,
                                        verify_chapters)
-from comiclib.chapters.pageops import insert_page, mark_recovered, refetch, renumber, shift_up  # noqa: F401
+from comiclib.chapters.pageops import (fetch_missing, insert_page, mark_recovered, note_page,  # noqa: F401
+                                       refetch, renumber, shift_up)
 from comiclib.chapters.wordpress import wordpress_index
 from comiclib.metadata import METADATA_FILE as metadata_file  # noqa: F401
 from comiclib.pages import listing as folder_pages, page_key, page_number, plain_name  # noqa: F401
@@ -44,7 +45,7 @@ def setup():
         description="Line a comic's saved files up with the pages they came from.")
     params.add_argument("what", choices=["index", "align", "show", "chapters", "fix", "try", "pack",
                                          "refetch", "repack", "renumber", "recovered", "insert", "comicinfo",
-                                         "covers"],
+                                         "covers", "note"],
                         help="index: walk the comic (or, with --wordpress, read its list of posts) and "
                              "line it up. align: line up a walk already done. "
                              "show: what the last alignment says. refetch: fetch again any page whose file "
@@ -59,6 +60,8 @@ def setup():
                              "pack: write one .cbz per chapter, and beside each the banner the chapter list "
                              "shows for it, as its cover. "
                              "covers: save those banners for a comic already packed, packing nothing. "
+                             "note: keep the page at --url as a note of its address, not the pictures on it "
+                             "(--forget takes that back). "
                              "repack: write the .cbz afresh from the folder. "
                              "comicinfo: give an archive packed before archives carried a ComicInfo.xml one, "
                              "on its end, or bring it up to date; given a library, every comic in it.")
@@ -92,6 +95,9 @@ def setup():
                         help="With refetch, fetch every page again, not only those that differ.")
     params.add_argument("--repack", action='store_true', default=False,
                         help="With refetch, write the .cbz afresh afterwards so it holds the new copies.")
+    params.add_argument("--missing", action='store_true', default=False,
+                        help="With refetch, fetch every page the walk has and this folder does not, named as a "
+                             "scrape names them, and write the note for a page kept as one.")
     params.add_argument("--cbz", default=None, help="The archive to repack, when the metadata does not say.")
     params.add_argument("--cbz-folder", default=None,
                         help="With pack, where the chapter archives go. Defaults to the comic's own folder "
@@ -129,7 +135,8 @@ def setup():
     params.add_argument("--save", action='store_true', default=False,
                         help="With chapters, write what it worked out into the comic's metadata.")
     params.add_argument("--url", default=None,
-                        help="With insert, the address of the page to put in.")
+                        help="With insert, the address of the page to put in. With note, the page to keep "
+                             "as a note of its address.")
     params.add_argument("--after", default=None,
                         help="With insert, the page it follows: its address or its number.")
     params.add_argument("--json", action='store_true', default=False,
@@ -159,7 +166,8 @@ def setup():
                         help="With fix, no chapter starts at that page, whatever the archive or the "
                              "addresses say.")
     params.add_argument("--forget", action='store_true', default=False,
-                        help="With fix, take back the correction made about that page.")
+                        help="With fix, take back the correction made about that page. With note, stop "
+                             "keeping that page as a note.")
     params.add_argument("--clear", action='store_true', default=False,
                         help="With fix, take back every correction made about this comic.")
     params.add_argument("--script", default=None, help="Path to mirror_base.py.")
@@ -220,6 +228,8 @@ def main():
         return retell(folder, args)
     if args.what == "covers":
         return covers(folder, args)
+    if args.what == "note":
+        return note_page(folder, args)
     if args.what == "index":
         if (wordpress_index if args.wordpress else walk)(folder, args) is None:
             return 2

@@ -4,15 +4,142 @@
 import json
 import os
 import re
+import shutil
 
 import requests
 
 from comiclib.chapters.align import do_align
+from comiclib.download import fetch
+from comiclib.exits import MirrorError
+from comiclib.standin import note_body, note_name
 from comiclib.chapters.index import alignment_path, index_path, joined_pages, one_page, read_index
 from comiclib.chapters.links import page_at, same_page
 from comiclib.chapters.packing import repack
 from comiclib.metadata import now_stamp as time_stamp, read as read_metadata, write as write_metadata, write_json
 from comiclib.pages import numbered_name, page_number, reading_order, saved_name, sort_key, type_from_bytes
+
+
+def note_page(folder, args):
+    #chapters.py note: a page kept as a note of its address rather than as the pictures on it - one comic
+    #drawn as a grid of separate animations, which no reader shows as one picture. said in the comic's
+    #metadata, so every scrape and walk keeps it so, and the walk's record of it made one page: the lines
+    #it had as several pictures become one note, and the pages after it are counted on from there
+    if not args.url:
+        print("ERROR: say which page, with --url and its address.")
+        return 2
+    metadata = read_metadata(folder)
+    if not metadata:
+        print("ERROR: {0} has no metadata to keep the note in.".format(folder))
+        return 2
+    notes = metadata.setdefault("notes", [])
+    target = same_page(args.url)
+    if getattr(args, "forget", False):
+        kept = [address for address in notes if same_page(address) != target]
+        if len(kept) == len(notes):
+            print("{0} is not kept as a note.".format(args.url))
+            return 0
+        metadata["notes"] = kept
+        if not args.dry_run:
+            write_metadata(folder, metadata)
+        print("{0} is no longer kept as a note. Walk the comic again (chapters.py index --restart) to count "
+              "its pictures as pages.".format(args.url))
+        return 0
+    cache = index_path(folder, args.root, args)
+    lines = read_index(cache) if os.path.exists(cache) else []
+    held = [line for line in lines if same_page(line.get("url") or "") == target]
+    if lines and not held:
+        print("ERROR: {0} is not a page of this comic's walk. Give the address as the walk has it.".format(
+            args.url))
+        return 2
+    first = held[0]["n"] if held else None
+    gone = len(held) - 1
+    if held:
+        after = "; the {0} page(s) after it each count {1} fewer".format(len(lines) - held[-1]["n"], gone)
+        print("{0}: page {1}, {2} line(s) in the walk, kept as one note{3}.".format(
+            args.url, first, len(held), after if gone else ""))
+    if args.dry_run:
+        print("Nothing was changed. Run it again without --dry-run.")
+        return 0
+    if held:
+        out = []
+        for line in lines:
+            if same_page(line.get("url") or "") == target:
+                if line["n"] != first:
+                    continue
+                line = {"n": first, "url": line["url"], "src": None, "file": note_name(first, line["url"]),
+                        "title": line.get("title")}
+            elif line["n"] > first:
+                line = dict(line, n=line["n"] - gone)
+            out.append(line)
+        #the record as it was, beside it, then the new one written aside and moved into place
+        shutil.copyfile(cache, cache + ".before-note")
+        with open(cache + ".writing", "w", encoding="utf-8") as f:
+            for line in out:
+                f.write(json.dumps(line) + "\n")
+        os.replace(cache + ".writing", cache)
+    if all(same_page(address) != target for address in notes):
+        notes.append(args.url)
+    write_metadata(folder, metadata)
+    print("Kept as a note. Line the comic up again (chapters.py align), then chapters.py refetch --missing "
+          "writes the note for it.")
+    return 0
+
+
+def fetch_missing(folder, args, pages):
+    #refetch --missing: every page the walk has and the folder does not, saved as a scrape saves it - the
+    #site's name for its image, with the page's number in front - and a page kept as a note of its address
+    #written as that note. what is already here is never written over
+    lines = {line["n"]: line for line in read_index(index_path(folder, args.root, args))}
+    wanted = [page for page in pages if not page.get("file") and page["n"] in lines]
+    notes = [page for page in wanted if not lines[page["n"]].get("src")
+             and (lines[page["n"]].get("file") or "").endswith(".url")]
+    pictures = [page for page in wanted if lines[page["n"]].get("src")]
+    blank = len(wanted) - len(notes) - len(pictures)
+    if not wanted:
+        print("Nothing missing: every page the walk has is here.")
+        return 0
+    print("{0} page(s) missing here: {1} to fetch, {2} kept as a note of their address{3}".format(
+        len(wanted), len(pictures), len(notes),
+        ", {0} the walk found no picture on, left as they are".format(blank) if blank else ""))
+    if args.dry_run:
+        for page in (notes + pictures)[:8]:
+            line = lines[page["n"]]
+            print("  page {0:<5} {1}".format(page["n"], line.get("src") or "note of " + line["url"]))
+        if len(notes) + len(pictures) > 8:
+            print("  ... and {0} more".format(len(notes) + len(pictures) - 8))
+        print("Nothing was changed. Run it again without --dry-run to fetch them.")
+        return 0
+    done, failed = 0, []
+    for page in sorted(notes + pictures, key=lambda one: one["n"]):
+        line = lines[page["n"]]
+        try:
+            if line.get("src"):
+                answer = fetch(line["src"], referer=line["url"])
+                body = answer.content
+                name = "{0:04d}_{1}".format(page["n"], saved_name(line["src"], answer.headers, body))
+            else:
+                body, name = note_body(line["url"]), line["file"]
+        except MirrorError as error:
+            failed.append((page["n"], str(error)[:80]))
+            continue
+        path = os.path.join(folder, name)
+        if os.path.exists(path):
+            failed.append((page["n"], "{0} is already here".format(name)))
+            continue
+        with open(path + ".fetching", "wb") as f:
+            f.write(body)
+        os.replace(path + ".fetching", path)
+        done += 1
+        if done % 100 == 0:
+            print("  {0} of {1} saved".format(done, len(notes) + len(pictures)), flush=True)
+    print("Saved {0} page(s).".format(done))
+    for n, why in failed[:8]:
+        print("  page {0} was not saved: {1}".format(n, why))
+    if len(failed) > 8:
+        print("  ... and {0} more".format(len(failed) - 8))
+    if done:
+        print("Line the comic up again (chapters.py align) so it knows them, then repack.")
+    return 1 if failed else 0
 
 
 def refetch(folder, args):
@@ -21,6 +148,8 @@ def refetch(folder, args):
     pages = joined_pages(folder, args)
     if pages is None:
         return 2
+    if getattr(args, "missing", False):
+        return fetch_missing(folder, args, pages)
     only = set()
     if args.page:
         try:

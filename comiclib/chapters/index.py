@@ -351,6 +351,9 @@ def walk(folder, args):
         command.append("--firefox")
     if settings.get("waittime"):
         command += ["--waittime", str(settings["waittime"])]
+    #pages this comic keeps as a note of their address, so the walk counts each as the one page it is
+    for address in metadata.get("notes") or []:
+        command += ["--note-page", address]
     if args.first:
         command.append("--index-first")
     if args.limit:

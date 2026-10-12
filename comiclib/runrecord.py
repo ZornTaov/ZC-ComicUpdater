@@ -25,7 +25,11 @@ def resume_point(scrape_state):
     if walked and walked != url:
         #a page walked to but never saved: carry on there, counting it as the page after the last saved one
         return walked, increment + 1 if increment is not None else increment
-    return url, increment
+    #the last address saved, again, from the number its first page was saved as. an address holding two
+    #pages resumed at the second's number saved both one further on, and the first again under a new
+    #number - on a comic's newest page, waiting there day after day, one more copy of it every day
+    started = scrape_state.get("address_increment")
+    return url, started if started is not None else increment
 
 
 def failure_noted(args, folder, *, scrape_state, run_id, run_start, stop_reason, exit_code):

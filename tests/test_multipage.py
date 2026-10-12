@@ -62,7 +62,8 @@ def mb(mirror):
     mirror.run_id = "test"
     mirror.run_start = mirror.now_stamp()
     for key, value in (("first_page_url", None), ("first_increment", None), ("last_page_url", None),
-                       ("last_increment", None), ("last_image_src", None), ("last_image_file", None),
+                       ("last_increment", None), ("address_increment", None),
+                       ("last_image_src", None), ("last_image_file", None),
                        ("pages_saved", 0), ("last_known_number", None), ("fresh_pages", 0),
                        ("backwards_run", 0), ("most_per_url", 0), ("first_multi_url", None),
                        ("multi_urls", 0)):
@@ -162,9 +163,29 @@ def test_the_metadata_records_what_a_later_run_needs_to_know(mb, folder):
         meta = json.load(f)
     assert meta["state"].get("pages_per_url") == 3, "how many pages an address holds"
     assert meta["state"].get("multi_page_from") == "https://example.com/12_3", "which address first held several"
-    assert meta["settings"]["increment"] == 7, "the resume number is past the last page saved, not the first"
+    assert meta["settings"]["increment"] == 5, \
+        "a run that stops on this address starts it again from its first page, so it is saved over itself"
     assert meta["settings"].get("multi_page") is True, \
         "saving every page an address holds is written down as a setting"
+
+
+def test_a_newest_page_with_two_pictures_is_saved_over_itself_day_after_day(mb, folder):
+    #a comic's newest page that shows a second picture - a strip of other pages to read next, say - while
+    #it waits for the next page. each day's run stops there and resumes there; resumed at the second
+    #picture's number, it saved the page again one number further on every day
+    from comiclib.runrecord import resume_point
+    address = "https://example.com/c131/p19"
+    srcs = ["https://example.com/comics/131/19.png", "https://example.com/thumbs/71-2.jpg"]
+    increment = 2683
+    for day in range(4):
+        for key, value in (("pages_saved", 0), ("last_page_url", None), ("last_increment", None),
+                           ("address_increment", None), ("walked_to", None), ("first_page_url", None)):
+            mb.scrape_state[key] = value
+        mb.visited_urls = set()
+        save(mb, FakeDriver(mb).at(address, srcs), scrape_args(folder), increment)
+        url, increment = resume_point(mb.scrape_state)
+        assert (url, increment) == (address, 2683), "day {0} resumes the address from its first page".format(day)
+    assert pages(mb, folder) == ["2683_19.png", "2684_71-2.jpg"], "the page once, not once a day"
 
 
 def test_a_resume_drops_the_older_name_of_every_page_on_the_address(mb, folder):

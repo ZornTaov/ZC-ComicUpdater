@@ -122,6 +122,8 @@ scrape_state = {
     "first_increment": None,
     "last_page_url": None,
     "last_increment": None,
+    #the number the first page on the last address was saved as, where a run that stops on it starts again
+    "address_increment": None,
     "last_image_src": None,
     "last_image_file": None,
     "pages_saved": 0,
@@ -567,6 +569,11 @@ def save_one(driver, src, increment, args, resuming):
     if scrape_state["first_page_url"] is None:
         scrape_state["first_page_url"] = current_url
         scrape_state["first_increment"] = increment
+    #the number the address's first page was saved as: a run that stops on an address holding several
+    #pages starts it again from there, rather than from its last page, which saved the newest address one
+    #number further on every day while the comic waited for its next page
+    if current_url != scrape_state["last_page_url"]:
+        scrape_state["address_increment"] = increment
     scrape_state["last_page_url"] = current_url
     scrape_state["last_increment"] = increment
     scrape_state["last_image_src"] = src_kept

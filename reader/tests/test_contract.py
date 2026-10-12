@@ -8,6 +8,7 @@ import zipfile
 from conftest import comic_folder, page_names, png
 
 from comiclib import cbz, comicinfo
+from comiclib.chapters.numbering import name_part, numbered, same, written
 from comiclib.pages import page_key, reading_order
 from comicreader.sources import original, read_archive
 
@@ -17,7 +18,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 def test_the_modules_the_reader_imports_need_nothing_but_the_standard_library():
     #the reader's image carries no selenium and no requests, so importing these must not pull either in
     check = ("import sys; import comiclib.pages, comiclib.cbz, comiclib.comicinfo, comiclib.metadata, "
-             "comiclib.standin; print(sorted(m for m in ('selenium', 'requests') if m in sys.modules))")
+             "comiclib.standin, comiclib.chapters.numbering; "
+             "print(sorted(m for m in ('selenium', 'requests') if m in sys.modules))")
     done = subprocess.run([sys.executable, "-c", check], cwd=REPO, capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
     assert done.stdout.strip() == "[]", done.stdout
@@ -56,6 +58,20 @@ def test_the_comicinfo_the_scraper_writes_is_what_the_reader_reads(library):
     assert (read["about"]["title"], read["about"]["number"], read["about"]["count"]) == ("Second", "2", "4")
     assert read["about"]["bookmarks"] == {"0": "Second"}
     assert [(page["w"], page["h"]) for page in read["pages"]] == [(40, 60)] * 3
+
+
+def test_a_chapter_archive_is_named_by_the_number_its_comicinfo_says(library):
+    #the reader matches an archive to its chapter by the number in its name, and orders chapters by the
+    #number in their ComicInfo: both have to be the one numbering works out from the labels
+    folder = comic_folder(library, "MyComic", 2)
+    block = {"source": "archive", "list": [{"number": 1, "label": "Chapter 12", "start_page": 1, "end_page": 1},
+                                           {"number": 2, "label": "Intermission", "start_page": 2, "end_page": 2}]}
+    chapters = numbered(block)
+    assert [(c["number"], c["called"]) for c in chapters] == [(1, "12"), (2, "12.5")]
+    assert [name_part(c["called"]) for c in chapters] == ["012", "012.5"]
+    about = comicinfo.about_chapter(str(folder), {"chapters": block}, chapters[1], 2)
+    assert str(about["number"]) == "12.5"
+    assert written("012.5") == "12.5" and same("010", "10")
 
 
 def test_a_stand_in_leads_back_to_what_it_stands_for(library):

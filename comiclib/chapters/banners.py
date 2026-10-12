@@ -6,6 +6,7 @@ import posixpath
 import urllib.parse
 
 from comiclib import comicinfo
+from comiclib.chapters.numbering import numbered
 from comiclib.chapters.packing import chapter_file, chapter_folder
 from comiclib.download import fetch
 from comiclib.exits import MirrorError
@@ -81,7 +82,8 @@ def covers(folder, args):
     #chapters.py covers: the banners of a comic already packed, with nothing packed again
     metadata = read_metadata(folder)
     block = metadata.get("chapters") or {}
-    chapters = block.get("list") or []
+    #with each chapter's own number, which its archive is named by
+    chapters = numbered(block)
     if not chapters:
         print("{0} has no chapters worked out, so there are no banners to save. Run chapters.py chapters "
               "first.".format(folder))

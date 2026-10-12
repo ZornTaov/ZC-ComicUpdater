@@ -54,7 +54,7 @@ archives, and keep them up to date unattended.
 | `schedule` | The daily time, and the `update-now` file that starts a run sooner |
 | `moving` | Moving a comic to another folder of the library: its pages, its archive or chapter archives to the matching place on the CBZs shelf, the settings naming them, and its index named in the comic so it is still found. Renames only, undone if one fails. Each rename goes into `history.moves`, which the reader reads (through `metadata.moves`/`before_moves`) to carry a comic's place, settings and cover to its new id - so a scrape must keep that key, as `runrecord` does |
 | `web/` | The web page's server: the one job queue (`jobs`), what the page is shown (`views`), the element paths as it edits them (`elementpaths`), the add form (`adding`), a comic uploaded as a zip and put in or adopted (`uploads`), the changes it can make (`edits`), and the http handler (`server`). The page itself is `web_page/`, at the top |
-| `chapters/` | Walking a comic to record which page is which, and `KeptIndex`, the index a scrape adds to as it goes (`index`), the same index read from a WordPress site's post list instead of walked (`wordpress`), lining that up against the files (`align`), reading an archive page (`archive_page`) or the addresses (`addresses`) for chapters, the chapter list and its corrections (`chapterlist`), packing per chapter (`packing`), and renumbering, inserting and refetching pages (`pageops`) |
+| `chapters/` | Walking a comic to record which page is which, and `KeptIndex`, the index a scrape adds to as it goes (`index`), the same index read from a WordPress site's post list instead of walked (`wordpress`), lining that up against the files (`align`), reading an archive page (`archive_page`) or the addresses (`addresses`) for chapters, the chapter list and its corrections (`chapterlist`), a chapter's own number read from its label (`numbering`), packing per chapter (`packing`), and renumbering, inserting and refetching pages (`pageops`) |
 
 The scripts import what they use by its old name (`chapters.page_key`, `mirror_base.metadata_file`), so
 code reaching into a script still finds it; new code should import from `comiclib`.
@@ -154,6 +154,14 @@ where it is cheap to (`standin.py` draws PNGs and `comicinfo.py` reads image siz
 - **The index (`config/index/<comic>.<tag>.jsonl`) is one line per page, in reading order**, recording
   the address and the image. Position is meaning: line 1 is page 1. It can only be appended to from a
   context that knows its own offset — a scrape resuming mid-comic must not start one.
+- **A chapter has two numbers.** `chapters.list[].number` is its *place* in the comic (1..n, set by
+  `settle_chapters`), which fixes, messages and the list itself go by. Its *own* number, `called`, is read
+  from its label by `comiclib/chapters/numbering.py` (`Chapter 391`, `Book #12`, an intermission after 12 is
+  12.5), **worked out every time and never stored**, and falls back to the place for a comic whose labels do
+  not number it in order. The archive name (`c391`, `c012.5`) and ComicInfo `Number` use `called`, and the
+  reader imports the same module to match an archive to its chapter. Packing renames an archive still
+  named by its place - only that exact old name - and records the rename in `history.moves` with a
+  `pages` step for the comic's own folder, since the reader keeps a chapter by its archive's path.
 - **Alignment** matches that record against the files on disk, by name, by size, then by order. It has
   to *settle* before a comic can be chaptered. Missing pages are tolerated; unplaced files are not.
 - **Element paths** are XPaths for the comic image and the next link, tried in order, with the winner

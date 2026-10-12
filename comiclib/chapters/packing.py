@@ -10,8 +10,10 @@ from comiclib import cbz, comicinfo
 from comiclib.cbz import shelf
 from comiclib.chapters.align import place_recovered, recovered_files
 from comiclib.chapters.index import joined_pages
+from comiclib.chapters.numbering import name_part, numbered
 from comiclib.library import find_comics
 from comiclib.metadata import METADATA_FILE as metadata_file, now_stamp as time_stamp, read as read_metadata
+from comiclib.metadata import record_moves
 from comiclib.metadata import write as write_metadata
 from comiclib.pages import SET_ASIDE, listing as folder_pages, sizes as file_sizes
 from comiclib.standin import held_otherwise
@@ -58,8 +60,101 @@ def chapter_folder(folder, metadata, root=None, given=None):
 
 
 def chapter_file(folder, chapter):
+    #named by the chapter's own number where its label says one (numbering.numbered), and by its place in
+    #the comic otherwise
+    return "{0} - c{1} - {2}.cbz".format(os.path.basename(os.path.abspath(folder)),
+                                         name_part(chapter.get("called") or chapter["number"]),
+                                         tidy_name(chapter["label"]))
+
+
+def place_file(folder, chapter):
+    #the name a chapter's archive had before archives were named by the chapter's own number
     return "{0} - c{1:03d} - {2}.cbz".format(os.path.basename(os.path.abspath(folder)),
                                              chapter["number"], tidy_name(chapter["label"]))
+
+
+#what a cover beside an archive can be called, as banners saves one and readers look for one
+COVER_ENDINGS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+
+
+def renames_to_numbers(folder, shelf, chapters):
+    #the chapter archives still named by their place that are now named by their number, and the cover
+    #beside each, as (from, to, what). only the exact name each chapter had is looked for: a file on the
+    #shelf that is not one of those is nobody's to rename. a name already taken is said and left
+    planned, taken = [], []
+    #the covers as the shelf names them, from one listing: asking for each ending in each case finds one
+    #file twice on a share that ignores case, and the second rename of it fails
+    try:
+        on_shelf = os.listdir(shelf)
+    except OSError:
+        return planned
+    for chapter in chapters:
+        new = os.path.join(shelf, chapter_file(folder, chapter))
+        old = os.path.join(shelf, place_file(folder, chapter))
+        if new == old or not os.path.exists(old):
+            continue
+        if os.path.exists(new):
+            taken.append((old, new))
+            continue
+        planned.append((old, new, "chapter archive"))
+        old_stem, new_stem = os.path.splitext(os.path.basename(old))[0], os.path.splitext(new)[0]
+        for name in on_shelf:
+            stem, ending = os.path.splitext(name)
+            if stem == old_stem and ending.lower() in COVER_ENDINGS and not os.path.exists(new_stem + ending):
+                planned.append((os.path.join(shelf, name), new_stem + ending, "cover"))
+    for old, new in taken:
+        print("WARNING: {0} is still named by its place, and {1} is already there, so neither was touched. "
+              "Move one of them aside and pack again.".format(os.path.basename(old), os.path.basename(new)))
+    return planned
+
+
+def library_of(folder, metadata):
+    #the library a comic sits in, from the place its settings name it by within that library
+    named = ((metadata.get("settings") or {}).get("output") or "").strip("/")
+    full = os.path.abspath(folder).replace(os.sep, "/")
+    if named and full.lower().endswith("/" + named.lower()):
+        return full[:-len(named) - 1].replace("/", os.sep)
+    return None
+
+
+def rename_to_numbers(folder, shelf, planned, root):
+    #renames, never copies or rewrites: an archive of a thousand pages is a moment either way, and a sync
+    #carries a rename as one. each goes into the comic's moves, which the reader follows to carry a
+    #chapter's place, settings and cover from its old name to its new one. one that fails puts back every
+    #one made before it
+    done = []
+    try:
+        for source, target, _ in planned:
+            os.rename(source, target)
+            done.append((source, target))
+    except OSError as error:
+        for source, target in reversed(done):
+            try:
+                os.rename(target, source)
+            except OSError:
+                print("ERROR: {0} could not be put back from {1}; rename it back by hand.".format(source, target))
+        print("ERROR: renaming the chapter archives failed ({0}), so they were put back as they were. If a "
+              "reader has one open, close it and pack again.".format(error))
+        return False
+    metadata = read_metadata(folder)
+    base = root or library_of(folder, metadata)
+    if base is None:
+        print("WARNING: the chapter archives were renamed, but where this comic's library starts is not known, "
+              "so a reader keeps its place under the old names. Pack with --root <the library> next time.")
+        return True
+
+    def relative(path):
+        return os.path.relpath(path, base).replace(os.sep, '/')
+    here = relative(folder)
+    #the comic's own folder, where it is: the reader finds a comic's moves by the folder named in the last
+    #of them, and a rename on the shelf moves no pages
+    record_moves(metadata, [{"what": "pages", "from": here, "to": here}] +
+                 [{"what": what, "from": relative(source), "to": relative(target)} for source, target, what in planned])
+    write_metadata(folder, metadata)
+    for source, target, what in planned:
+        if what == "chapter archive":
+            print("  renamed {0} to {1}".format(os.path.basename(source), os.path.basename(target)))
+    return True
 
 
 def chapter_contents(folder, chapters, pages):
@@ -124,7 +219,7 @@ def pack(folder, args):
         print("{0} is set to keep no archives (cbz is off in its settings), so nothing was written. Turn "
               "that on, or pass --force to write them anyway.".format(folder))
         return 0
-    chapters = (metadata.get("chapters") or {}).get("list")
+    chapters = numbered(metadata.get("chapters"))
     if not chapters:
         print("ERROR: no chapters worked out for {0} yet. Run: chapters.py chapters {0} --archive ...".format(folder))
         return 2
@@ -145,11 +240,26 @@ def pack(folder, args):
         return 1
 
     print("{0}: {1} chapter(s) into {2}".format(folder, len(parcels), shelf))
+    #archives named by their place before chapters were named by their own number take their new names
+    #first, so what they hold is compared and kept rather than every one written again
+    renames = renames_to_numbers(folder, shelf, chapters)
+    if renames:
+        print("  {0} {1} chapter archive(s) to their chapter's own number".format(
+            "would rename" if args.dry_run else "renaming", sum(what == "chapter archive" for _, _, what in renames)))
+        if args.dry_run:
+            for source, target, what in renames:
+                if what == "chapter archive":
+                    print("    {0} -> {1}".format(os.path.basename(source), os.path.basename(target)))
+        elif not rename_to_numbers(folder, shelf, renames, args.root):
+            return 1
+    #in a dry run nothing was renamed, so a chapter is looked for under the name it has now
+    still_at = {target: source for source, target, _ in renames} if args.dry_run else {}
     print("  looking at what the archives already hold ...", flush=True)
     sizes = file_sizes(folder)
     todo, retold = [], {}
     for at, (chapter, names) in enumerate(parcels, 1):
         path = os.path.join(shelf, chapter_file(folder, chapter))
+        path = still_at.get(path, path)
         if not already_packed(path, names, folder, sizes):
             todo.append((chapter, names))
         else:
@@ -167,9 +277,9 @@ def pack(folder, args):
         ", {0} of them with a ComicInfo to bring up to date".format(len(retold)) if retold else ""))
     for chapter, names in parcels[:100]:
         mark = "write" if (chapter, names) in todo else "info " if chapter["number"] in retold else "keep "
-        print("  {0} c{1:03d} {2:<44} {3:>4} page(s)  {4}".format(
-            mark, chapter["number"], tidy_name(chapter["label"])[:44], len(names),
-            chapter_file(folder, chapter)[:60]))
+        print("  {0} c{1:<7} {2:<44} {3:>4} page(s)  {4}".format(
+            mark, name_part(chapter.get("called") or chapter["number"]), tidy_name(chapter["label"])[:44],
+            len(names), chapter_file(folder, chapter)[:60]))
     if args.dry_run:
         print("Nothing was written. Run it again without --dry-run.")
         return 0

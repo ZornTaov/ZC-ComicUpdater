@@ -162,7 +162,8 @@ def about_chapter(folder, metadata, chapter, count):
     #chapter's own title and address: those are the chapter's, not the comic's
     series = os.path.basename(os.path.abspath(folder))
     ended = bool((metadata.get("settings") or {}).get("ended"))
-    about = {"title": chapter["label"], "series": series, "number": chapter["number"],
+    #the chapter's own number where its label says one (numbering.numbered), else its place in the comic
+    about = {"title": chapter["label"], "series": series, "number": chapter.get("called") or chapter["number"],
              "count": count if ended else None, "web": chapter.get("start_url"),
              "notes": "Mirrored by ZC-ComicUpdater, pages {0} to {1} of the comic.".format(
                  chapter["start_page"], chapter["end_page"]),

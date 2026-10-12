@@ -9,6 +9,7 @@ import time
 
 from comiclib import metadata as sidecar, plugins
 from comiclib.chapters.index import reaches_newest, read_index
+from comiclib.chapters.numbering import numbered
 
 
 def comic_view(comic, uc, live):
@@ -217,7 +218,8 @@ def comic_detail(args, uc, runner, name):
         "chapters": {"source_url": chapters.get("source_url"), "count": len(chapters.get("list") or []),
                      "packed": chapters.get("packed"), "folder": chapters.get("folder"),
                      "source": chapters.get("source"), "every": chapters.get("every"),
-                     "list": chapters.get("list") or [],
+                     #with each chapter's own number, as its archive is named
+                     "list": numbered(chapters),
                      "fixes": chapters.get("fixes") or []},
         "indexed": bool((metadata.get("history") or {}).get("index_cache")),
         #how much of the comic that record actually covers. a comic with a record of one page has been

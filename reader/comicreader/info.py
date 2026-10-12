@@ -3,6 +3,7 @@
 #the copy packed into its archive where it has only that - an archive the scraper made carries one
 import os
 
+from comiclib.chapters.numbering import numbered, same
 from comiclib.metadata import migrate, read as read_metadata
 
 #what a ComicInfo can say that the page shows, in the order it shows it
@@ -22,8 +23,9 @@ def chapter_of(comic, metadata):
     #the chapter a comic packed one archive per chapter is, in its metadata's list of them
     if not comic.get("parent") or not comic.get("number"):
         return None
-    for chapter in (metadata.get("chapters") or {}).get("list") or []:
-        if str(chapter.get("number")) == str(comic["number"]):
+    #by the chapter's own number, which its archive is named by
+    for chapter in numbered(metadata.get("chapters")):
+        if same(chapter["called"], comic["number"]):
             return chapter
     return None
 

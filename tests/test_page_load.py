@@ -64,16 +64,16 @@ def test_a_walk_stops_at_a_page_that_never_loads_rather_than_calling_it_the_last
 
 
 @pytest.mark.browser
-def test_the_browsers_error_page_is_never_read_for_a_page_of_the_comic(mirror, browser, monkeypatch):
+def test_the_browsers_error_page_is_never_read_for_a_page_of_the_comic(mirror, browser, monkeypatch, refused_port):
     #reached by any way at all - here straight to an address nothing answers on - the error page's picture
     #is not handed back as the comic's
     from comiclib.exits import MirrorError
-    from conftest import free_port, scrape_args
+    from conftest import scrape_args
     import selenium.common.exceptions as se
     monkeypatch.setenv("MIRROR_RETRY_WAITS", "0.1")
     try:
         #a load chrome refuses outright raises here, where a click that leads to one does not
-        browser.get("http://127.0.0.1:{0}/p/1".format(free_port()))
+        browser.get("http://127.0.0.1:{0}/p/1".format(refused_port))
     except se.WebDriverException:
         pass
     assert mirror.browser.error_page(browser), "the browser should be showing its own error page"
@@ -82,10 +82,9 @@ def test_the_browsers_error_page_is_never_read_for_a_page_of_the_comic(mirror, b
 
 
 @pytest.mark.browser
-def test_a_first_page_refused_outright_is_a_page_that_would_not_load_not_a_broken_browser(tmp_path):
-    from conftest import free_port
+def test_a_first_page_refused_outright_is_a_page_that_would_not_load_not_a_broken_browser(tmp_path, refused_port):
     out = tmp_path / "comic"
-    done = run("mirror_base.py", "-o", out, "--no-cbz", "http://127.0.0.1:{0}/p/1".format(free_port()),
+    done = run("mirror_base.py", "-o", out, "--no-cbz", "http://127.0.0.1:{0}/p/1".format(refused_port),
                cwd=tmp_path, env=QUICK)
     assert done.returncode == 6, "the code for a page that would not load, not 5 for the browser\n" + \
         done.stdout[-600:]

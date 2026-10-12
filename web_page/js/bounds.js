@@ -60,7 +60,7 @@ function drawBounds() {
   const held = new Set(bounds.fixes.map((f) => f.url));
   //a chapter whose starting address was never recorded is still named by its page number
   $("bd-rows").innerHTML = bounds.list.map((c) => `<tr data-url="${esc(c.start_url || String(c.start_page))}">
-      <td class="muted">${c.number}</td>
+      <td class="muted">${esc(c.called || c.number)}</td>
       <td><input type="text" value="${esc(c.label || "")}" data-bd="label" spellcheck="false" style="width:100%"></td>
       <td><input type="text" value="${esc(pageAt(c.start_page) ? pageValue(pageAt(c.start_page)) : String(c.start_page))}"
                  data-bd="at" list="bd-pages" style="width:100%"></td>

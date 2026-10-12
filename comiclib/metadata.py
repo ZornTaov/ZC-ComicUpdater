@@ -118,6 +118,19 @@ def argv_to_settings(argv):
     return settings
 
 
+#how many moves a comic remembers, the same as the edits the editor keeps, since a move is shown among them
+KEPT_MOVES = 50
+
+
+def record_moves(metadata, moved, stamp=None):
+    #one more move of the comic or of its archives, as moves() reads it back: each step {"what", "from",
+    #"to"}, with paths relative to the library. the oldest are let go past KEPT_MOVES
+    history = metadata.setdefault("history", {})
+    stamp = stamp or now_stamp()
+    history["moves"] = (history.get("moves") or [])[-(KEPT_MOVES - 1):] + [{"at": stamp, "moved": moved}]
+    return stamp
+
+
 def moves(metadata):
     #every move of the comic to another folder, oldest first: each a list of what was renamed, as
     #{"what", "from", "to"} with paths relative to the library the scraper was given. written by comiclib's

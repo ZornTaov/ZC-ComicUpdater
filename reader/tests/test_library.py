@@ -45,7 +45,7 @@ def test_a_single_archive_is_one_comic(library, make_app):
 
 def chapters_of(app, series):
     found = [app.state.library.summary(comic, None) for comic in app.state.library.comics.values()]
-    return sorted((s for s in found if s["series"] == series), key=lambda s: int(s["number"]))
+    return sorted((s for s in found if s["series"] == series), key=lambda s: float(s["number"]))
 
 
 def test_chapter_archives_are_each_a_comic_of_their_own_in_one_series(library, make_app):

@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from comiclib import cbz, comicinfo
+from comiclib.chapters.numbering import numbered, written
 from comiclib.metadata import METADATA_FILE, migrate, now_stamp, read as read_metadata, write_json
 
 from comicreader.library import CHAPTER
@@ -104,14 +105,15 @@ def retell(library, path, folder, about, keep_metadata):
 
 
 def chapter_archives(library, comic, metadata):
-    #every chapter archive of a comic packed one per chapter, each with the chapter its metadata lists
-    listed = {str(chapter.get("number")): chapter for chapter in (metadata.get("chapters") or {}).get("list") or []}
+    #every chapter archive of a comic packed one per chapter, each with the chapter its metadata lists. an
+    #archive is named by its chapter's own number, the same one the scraper works out from the labels
+    listed = {written(chapter["called"]): chapter for chapter in numbered(metadata.get("chapters"))}
     out = []
     for each in library.comics.values():
         if each.get("parent") != comic["parent"]:
             continue
         found = CHAPTER.match(os.path.basename(each["sources"][0]))
-        chapter = listed.get(str(int(found.group("number")))) if found else None
+        chapter = listed.get(written(found.group("number"))) if found else None
         if chapter:
             out.append((each["sources"][0], chapter))
     return out, len(listed)

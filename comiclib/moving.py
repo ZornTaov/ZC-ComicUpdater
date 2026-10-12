@@ -75,7 +75,7 @@ def own_folder(path, folder):
 
 #how packing names a chapter's archive, "<Comic> - c007 - <label>.cbz": a shelf folder holding its own
 #name's chapters is that comic's, not a folder of comics
-CHAPTER_FILE = re.compile(r"^(?P<series>.+?) - c\d+(?: - .*)?\.cbz$", re.I)
+CHAPTER_FILE = re.compile(r"^(?P<series>.+?) - c\d+(?:\.\d+)?(?: - .*)?\.cbz$", re.I)
 
 
 def inside_library(root, folder):
@@ -347,7 +347,6 @@ def moved_metadata(planned):
     history["edits"] = (history.get("edits") or [])[-(kept_edits - 1):] + [{"at": stamp, "changed": changed}]
     #every rename, as the reader reads it with metadata.before_moves: it keeps a comic's place and cover by
     #where the comic is, and this is how it finds them again under the new place
-    moved = [{"what": what, "from": relative(source, root), "to": relative(target, root)}
-             for source, target, what in moves]
-    history["moves"] = (history.get("moves") or [])[-(kept_edits - 1):] + [{"at": stamp, "moved": moved}]
+    sidecar.record_moves(metadata, [{"what": what, "from": relative(source, root), "to": relative(target, root)}
+                                    for source, target, what in moves], stamp)
     return metadata

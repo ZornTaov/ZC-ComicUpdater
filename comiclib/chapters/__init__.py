@@ -6,6 +6,7 @@ links        telling one page's address from another's
 archive_page reading a comic's archive page for where its chapters start
 addresses    chapters from the comic's own addresses, or from a list of them
 chapterlist  the chapter list a comic keeps, corrected by hand and saved
+numbering    a chapter's own number, from its label, for its archive's name and its ComicInfo
 packing      one archive per chapter, and the single archive written afresh
 pageops      fetching, numbering and putting in pages
 """

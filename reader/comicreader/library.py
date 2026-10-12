@@ -7,8 +7,10 @@ import posixpath
 import re
 import threading
 import time
+from decimal import Decimal
 
 from comiclib import cbz
+from comiclib.chapters.numbering import written
 from comiclib.metadata import METADATA_FILE, after_moves, before_moves, migrate, moves, read as read_metadata
 from comiclib.pages import sort_key
 from comiclib.standin import held_otherwise
@@ -16,8 +18,9 @@ from comiclib.standin import held_otherwise
 from comicreader import covers
 from comicreader.sources import ORIGINALS, Busy, Sources
 
-#how packing names a chapter's archive: "<Comic> - c007 - <label>.cbz"
-CHAPTER = re.compile(r"^(?P<series>.+?) - c(?P<number>\d+)(?: - (?P<label>.*))?\.cbz$", re.I)
+#how packing names a chapter's archive: "<Comic> - c007 - <label>.cbz", by the chapter's own number where its
+#label says one - which can be c391, or c012.5 for an intermission after chapter 12
+CHAPTER = re.compile(r"^(?P<series>.+?) - c(?P<number>\d+(?:\.\d+)?)(?: - (?P<label>.*))?\.cbz$", re.I)
 
 
 def ident(text):
@@ -144,7 +147,7 @@ def leading(here, records):
 
 def chapter_order(path):
     found = CHAPTER.match(os.path.basename(path))
-    return (int(found.group("number")) if found else 0, sort_key(os.path.basename(path)))
+    return (Decimal(found.group("number")) if found else Decimal(0), sort_key(os.path.basename(path)))
 
 
 def gather(library, skip, pictures=None):
@@ -272,7 +275,7 @@ def split_chapters(library, found):
         shelf = os.path.relpath(os.path.dirname(comic["sources"][0]), library).replace(os.sep, "/")
         for at, path in enumerate(comic["sources"], 1):
             found_chapter = CHAPTER.match(os.path.basename(path))
-            number = int(found_chapter.group("number")) if found_chapter else at
+            number = written(found_chapter.group("number")) if found_chapter else at
             label = found_chapter.group("label") if found_chapter and found_chapter.group("label") else \
                 "Chapter {0}".format(number)
             out.append({"id": ident(os.path.relpath(path, library)), "title": label, "author": comic.get("author"),
@@ -388,7 +391,7 @@ class Library:
                 if not label:
                     found = CHAPTER.match(os.path.basename(path))
                     label = (found.group("label") if found and found.group("label") else
-                             "Chapter {0}".format(int(found.group("number")) if found else at + 1))
+                             "Chapter {0}".format(written(found.group("number")) if found else at + 1))
                 chapters.append({"title": label, "start": start})
             else:
                 for page, label in sorted(((int(n), label) for n, label in (about.get("bookmarks") or {}).items())):
@@ -445,7 +448,9 @@ class Library:
                     if self.store.carry_cover("folder:" + old, "folder:" + shelf):
                         break
             for new, path in targets:
-                olds = [ident(old) for old in earlier(path)]
+                #a comic whose archives were renamed where it stands names its own folder as where it moved
+                #from and to, which is not somewhere else it was
+                olds = [old for old in (ident(old) for old in earlier(path)) if old != new]
                 if not olds or new in renamed.values():
                     continue
                 renamed.update((old, new) for old in olds)
@@ -492,7 +497,7 @@ class Library:
             kept = progress.get(parent)
             if not kept or any(progress.get(chapter["id"]) for chapter in chapters):
                 continue
-            chapters.sort(key=lambda chapter: int(chapter["number"]))
+            chapters.sort(key=lambda chapter: Decimal(chapter["number"]))
             streams = [(chapter, self.stream(chapter)["pages"]) for chapter in chapters]
             target = next(((chapter, [page["key"] for page in pages].index(kept["key"]))
                            for chapter, pages in streams if kept.get("key") in {page["key"] for page in pages}), None)

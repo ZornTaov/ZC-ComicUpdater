@@ -203,6 +203,16 @@ def free_port():
         return s.getsockname()[1]
 
 
+@pytest.fixture
+def refused_port():
+    #a port nothing answers on, for as long as the test runs: bound and never listened on, so a connection is
+    #refused, and held, so no other test running alongside is given it. a port only found free and let go
+    #was handed straight to another test's comic, which the scrape meant to be refused then saved from
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        yield s.getsockname()[1]
+
+
 # ---------------- a library and its settings ----------------
 @pytest.fixture(autouse=True)
 def no_real_config(tmp_path_factory, monkeypatch):

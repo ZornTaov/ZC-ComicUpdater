@@ -441,6 +441,24 @@ def owner_image(waiting, said):
     return next((held[3] for held in reversed(waiting) if held[2] == said), None)
 
 
+#how many chapters an archive has to have listed one after another before a link out of that order is
+#taken for something other than a chapter: two in a row could be a coincidence
+IN_ORDER = 3
+
+
+def points_back(found, at):
+    #whether a page would start a chapter against the order the archive has listed its chapters in: before
+    #the last one where they have climbed, after it where they have fallen, newest first
+    starts = [chapter["start_page"] for chapter in found]
+    if len(starts) < IN_ORDER:
+        return False
+    if all(later > earlier for earlier, later in zip(starts, starts[1:])):
+        return at < starts[-1]
+    if all(later < earlier for earlier, later in zip(starts, starts[1:])):
+        return at > starts[-1]
+    return False
+
+
 def chapters_from_events(events, where, base="", fetch=None, outer=False):
     #a chapter starts at the first page link after a heading. several headings can sit together - a title
     #and the summary underneath it - so the one that reads most like a title wins: a real heading tag
@@ -513,6 +531,12 @@ def chapters_from_events(events, where, base="", fetch=None, outer=False):
                 #chapter of a comic does: the pages under it are from all over, and each stays inside
                 #whichever chapter it sits in. a page listed already is another matter - a dropdown of
                 #every page, then the chapters' starts, names each start a second time
+                gathered, waiting = True, []
+                continue
+            if at not in seen and points_back(found, at):
+                #a run of chapters listed in order, then a link back into the middle of it - a shortcut
+                #to a favourite moment, far below the chapters themselves. its page stays where it was
+                #published, inside the chapter already listed around it
                 gathered, waiting = True, []
                 continue
             gathered = False

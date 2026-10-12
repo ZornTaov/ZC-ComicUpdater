@@ -173,8 +173,23 @@ def compare_chapters(was, now):
     newer = [(c["start_page"], c.get("label")) for c in now]
     if older == newer[:len(older)]:
         return "same" if len(newer) == len(older) else "longer", newer[len(older):]
-    moved = [old for old, fresh in zip(older, newer) if old != fresh]
-    return "changed", moved
+    #told by where each starts, not by its place in the list: one chapter put in near the start shifts every
+    #place after it, and comparing place by place called every one of those moved
+    was_at, now_at = dict(older), dict(newer)
+
+    def inside(at, chapters):
+        held = [label for start, label in sorted(chapters) if start <= at]
+        return held[-1] if held else None
+    changes = []
+    for at, label in newer:
+        if at not in was_at:
+            changes.append("adds {0} at page {1}, inside {2}".format(label, at, inside(at, older)))
+        elif was_at[at] != label:
+            changes.append("renames {0} to {1} at page {2}".format(was_at[at], label, at))
+    for at, label in older:
+        if at not in now_at:
+            changes.append("drops {0} at page {1}, its pages joining {2}".format(label, at, inside(at, newer)))
+    return "changed", changes
 
 
 def walked_pages(folder, args):
@@ -353,8 +368,8 @@ def plan(folder, args):
             print("  {0} chapter(s) more than before: {1}".format(
                 len(what), ", ".join("{0} at page {1}".format(label, at) for at, label in what[:4])))
         else:
-            print("  WARNING: this moves chapters that already have archives written for them: {0}{1}".format(
-                ["page {0}".format(at) for at, label in what[:4]], "..." if len(what) > 4 else ""))
+            print("  WARNING: this changes chapters that already have archives written for them: {0}{1}".format(
+                "; ".join(what[:4]), " ... and {0} more".format(len(what) - 4) if len(what) > 4 else ""))
     if len(chapters) < 2 and not args.force and source != "every":
         #a comic in one chapter is a comic that is not chaptered. saving this replaces the single archive
         #with a single archive under another name, which is the sort of thing that looks like it worked.

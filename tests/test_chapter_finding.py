@@ -110,6 +110,52 @@ def test_an_archive_that_labels_a_chapter_after_its_first_page_can_be_shifted(ch
     assert [c["start_page"] for c in found] == [1, 9], "every boundary moves back one"
 
 
+SHORTCUTS = """
+<h2>Chapter 1</h2><a href="/comic/p1">Chapter 1</a>
+<h2>Chapter 2</h2><a href="/comic/p6">Chapter 2</a>
+<h2>Intermission: A Birthday</h2><a href="/comic/p11">Intermission: A Birthday</a>
+<h2>Chapter 3</h2><a href="/comic/p12">Chapter 3</a>
+<h2>Chapter 4</h2><a href="/comic/p16">Chapter 4</a>
+<p>Favourite moments</p>
+<h3>Trauma in the shower</h3><a href="/comic/p9">Trauma in the shower</a>
+<h3>Talk Like a Pirate</h3><a href="/comic/p14">Talk Like a Pirate</a>
+"""
+
+
+def test_shortcuts_into_the_middle_of_chapters_listed_after_them_start_nothing(chapters):
+    #an archive that lists its chapters in order, then, far below them, links to favourite moments in the
+    #middle of some. each points back before the last chapter listed, which no chapter of a run does: they
+    #are shortcuts, and the pages they lead to stay in the chapter they were published in
+    found = parse(chapters, SHORTCUTS, SITE)
+    assert [(c["label"], c["start_page"]) for c in found] == [
+        ("Chapter 1", 1), ("Chapter 2", 6), ("Intermission: A Birthday", 11), ("Chapter 3", 12), ("Chapter 4", 16)]
+
+
+def test_shortcuts_after_an_archive_listed_newest_first_start_nothing_either(chapters):
+    newest_first = """
+    <h2>Chapter 4</h2><a href="/comic/p16">Chapter 4</a>
+    <h2>Chapter 3</h2><a href="/comic/p11">Chapter 3</a>
+    <h2>Chapter 2</h2><a href="/comic/p6">Chapter 2</a>
+    <h2>Chapter 1</h2><a href="/comic/p1">Chapter 1</a>
+    <h3>A favourite moment</h3><a href="/comic/p13">A favourite moment</a>
+    """
+    found = parse(chapters, newest_first, SITE)
+    assert sorted(c["start_page"] for c in found) == [1, 6, 11, 16]
+
+
+def test_a_chapter_put_in_is_said_as_put_in_not_as_every_later_chapter_moving(chapters):
+    was = [{"start_page": 1, "label": "Chapter 1"}, {"start_page": 6, "label": "Chapter 2"},
+           {"start_page": 11, "label": "Extras"}, {"start_page": 16, "label": "Chapter 3"}]
+    now = [{"start_page": 1, "label": "Chapter 1"}, {"start_page": 4, "label": "A Special"},
+           {"start_page": 6, "label": "Chapter 2"}, {"start_page": 11, "label": "Bonus"},
+           {"start_page": 16, "label": "Chapter 3"}]
+    how, what = chapters.compare_chapters(was, now)
+    assert how == "changed"
+    assert what == ["adds A Special at page 4, inside Chapter 1", "renames Extras to Bonus at page 11"]
+    how, what = chapters.compare_chapters(was, [c for c in was if c["label"] != "Extras"])
+    assert what == ["drops Extras at page 11, its pages joining Chapter 2"]
+
+
 def test_two_headings_pointing_at_one_page_make_one_chapter(chapters):
     same = [{"label": "A", "start_page": 5, "pages_listed": [5]},
             {"label": "B", "start_page": 5, "pages_listed": [5]}]

@@ -143,6 +143,35 @@ def test_shortcuts_after_an_archive_listed_newest_first_start_nothing_either(cha
     assert sorted(c["start_page"] for c in found) == [1, 6, 11, 16]
 
 
+def test_headings_leading_to_files_are_never_fetched_and_a_shared_page_is_read_once(chapters):
+    #an archive whose chapters lead to pages of their own, and under other headings a shop, a picture and a
+    #whole volume as a zip. the zip took minutes to download only to be read as a page
+    html_text = """
+    <h2>Chapter 1</h2><a href="/chapters/one">Chapter 1</a>
+    <h2>Chapter 2</h2><a href="/chapters/two">Chapter 2</a>
+    <h2>Volume one, as an ebook</h2><a href="/misc/ebooks/vol1.zip">Download</a>
+    <h2>A page that never was</h2><a href="/img/graveyard/unused.png">See it</a>
+    <h2>Volume four</h2><a href="/store/#volumefour">Buy</a>
+    <h2>Volume five</h2><a href="/store/#volumefive">Buy</a>
+    """
+    fetched = []
+
+    def fetch(url):
+        fetched.append(url)
+        if url.endswith("/one"):
+            return '<a href="/comic/p1">1</a><a href="/comic/p2">2</a>'
+        if url.endswith("/two"):
+            return '<a href="/comic/p8">8</a><a href="/comic/p9">9</a>'
+        return "<p>the shop</p>"
+    reader = chapters.ArchiveReader()
+    reader.feed(html_text)
+    where = {chapters.same_page(p["url"]): p["n"] for p in SITE}
+    found = chapters.chapters_from_events(reader.events, where, "https://x.test/archive/", fetch=fetch)[0]
+    assert [(c["label"], c["start_page"]) for c in found] == [("Chapter 1", 1), ("Chapter 2", 8)]
+    assert not any(url.endswith((".zip", ".png")) for url in fetched), fetched
+    assert sum("/store/" in url for url in fetched) == 1, "the shop page is read once for both its headings"
+
+
 def test_a_chapter_put_in_is_said_as_put_in_not_as_every_later_chapter_moving(chapters):
     was = [{"start_page": 1, "label": "Chapter 1"}, {"start_page": 6, "label": "Chapter 2"},
            {"start_page": 11, "label": "Extras"}, {"start_page": 16, "label": "Chapter 3"}]

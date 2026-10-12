@@ -250,9 +250,19 @@ def read_archive(url, browser=False, script=None):
         done = subprocess.run([sys.executable, script or MIRROR, "--page-source", url],
                               capture_output=True, text=True, timeout=300)
         return done.stdout
-    answer = requests.get(url, timeout=60, headers={"User-Agent": "Mozilla/5.0"})
-    answer.raise_for_status()
-    return answer.text
+    #a page, never a download: a link under a heading can be a whole volume as a zip, and fetched to be read
+    #as a page it was minutes of nothing. only html is read, and only so much of it
+    with requests.get(url, timeout=60, headers={"User-Agent": "Mozilla/5.0"}, stream=True) as answer:
+        answer.raise_for_status()
+        kind = answer.headers.get("Content-Type", "").split(";")[0].strip().lower()
+        if kind and "html" not in kind and "xml" not in kind and not kind.startswith("text/"):
+            raise ValueError("it is {0}, not a page".format(kind))
+        body = b""
+        for part in answer.iter_content(65536):
+            body += part
+            if len(body) > MOST_OF_A_PAGE:
+                raise ValueError("it is over {0} MB, which no page listing chapters is".format(MOST_OF_A_PAGE // 2 ** 20))
+        return body.decode(answer.encoding or answer.apparent_encoding or "utf-8", errors="replace")
 
 
 def heading_says(text):
@@ -369,6 +379,10 @@ def through_chapter_pages(events, where, base, fetch):
             there = same_page(address)
             if there.partition('/')[0] != site or not there.partition('/')[2] or there == same_page(base):
                 continue
+            #a picture, a download: no page listing a chapter's pages. an archive with a shop, a gallery
+            #and a graveyard of unused pages under headings of their own had each of those fetched in full
+            if A_FILE.search(urllib.parse.urlsplit(address).path):
+                continue
             #shaped like a page of the comic but never walked: a story told off the main run of next
             #links. it is not a list of anything, and reading it would find only its own buttons - the
             #first-page one among them, which would start the chapter at page 1
@@ -388,13 +402,21 @@ def through_chapter_pages(events, where, base, fetch):
     print("  reading {0} chapter page(s) for where each chapter starts, one at a time ...".format(len(wanted)),
           flush=True)
     lists = {}
+    #each page read once, however many headings lead to it: four headings for one shop page, each to its own
+    ##volume, are one page
+    read = {}
     for at, group in enumerate(wanted, 1):
         url = group["follow"]
         began = time.time()
+        #the part after # is a place on the page, not another page
+        key = same_page(urllib.parse.urldefrag(url)[0])
         try:
+            if key not in read:
+                read[key] = fetch(url)
             reader = ArchiveReader()
-            reader.feed(fetch(url))
+            reader.feed(read[key])
         except Exception as error:
+            read.setdefault(key, "")
             print("    {0} of {1}: could not read {2}: {3}".format(at, len(wanted), url, error), flush=True)
             continue
         #every one said as it is read: a few dozen of them take minutes, and a count every ten pages left
@@ -444,6 +466,12 @@ def owner_image(waiting, said):
     #the banner of the heading a link sat inside, which is the latest one saying what the link was named by
     return next((held[3] for held in reversed(waiting) if held[2] == said), None)
 
+
+#the most of one page read: an archive of thousands of pages is a few hundred kilobytes
+MOST_OF_A_PAGE = 8 * 2 ** 20
+
+#an address that is a file rather than a page: never a page listing a chapter's pages
+A_FILE = re.compile(r"\.(png|jpe?g|gif|webp|bmp|avif|svg|ico|pdf|zip|cbz|cbr|rar|7z|epub|mp3|mp4|webm|swf)$", re.I)
 
 #how many chapters an archive has to have listed one after another before a link out of that order is
 #taken for something other than a chapter: two in a row could be a coincidence

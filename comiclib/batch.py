@@ -162,7 +162,10 @@ def run_comic(comic, args):
     #failed are whole and in the index, and left unpacked they would wait for a later run that both gains
     #pages and finishes - a comic that fails at its newest page every day would never have them packed
     known = chapters_now(comic)
-    if (comic.gained and not comic.stopped and getattr(args, "pack_chapters", True)
+    #a plugin comic started from the command line took its first chapters outside any update, so the first
+    #update to find nothing new is the first chance to pack them
+    unpacked = is_plugin_comic(comic) and known.get("list") and not known.get("packed")
+    if ((comic.gained or unpacked) and not comic.stopped and getattr(args, "pack_chapters", True)
             and (known.get("list") or known.get("source_url") or known.get("every"))):
         try:
             pack_chapters(comic, args)

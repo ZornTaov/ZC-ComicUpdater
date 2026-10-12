@@ -231,6 +231,31 @@ def test_update_comics_runs_a_plugin_comic_and_packs_its_chapters_with_their_com
     assert "<PageCount>2</PageCount>" in said
 
 
+def test_a_comic_started_from_the_command_line_is_packed_by_the_next_update(library, config):
+    #its first chapters were taken in outside any update, so an update finding nothing new still packs them
+    install(config)
+    add(library, "chapters=2")
+    done = run("update_comics.py", library, "--config", config, "-t", "120", "--progress", "0")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "up to date" in done.stdout
+    assert sorted(os.listdir(str(library / "CBZs" / "MyComic"))) == ["MyComic - c001 - Chapter 1.cbz",
+                                                                   "MyComic - c002 - Chapter 2.cbz"]
+    assert read_meta(comic(library))["chapters"].get("packed")
+
+
+def test_a_program_is_told_where_staging_is_in_full(library, config):
+    #run inside staging, a program told a relative path writes into a copy of the comic's path nested there
+    folder = os.path.join(str(config), "plugins", "writer")
+    os.makedirs(folder)
+    with open(os.path.join(folder, "plugin.json"), "w", encoding="utf-8") as f:
+        json.dump({"output": "pages", "fields": [], "command": [
+            "{python}", "-c", "import os, sys; open(os.path.join(sys.argv[1], 'page.png'), 'wb').write(b'x')",
+            "{staging}"]}, f)
+    done = run("run_plugin.py", "--add", "writer", "Uncompressed/MyComic", cwd=library)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert pages(library) == ["0001_page.png"]
+
+
 def test_a_mirror_base_comic_is_run_as_it_always_was(library):
     from comiclib import batch
     from comiclib.library import Comic

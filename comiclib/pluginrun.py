@@ -130,7 +130,9 @@ def run_comic(folder, deadline):
     state = dict((metadata.get("state") or {}).get("plugin") or {})
     was_state = dict(state)
     pages, chapters = [], []
-    staging = intake.staging_folder(folder)
+    #in full, since the program is run inside it: told a relative path, a program resolves it against
+    #staging itself and writes into a copy of the comic's path nested within
+    staging = os.path.abspath(intake.staging_folder(folder))
 
     def take(cut_short):
         nonlocal state

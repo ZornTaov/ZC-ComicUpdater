@@ -171,6 +171,8 @@ def run_comic(comic, args):
             pack_chapters(comic, args)
         except (OSError, subprocess.SubprocessError) as error:
             say("  {0:<40} chapters: could not be written ({1})".format(comic.name, error))
+        finally:
+            comic.doing = None
     return comic
 
 
@@ -181,6 +183,41 @@ def read_chapters(comic):
             return json.load(f).get("chapters")
     except (OSError, ValueError):
         return None
+
+
+#what each step after a scrape is doing, said as it starts
+STEP_SAID = {"align": "lining the new pages up", "chapters": "reading the chapter list again",
+             "pack": "writing the chapter archives"}
+
+
+def chapter_step(comic, args, command, what):
+    #one step of keeping a comic's chapters, run with its output read as it comes: each line is the comic's
+    #last line on the page, and the step's start and how long it took go in the log. read only at the end,
+    #a chapter list read again from the site was minutes of nothing, which looked exactly like a hang
+    say("  {0:<40} chapters: {1} ...".format(comic.name, STEP_SAID.get(what, what)))
+    began = time.time()
+    comic.doing = "chapters: {0}".format(STEP_SAID.get(what, what))
+    said = []
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                               errors='replace', env=dict(os.environ, PYTHONUNBUFFERED="1"), **own_group())
+
+    def listen():
+        for line in process.stdout:
+            said.append(line)
+            if line.strip():
+                comic.doing = "chapters, {0}: {1}".format(what, line.strip())
+
+    listener = threading.Thread(target=listen, daemon=True)
+    listener.start()
+    try:
+        code = process.wait(timeout=args.timeout or None)
+    except subprocess.TimeoutExpired:
+        kill_tree(process)
+        said.append("timed out after {0}s\n".format(args.timeout))
+        code = 124
+    listener.join(timeout=15)
+    say("  {0:<40} chapters: {1} took {2:.0f}s".format(comic.name, what, time.time() - began))
+    return subprocess.CompletedProcess(command, code, "".join(said), "")
 
 
 def pack_chapters(comic, args):
@@ -217,10 +254,8 @@ def pack_chapters(comic, args):
         #--replace because a comic in chapters keeps no single archive, and one left from before it was -
         #built by the prime that came before its chapters were set - would sit on the shelf at one page for
         #good. pack gives it up only once every page is checked to be in a chapter archive
-        done = subprocess.run([sys.executable, script, what, comic.folder, "--root", args.root]
-                              + {"chapters": ["--save"], "pack": ["--replace"]}.get(what, []),
-                              capture_output=True, text=True, errors='replace',
-                              env=dict(os.environ, PYTHONUNBUFFERED="1"), timeout=args.timeout or None)
+        done = chapter_step(comic, args, [sys.executable, script, what, comic.folder, "--root", args.root]
+                            + {"chapters": ["--save"], "pack": ["--replace"]}.get(what, []), what)
         if what == "pack" and not (read_chapters(comic) or {}).get("list"):
             say("  {0:<40} chapters: none could be worked out, so nothing was packed".format(comic.name))
             return

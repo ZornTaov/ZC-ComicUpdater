@@ -5,6 +5,7 @@ import html.parser
 import re
 import subprocess
 import sys
+import time
 import urllib.parse
 
 import requests
@@ -384,16 +385,21 @@ def through_chapter_pages(events, where, base, fetch):
     wanted = [group for group in groups if group["follow"]]
     if not wanted:
         return events
-    print("  reading {0} chapter page(s) for where each chapter starts ...".format(len(wanted)), flush=True)
+    print("  reading {0} chapter page(s) for where each chapter starts, one at a time ...".format(len(wanted)),
+          flush=True)
     lists = {}
     for at, group in enumerate(wanted, 1):
         url = group["follow"]
+        began = time.time()
         try:
             reader = ArchiveReader()
             reader.feed(fetch(url))
         except Exception as error:
-            print("    could not read {0}: {1}".format(url, error))
+            print("    {0} of {1}: could not read {2}: {3}".format(at, len(wanted), url, error), flush=True)
             continue
+        #every one said as it is read: a few dozen of them take minutes, and a count every ten pages left
+        #long enough between lines to look like nothing was happening
+        print("    {0} of {1}: {2} ({3:.1f}s)".format(at, len(wanted), url, time.time() - began), flush=True)
         found = {}
         for kind, href, _ in reader.events:
             n = walked_at(where, url, href) if kind in ("link", "owned") else None
@@ -401,8 +407,6 @@ def through_chapter_pages(events, where, base, fetch):
                 found.setdefault(n, link_targets(url, href)[0])
         if found:
             lists[group["heading"]] = found
-        if at % 10 == 0:
-            print("    read {0} of {1}".format(at, len(wanted)), flush=True)
     #what every chapter page links - the newest page in a sidebar, the first in a header - is the site's
     #and says nothing about any one chapter
     common = set.intersection(*(set(found) for found in lists.values())) if len(lists) > 2 else set()
@@ -575,8 +579,14 @@ def chapters_from_archive(url, pages, browser=False, script=None, outer=False):
     #the archive page says where each chapter starts; the walk says where every page sits. matching one
     #against the other needs no knowledge of the site beyond which links are pages of this comic.
     where = first_of_each(pages)
+    print("  fetching the archive page {0} ...".format(url), flush=True)
+    began = time.time()
+    body = read_archive(url, browser, script)
     reader = ArchiveReader()
-    reader.feed(read_archive(url, browser, script))
+    reader.feed(body)
+    print("  read it in {0:.1f}s: {1} heading(s) and {2} link(s)".format(
+        time.time() - began, sum(1 for kind, _, _ in reader.events if kind == "heading"),
+        sum(1 for kind, _, _ in reader.events if kind in ("link", "owned"))), flush=True)
     #plenty of archives link their pages relatively, so each is read against the archive's own address
     return chapters_from_events(reader.events, where, url,
                                 fetch=lambda page: read_archive(page, browser, script), outer=outer)

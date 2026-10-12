@@ -4,6 +4,7 @@
 #and fetches nothing, so none of this reaches the internet.
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -217,6 +218,9 @@ def test_update_comics_runs_a_plugin_comic_and_packs_its_chapters_with_their_com
     done = run("update_comics.py", library, "--config", config, "-t", "120", "--progress", "0")
     assert done.returncode == 0, done.stdout + done.stderr
     assert "+4 pages" in done.stdout
+    #each step after the scrape is said as it starts and how long it took, not left silent until the end
+    assert "chapters: writing the chapter archives ..." in done.stdout
+    assert re.search(r"chapters: pack took \d+s", done.stdout), done.stdout
     shelf = library / "CBZs" / "MyComic"
     assert sorted(os.listdir(str(shelf))) == ["MyComic - c001 - Chapter 1.cbz", "MyComic - c002 - Chapter 2.cbz",
                                              "MyComic - c003 - Chapter 3.cbz"]

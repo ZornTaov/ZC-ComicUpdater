@@ -34,6 +34,9 @@ class Comic:
         self.process = None
         self.last_line = None
         self.stopped = False
+        #what is being done for it after its scrape - its chapters lined up, read again, packed - shown on
+        #the page as it goes, since that can take minutes on its own
+        self.doing = None
 
     @property
     def gained(self):

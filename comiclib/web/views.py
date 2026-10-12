@@ -31,6 +31,9 @@ def comic_view(comic, uc, live):
         view["detail"] = uc.describe(comic)
     if state == "running":
         view["last_line"] = comic.last_line
+    #a scrape that has finished, with its chapters still being worked on
+    if getattr(comic, "doing", None):
+        view["last_line"] = comic.doing
     if state == "failed":
         view["tail"] = [line for line in comic.output.splitlines() if line.strip()][-4:]
     return view

@@ -565,10 +565,12 @@ def chapters_from_events(events, where, base="", fetch=None, outer=False):
                 #every page, then the chapters' starts, names each start a second time
                 gathered, waiting = True, []
                 continue
-            if at not in seen and points_back(found, at):
+            if points_back(found, at):
                 #a run of chapters listed in order, then a link back into the middle of it - a shortcut
                 #to a favourite moment, far below the chapters themselves. its page stays where it was
-                #published, inside the chapter already listed around it
+                #published, inside the chapter already listed around it. whether a chapter already listed
+                #that page says nothing here: one that lists all its pages lists every page a shortcut
+                #could lead to
                 gathered, waiting = True, []
                 continue
             gathered = False

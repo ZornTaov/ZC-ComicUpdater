@@ -131,6 +131,22 @@ def test_shortcuts_into_the_middle_of_chapters_listed_after_them_start_nothing(c
         ("Chapter 1", 1), ("Chapter 2", 6), ("Intermission: A Birthday", 11), ("Chapter 3", 12), ("Chapter 4", 16)]
 
 
+def test_shortcuts_to_pages_the_chapters_already_list_start_nothing_either(chapters):
+    #each chapter listing every one of its pages, then a gallery below that links back to pages among them:
+    #a page already listed is still not where a chapter starts when it is linked from out of order
+    every_page = """
+    <h2>Chapter 1</h2>""" + "".join('<a href="/comic/p{0}">{0}</a>'.format(n) for n in range(1, 6)) + """
+    <h2>Chapter 2</h2>""" + "".join('<a href="/comic/p{0}">{0}</a>'.format(n) for n in range(6, 11)) + """
+    <h2>Chapter 3</h2>""" + "".join('<a href="/comic/p{0}">{0}</a>'.format(n) for n in range(11, 16)) + """
+    <h2>Chapter 4</h2>""" + "".join('<a href="/comic/p{0}">{0}</a>'.format(n) for n in range(16, 21)) + """
+    <h2>Buried Treasure</h2>
+    <h3>Art: a favourite page</h3><a href="/comic/p8">it</a>
+    <h3>April Fools</h3><a href="/comic/p13">it</a>
+    """
+    found = parse(chapters, every_page, SITE)
+    assert [c["start_page"] for c in found] == [1, 6, 11, 16]
+
+
 def test_shortcuts_after_an_archive_listed_newest_first_start_nothing_either(chapters):
     newest_first = """
     <h2>Chapter 4</h2><a href="/comic/p16">Chapter 4</a>

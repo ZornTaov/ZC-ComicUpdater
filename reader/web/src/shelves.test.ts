@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ComicSummary } from "./api";
-import { compareComics, grewBy, reading, recentlyUpdated, shelf, upTo } from "./shelves";
+import { compareComics, grewBy, readShare, reading,recentlyUpdated, shelf, upTo } from "./shelves";
 
 const comic = (over: Partial<ComicSummary>): ComicSummary => ({
   id: over.name ?? over.title ?? "x", name: over.title ?? "x", title: "MyComic", series: null, number: null,
@@ -121,6 +121,16 @@ describe("folders", () => {
   it("reads up to a comic among those in the folder itself, not those in folders below it", () => {
     expect(titles(upTo(library, "folder", "Site A", "Two"))).toEqual(["One", "Two"]);
     expect(upTo(library, "folder", "Site A", "Deep")).toEqual([]);
+  });
+
+  it("counts a folder read by its pages, folders below it included", () => {
+    const siteA = shelf(library, "folder", "").groups[0];
+    // Deep is 2 of its 10 pages in; One and Two are never opened
+    expect(readShare(siteA.comics)).toBe(7);
+    const list = [comic({ title: "Long", pages: 990, position: 989 }), comic({ title: "Extra", pages: 10 })];
+    expect(readShare(list)).toBe(99);
+    expect(readShare([comic({ pages: 5, position: 9 })])).toBe(100);
+    expect(readShare([comic({ pages: 0 })])).toBe(0);
   });
 
   it("does not take a folder for one whose name starts the same", () => {

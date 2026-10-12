@@ -147,6 +147,19 @@ export function shelf(comics: ComicSummary[], browse: Browse, path: string): She
   return { within: comics, groups: byName(groups), comics: loose.sort(compareComics) };
 }
 
+// how far through a folder, series or author the reader is, as a percentage of its pages rather than an
+// average of its comics, so a one-page extra read through does not count for as much as a long comic
+// barely started. a comic never opened counts all its pages unread
+export function readShare(comics: ComicSummary[]): number {
+  let read = 0;
+  let pages = 0;
+  for (const comic of comics) {
+    pages += comic.pages;
+    if (comic.position !== null) read += Math.min(comic.position + 1, comic.pages);
+  }
+  return pages ? Math.round((read / pages) * 100) : 0;
+}
+
 // a comic and every one before it on the same shelf, in the shelf's own order - what "read up to here" marks.
 // only inside a folder, series or author, where the order means something; at the top, or for a comic that
 // is not on this shelf but below it, there is nothing to count up to

@@ -3,7 +3,7 @@
 import { api, type ComicSummary, type Fit, type GroupCovers } from "./api";
 import { openCoverDialog, type CoverTarget } from "./coverdialog";
 import { el, esc, fitClass, refusal } from "./dom";
-import { BROWSE_LABELS, type Browse, type Group, grewBy, matches, nextIssues, pathLabel, reading, recentlyUpdated, shelf, upTo } from "./shelves";
+import { BROWSE_LABELS, type Browse, type Group, grewBy, matches, nextIssues, pathLabel, readShare, reading, recentlyUpdated, shelf, upTo } from "./shelves";
 
 // each name encoded alone and joined with real slashes, so a folder's address reads as its path. the whole
 // rest of the address is decoded as one, so this comes back the same - a series named with a slash in it
@@ -127,6 +127,7 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
       <div class="cover stack"><div class="clip"><img loading="lazy" alt="" class="${fitClass(shown.fit)}" src="${shown.src}"></div>
         <span class="badge count">${group.comics.length}</span>${waiting ? `<span class="badge new left">${waiting} updated</span>` : ""}
         <button class="card-menu" type="button" aria-label="More for ${esc(group.label)}" data-group="${esc(group.key)}">⋯</button></div>
+      <div class="bar"><div style="width:${readShare(group.comics)}%"></div></div>
       <div class="name">${esc(group.label)}</div>
       <div class="meta">${browse === "folder" ? "Folder" : browse === "series" ? "Series" : "Author"}</div>
     </a>`;

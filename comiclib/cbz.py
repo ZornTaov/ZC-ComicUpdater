@@ -176,6 +176,29 @@ def append(cbz, folder, pages, superseded=(), about=None):
     return len(change["added"])
 
 
+def update(folder, archive=None, superseded=()):
+    #a comic's one archive brought up to its folder after a run: written afresh if there is none, and
+    #otherwise given only the pages it does not hold yet, on the end. (archive, pages added), or (None, 0)
+    #for a folder with nothing in it. whatever did the scraping, the archive is kept the same way
+    archive = os.path.abspath(archive) if archive else default_path(folder)
+    on_disk = sorted(f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)))
+    pages = [f for f in on_disk if f != METADATA_FILE]
+    if not pages:
+        return None, 0
+    #a page no reader can show - a recording, a note saying where the video is - goes in as a drawn page
+    #saying so, named for the file with a png on the end so it falls where the page belongs. the file
+    #itself stays in the folder, which is the copy that keeps everything.
+    drawn = [name for name in pages if held_otherwise(folder, name)]
+    if drawn:
+        print("{0} page(s) no reader can show, which the archive gets a stand-in for: {1}{2}".format(
+            len(drawn), drawn[:3], "..." if len(drawn) > 3 else ""))
+    if not os.path.exists(archive):
+        #the metadata goes in last, as it does when one is added to, so its bytes can be reclaimed later
+        write(archive, folder, pages + [name for name in on_disk if name == METADATA_FILE])
+        return archive, len(pages)
+    return archive, append(archive, folder, pages, superseded)
+
+
 def retag(cbz, folder, names, about, dry_run=False):
     #brings a chapter archive's ComicInfo up to what it should say - a label put right, the comic marked
     #ended - without writing its pages again: the new ComicInfo goes on the end, as an append's does.

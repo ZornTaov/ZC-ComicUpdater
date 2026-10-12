@@ -72,6 +72,10 @@ def find_comics(root, max_depth=5):
 
 def resume_argv(comic):
     settings = comic.metadata.get("settings")
+    if settings and settings.get("scraper"):
+        #a comic another program scrapes, through its plugin: run_plugin needs only which comic, and works
+        #out the program's command itself from the settings, each time
+        return [comic.name]
     if settings:
         argv = settings_to_argv(settings)
     else:

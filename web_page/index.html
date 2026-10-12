@@ -54,32 +54,40 @@
   </div>
 
   <div class="col">
-    <section>
+    <section id="add-section">
       <h2><span class="grow">Add comics</span><button class="small" id="open-listcheck">Check chapter list</button>
         <button class="small" id="open-config">Settings</button>
         <button class="small" id="open-elements">Element paths</button></h2>
+      <div class="row" id="add-scraper-row" style="display:none">
+        <label class="check">Scraper <select id="add-scraper"><option value="">Built in</option></select></label>
+        <span class="muted" id="add-scraper-about"></span>
+      </div>
       <div class="help">One row per comic. Folders are inside <span id="add-roots"></span>, and a comic with
-        no folder of its own is given one so its archive is not loose in the root. Give a chapter list -
-        the comic's archive page - and it is split into one archive per chapter as soon as it is scraped.
+        no folder of its own is given one so its archive is not loose in the root.
+        <span class="builtin-only">Give a chapter list - the comic's archive page - and it is split into one
+        archive per chapter as soon as it is scraped.</span>
         Paste a list to fill several rows at once.</div>
-      <div class="add-head"><span>Pages folder</span><span>Archive</span><span>First page</span>
-        <span>Chapter list</span><span></span></div>
+      <div class="add-head"><span>Pages folder</span><span>Archive</span><span id="add-head-url">First page</span>
+        <span id="add-head-chapters">Chapter list</span><span></span></div>
       <div id="add-rows"></div>
       <div class="row" style="margin-top:6px"><button type="button" class="link" id="add-more">add another row</button></div>
+      <div class="row plugin-form" id="add-plugin"></div>
       <div class="row">
-        <label class="check"><input type="checkbox" id="prime"> prime only</label>
-        <label class="check"><input type="checkbox" id="prefix"> number pages</label>
-        <label class="check">from <input type="number" id="increment" value="1" min="0" style="width:74px"></label>
-        <label class="check"><input type="checkbox" id="javascript"> javascript</label>
-        <label class="check">wait <input type="number" id="waittime" value="0" min="0" style="width:60px">s</label>
+        <label class="check builtin-only"><input type="checkbox" id="prime"> prime only</label>
+        <label class="check builtin-only"><input type="checkbox" id="prefix"> number pages</label>
+        <label class="check builtin-only">from <input type="number" id="increment" value="1" min="0" style="width:74px"></label>
+        <label class="check builtin-only"><input type="checkbox" id="javascript"> javascript</label>
+        <label class="check builtin-only">wait <input type="number" id="waittime" value="0" min="0" style="width:60px">s</label>
         <label class="check"><input type="checkbox" id="cbz" checked> make cbz</label>
-        <label class="check"><input type="checkbox" id="direction" checked> direction check</label>
-        <label class="check">cut every <input type="number" id="add-every" min="1" style="width:80px" placeholder="off"> pages</label>
+        <label class="check builtin-only"><input type="checkbox" id="direction" checked> direction check</label>
+        <label class="check builtin-only">cut every <input type="number" id="add-every" min="1" style="width:80px" placeholder="off"> pages</label>
       </div>
-      <div class="help">Prime only saves the first page and checks the next link works; a later update fetches the rest.
+      <div class="help builtin-only">Prime only saves the first page and checks the next link works; a later update fetches the rest.
         Cut every so many pages is for a long comic with no chapters of its own: it is archived in parts of that
         size as it is scraped, with no walk afterwards. A row with a chapter list uses that instead.
         The options apply to every row, so add comics that need different options separately.</div>
+      <div class="help plugin-only">The scraper's settings apply to every row, so add comics that need different
+        settings separately. Its chapters come from it, one archive each.</div>
       <div class="row"><button class="primary" id="add">Add to queue</button></div>
       <div class="msg" id="add-msg"></div>
     </section>
@@ -294,13 +302,18 @@
     <div class="dlg-head"><h3 id="edit-name"></h3><span class="muted" id="edit-updated"></span></div>
     <div class="dlg-body">
       <dl class="facts" id="edit-facts"></dl>
-      <div class="field">
+      <div class="field plugin-only">
+        <label>Scraped by</label>
+        <div class="plugin-form" id="e-plugin"></div>
+        <div class="note" id="e-plugin-note"></div>
+      </div>
+      <div class="field builtin-only">
         <label for="e-url">Start from</label>
         <input type="text" id="e-url" spellcheck="false" autofocus>
         <div class="note">The next update loads this page, saves it, and carries on from there.
           <span id="e-url-hints"></span></div>
       </div>
-      <div class="field">
+      <div class="field builtin-only">
         <label for="e-increment">Page number</label>
         <input type="number" id="e-increment" min="0" style="width:110px">
         <div class="note">What that page is counted as. Only shows in filenames with numbering on.
@@ -310,28 +323,28 @@
         <label for="e-cbz_path">Archive</label>
         <input type="text" id="e-cbz_path" spellcheck="false" placeholder="default: CBZs/… beside the Uncompressed folder">
       </div>
-      <div class="field">
+      <div class="field builtin-only">
         <label for="e-waittime">Wait before next</label>
         <span><input type="number" id="e-waittime" min="0" style="width:80px"> seconds</span>
       </div>
       <div class="field">
         <label>Options</label>
         <div class="row">
-          <label class="check"><input type="checkbox" id="e-prefix"> number pages</label>
-          <label class="check"><input type="checkbox" id="e-javascript"> javascript</label>
-          <label class="check"><input type="checkbox" id="e-firefox"> firefox</label>
+          <label class="check builtin-only"><input type="checkbox" id="e-prefix"> number pages</label>
+          <label class="check builtin-only"><input type="checkbox" id="e-javascript"> javascript</label>
+          <label class="check builtin-only"><input type="checkbox" id="e-firefox"> firefox</label>
           <label class="check"><input type="checkbox" id="e-cbz"> make cbz</label>
-          <label class="check"><input type="checkbox" id="e-direction_check"> direction check</label>
-          <label class="check" title="Save every page the comic puts on one address, not just the first. Off reads one page an address however many are there."><input type="checkbox" id="e-multi_page"> several pages an address</label>
+          <label class="check builtin-only"><input type="checkbox" id="e-direction_check"> direction check</label>
+          <label class="check builtin-only" title="Save every page the comic puts on one address, not just the first. Off reads one page an address however many are there."><input type="checkbox" id="e-multi_page"> several pages an address</label>
         </div>
       </div>
-      <div class="field">
+      <div class="field builtin-only">
         <label for="e-chapters">Chapter list</label>
         <input type="text" id="e-chapters" spellcheck="false" placeholder="the comic's archive page — blank to read its own addresses">
         <div class="note"><span id="e-chapters-note"></span>
           <button type="button" class="link" id="e-discard-walk" hidden>Discard that walk</button></div>
       </div>
-      <div class="field">
+      <div class="field builtin-only">
         <label for="e-every">Or cut every</label>
         <span><input type="number" id="e-every" min="1" style="width:110px" placeholder="off"> pages</span>
         <div class="note">For a comic with no chapters of its own that has grown too big for a reader to open
@@ -362,9 +375,9 @@
     <div class="dlg-foot">
       <div class="msg" id="edit-msg"></div>
       <button type="button" id="edit-cancel">Close</button>
-      <button type="button" id="edit-checklist">Check chapter list</button>
-      <button type="button" id="edit-boundaries">Chapter boundaries</button>
-      <button type="button" id="edit-chapterize">Work out chapters</button>
+      <button type="button" class="builtin-only" id="edit-checklist">Check chapter list</button>
+      <button type="button" class="builtin-only" id="edit-boundaries">Chapter boundaries</button>
+      <button type="button" class="builtin-only" id="edit-chapterize">Work out chapters</button>
       <button type="button" id="edit-save">Save</button>
       <button type="button" class="primary" id="edit-save-update">Save and update now</button>
     </div>
@@ -380,6 +393,7 @@
 <script src="js/adding.js"></script>
 <script src="js/uploads.js"></script>
 <script src="js/settings.js"></script>
+<script src="js/plugins.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

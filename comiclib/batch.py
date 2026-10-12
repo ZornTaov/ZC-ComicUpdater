@@ -78,10 +78,39 @@ def own_group():
     return {"start_new_session": True}
 
 
+def beside_script(args, name):
+    #the other commands sit beside the scraper, wherever --script says that is
+    return os.path.join(os.path.dirname(os.path.abspath(args.script)), name)
+
+
+def is_plugin_comic(comic):
+    return bool((comic.metadata.get("settings") or {}).get("scraper"))
+
+
+def program(comic, args):
+    #mirror_base for a comic it scrapes, and run_plugin for one another program scrapes through a plugin.
+    #a plugin's program is stopped by run_plugin a little before the timeout here, so what it fetched is
+    #taken in: killed with it, a long catch-up would be thrown away every time and never get anywhere
+    if not is_plugin_comic(comic):
+        return [sys.executable, args.script] + comic.argv
+    command = [sys.executable, beside_script(args, "run_plugin.py")] + comic.argv
+    if args.timeout:
+        command += ["--deadline", str(max(args.timeout - min(60, args.timeout // 10), 1))]
+    return command
+
+
+def chapters_now(comic):
+    #a plugin comic's chapters are added by its run, so its first ones exist only once it has run. any other
+    #comic's are as they were when the run began, which is what the rest of a run has always gone by
+    if is_plugin_comic(comic):
+        return read_chapters(comic) or {}
+    return comic.metadata.get("chapters") or {}
+
+
 def run_comic(comic, args):
     #each comic runs in its own process: mirror_base caches the xpaths it discovers in module globals, so
     #reusing one process would try the previous comic's paths, and a crash would take the whole run with it
-    command = [sys.executable, args.script] + comic.argv
+    command = program(comic, args)
     started = time.time()
     cancel = getattr(args, "cancel", None)
     if cancel is not None and cancel.is_set():
@@ -98,7 +127,7 @@ def run_comic(comic, args):
                                    stderr=subprocess.STDOUT, text=True, errors='replace',
                                    env=dict(os.environ, PYTHONUNBUFFERED="1"), **grouping)
     except OSError as error:
-        comic.code, comic.output = 5, "could not start {0}: {1}".format(args.script, error)
+        comic.code, comic.output = 5, "could not start {0}: {1}".format(command[1], error)
         comic.elapsed = time.time() - started
         return comic
 
@@ -132,7 +161,7 @@ def run_comic(comic, args):
     #however the run ended, short of being stopped by hand: the pages a run saved before it timed out or
     #failed are whole and in the index, and left unpacked they would wait for a later run that both gains
     #pages and finishes - a comic that fails at its newest page every day would never have them packed
-    known = comic.metadata.get("chapters") or {}
+    known = chapters_now(comic)
     if (comic.gained and not comic.stopped and getattr(args, "pack_chapters", True)
             and (known.get("list") or known.get("source_url") or known.get("every"))):
         try:
@@ -154,18 +183,22 @@ def read_chapters(comic):
 def pack_chapters(comic, args):
     #a comic split into chapters keeps no single archive, so the pages it just gained are not in any
     #archive until this runs. lining up first is what puts the new pages in the index in order.
-    script = os.path.join(os.path.dirname(os.path.abspath(args.script)), "chapters.py")
+    script = beside_script(args, "chapters.py")
     if not os.path.exists(script):
         return
     #lined up first, so the pages just saved are in the index; then the archive page is read again, since
     #a new chapter usually begins on one of those pages and could not have been placed before they existed
-    known = comic.metadata.get("chapters") or {}
-    #a comic cut by size that was never walked has nothing to line up: its filenames say which page is which
+    known = chapters_now(comic)
+    #a comic cut by size that was never walked has nothing to line up: its filenames say which page is which.
+    #nor has a plugin's comic, whose chapters its run added as it took each one in, numbering every page
     walked = os.path.exists(index_path(comic.folder, args.root))
-    steps = ["align"] if walked or not known.get("every") else []
+    from_plugin = known.get("source") == "plugin"
+    steps = ["align"] if not from_plugin and (walked or not known.get("every")) else []
     #reading the archive page again is how a new chapter is found; for a comic that has a page to read but
     #no chapters worked out yet - one that was primed with a chapter list - it is how the first ones arrive
-    if known.get("source_url") and (getattr(args, "refresh_chapters", True) or not known.get("list")):
+    if from_plugin:
+        pass
+    elif known.get("source_url") and (getattr(args, "refresh_chapters", True) or not known.get("list")):
         steps.append("chapters")
     #a comic cut every so many pages needs its next part once the last one fills. that reads nothing from
     #the site, so it is done whether or not archive pages are being read again

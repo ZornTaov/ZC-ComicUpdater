@@ -125,16 +125,16 @@ def chapter_record(chapter):
     #the banner the chapter list shows for it, which pack saves beside the chapter's archive as its cover
     if chapter.get("image"):
         kept["image"] = chapter["image"]
+    #what the program a plugin ran said of this chapter in its own ComicInfo, which its archive says again
+    if chapter.get("comicinfo"):
+        kept["comicinfo"] = chapter["comicinfo"]
     return kept
 
 
-def save_chapters(folder, chapters, source, source_url=None, every=None, outer=False):
-    metadata = read_metadata(folder)
-    if not metadata:
-        print("  no metadata here, so the chapters were not saved")
-        return 1
-    was = metadata.get("chapters") or {}
-    metadata["chapters"] = {
+def chapters_block(was, chapters, source, source_url=None, every=None, outer=False):
+    #the chapters a comic keeps in its metadata, from a new reading of them and the block it replaces
+    was = was or {}
+    block = {
         "source": source,
         "source_url": source_url,
         "checked": time_stamp(),
@@ -142,15 +142,24 @@ def save_chapters(folder, chapters, source, source_url=None, every=None, outer=F
     }
     if every:
         #remembered so a later run cuts the pages the comic gains the same way, with no arguments
-        metadata["chapters"]["every"] = every
+        block["every"] = every
     if outer:
         #and so is cutting a nested archive by its books rather than by every chapter inside them
-        metadata["chapters"]["outer"] = True
+        block["outer"] = True
     #a correction is about this comic, not about one run of one rule, and where the archives are and when
     #they were written describes what is on disk, not this reading. neither is the reading's to throw away
     for kept in ("fixes", "packed", "folder"):
         if was.get(kept):
-            metadata["chapters"][kept] = was[kept]
+            block[kept] = was[kept]
+    return block
+
+
+def save_chapters(folder, chapters, source, source_url=None, every=None, outer=False):
+    metadata = read_metadata(folder)
+    if not metadata:
+        print("  no metadata here, so the chapters were not saved")
+        return 1
+    metadata["chapters"] = chapters_block(metadata.get("chapters"), chapters, source, source_url, every, outer)
     write_metadata(folder, metadata)
     print("  saved {0} chapter(s) into {1}".format(len(chapters), os.path.join(folder, metadata_file)))
     return 0

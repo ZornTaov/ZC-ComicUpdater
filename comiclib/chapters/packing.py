@@ -128,8 +128,9 @@ def pack(folder, args):
     if not chapters:
         print("ERROR: no chapters worked out for {0} yet. Run: chapters.py chapters {0} --archive ...".format(folder))
         return 2
-    #a comic cut by size may never have been walked, its filenames saying which page is which instead
-    pages = joined_pages(folder, args, numbered=(metadata.get("chapters") or {}).get("source") == "every")
+    #a comic cut by size may never have been walked, its filenames saying which page is which instead, and
+    #a plugin's comic never is: every page it takes in is numbered as it is taken
+    pages = joined_pages(folder, args, numbered=(metadata.get("chapters") or {}).get("source") in ("every", "plugin"))
     if pages is None:
         return 2
     shelf = chapter_folder(folder, metadata, args.root, args.cbz_folder)

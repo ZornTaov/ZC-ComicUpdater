@@ -11,7 +11,7 @@ import time
 import traceback
 import zipfile
 
-from comiclib import moving
+from comiclib import moving, plugins
 from comiclib.batch import own_group
 from comiclib.chapters.index import index_path, numbering_trouble, set_aside, set_aside_pages
 from comiclib.exits import USAGE
@@ -432,6 +432,48 @@ class Runner:
 
         verb = "Prime" if options["prime"] else "Scrape"
         label = "{0} {1}".format(verb, comics[0].name if len(comics) == 1 else "{0} new comics".format(len(comics)))
+        return self.submit(Job("add", label, work))
+
+    def submit_plugin_add(self, plugin, entries, keep_archives):
+        #comics another program scrapes, through a plugin: each one's metadata written first, since that
+        #program knows nothing of it, and then each run the way an update runs it. entries are (folder,
+        #archive, the plugin's settings for it)
+        uc = self.uc
+        comics = []
+        for folder, cbz_path, values in entries:
+            settings = plugins.comic_settings(plugin, values, folder, cbz_path, keep_archives)
+            comic = uc.Comic(os.path.join(self.args.root, *folder.split("/")), {"settings": settings}, self.args.root)
+            comic.argv = [comic.name]
+            comic.start = (values, folder, cbz_path)
+            comics.append(comic)
+
+        def work(job):
+            chosen = self.uc.with_config(self.args)
+            chosen.cancel = job.cancel
+            #a new comic can be long, as with any added: it runs until it is done, and can be stopped here
+            chosen.timeout = 0
+            for comic in comics:
+                values, folder, cbz_path = comic.start
+                try:
+                    comic.metadata = plugins.start_comic(comic.folder, plugin, values, folder, cbz_path,
+                                                         keep_archives)
+                except (plugins.PluginError, OSError) as error:
+                    comic.skipped = str(error)
+            job.comics = [comic for comic in comics if not comic.skipped]
+            code = uc.run_batch(comics, job.comics, chosen, "Scraping")
+            for comic in job.comics:
+                #a comic that took nothing in leaves only the metadata just written, which would make the
+                #folder look like a comic already in the library and refuse it being added again
+                if not comic.ok and not uc.folder_pages(comic.folder):
+                    try:
+                        os.remove(os.path.join(comic.folder, METADATA_FILE))
+                        os.rmdir(comic.folder)
+                    except OSError:
+                        pass
+            return code
+
+        label = "Scrape {0} with {1}".format(
+            comics[0].name if len(comics) == 1 else "{0} new comics".format(len(comics)), plugin.title)
         return self.submit(Job("add", label, work))
 
 

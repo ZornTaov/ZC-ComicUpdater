@@ -22,6 +22,22 @@ HEAD, LONG_HEAD = 4096, 262144
 UNWRITABLE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 #the start of every frame marker that says a jpeg's size: every SOF but the three that are something else
 JPEG_FRAMES = set(range(0xC0, 0xD0)) - {0xC4, 0xC8, 0xCC}
+#every element of the schema, in its order, with the name each goes by here where this works one out. the
+#rest are only ever written as another program's ComicInfo said them
+SCHEMA = (("Title", "title"), ("Series", "series"), ("Number", "number"), ("Count", "count"),
+          ("Volume", None), ("AlternateSeries", None), ("AlternateNumber", None), ("AlternateCount", None),
+          ("Summary", "summary"), ("Notes", "notes"), ("Year", "year"), ("Month", None), ("Day", None),
+          ("Writer", "writer"), ("Penciller", "penciller"), ("Inker", None), ("Colorist", None),
+          ("Letterer", None), ("CoverArtist", None), ("Editor", None), ("Translator", None),
+          ("Publisher", None), ("Imprint", None), ("Genre", "genre"), ("Tags", "tags"), ("Web", "web"),
+          ("PageCount", None), ("LanguageISO", None), ("Format", None), ("BlackAndWhite", None),
+          ("Manga", None), ("Characters", None), ("Teams", None), ("Locations", None),
+          ("ScanInformation", None), ("StoryArc", None), ("StoryArcNumber", None), ("SeriesGroup", None),
+          ("AgeRating", None), ("Pages", None), ("CommunityRating", None), ("MainCharacterOrTeam", None),
+          ("Review", None), ("GTIN", None))
+#what another program's ComicInfo is never believed about: the pages are this archive's own, named and
+#sized and stood in for here, and Count tells a reader the series is complete, which only the reader may say
+NEVER_KEPT = ("Pages", "PageCount", "Count")
 
 
 def dimensions(head):
@@ -134,6 +150,7 @@ def about_comic(folder, metadata=None):
     series = os.path.basename(os.path.abspath(folder))
     about = {"title": series, "series": series, "web": site((metadata.get("settings") or {}).get("url")),
              "notes": "Mirrored by ZC-ComicUpdater."}
+    about = with_kept(about, metadata.get("comicinfo"))
     about.update(clean_info(metadata.get("info")))
     return about
 
@@ -150,10 +167,52 @@ def about_chapter(folder, metadata, chapter, count):
              "notes": "Mirrored by ZC-ComicUpdater, pages {0} to {1} of the comic.".format(
                  chapter["start_page"], chapter["end_page"]),
              "bookmark": chapter["label"]}
+    #what another program said of the whole comic is said of each chapter too, but for what names one
+    #part of it; what it said of this chapter is said in full
+    comic_wide = {tag: text for tag, text in (metadata.get("comicinfo") or {}).items()
+                  if tag not in ("Title", "Number", "Web")}
+    about = with_kept(about, dict(comic_wide, **(chapter.get("comicinfo") or {})))
     info = clean_info(metadata.get("info"))
     about.update((key, value) for key, value in info.items() if key not in ("title", "web"))
     if not about.get("web"):
         about["web"] = info.get("web")
+    return about
+
+
+def kept_tags(body):
+    #another program's ComicInfo, as what it says: each plain element by its tag, in the order it came. read
+    #so a comic taken from that program says everything it did - its publisher, its reading direction, a
+    #chapter's real number - and not only what this works out. {} for anything that is not a ComicInfo
+    try:
+        root = ET.fromstring(body)
+    except (ET.ParseError, ValueError, TypeError):
+        return {}
+    kept = {}
+    for element in root:
+        #a namespace some writers add says nothing a reader goes by
+        tag = element.tag.split('}')[-1] if isinstance(element.tag, str) else None
+        text = UNWRITABLE.sub("", element.text or "").strip()
+        if tag and text and len(element) == 0 and tag not in NEVER_KEPT:
+            kept.setdefault(tag, text)
+    return kept
+
+
+def with_kept(about, kept):
+    #what another program said, over what was worked out here: it may know a chapter's real number, or a
+    #title better than a folder's name. what is said by hand is laid over both afterwards by the caller.
+    #notes say both, theirs first, since what it noted is about the comic and what this notes is about itself
+    if not kept:
+        return about
+    about = dict(about)
+    ours = dict((tag, key) for tag, key in SCHEMA if key)
+    for tag, text in kept.items():
+        key = ours.get(tag)
+        if key == "notes" and about.get("notes"):
+            about["notes"] = text + "\n" + about["notes"]
+        elif key:
+            about[key] = text
+        else:
+            about.setdefault("kept", {})[tag] = text
     return about
 
 
@@ -175,27 +234,29 @@ def build(about, pages):
         if value is not None and value != "":
             lines.append("  <{0}>{1}</{0}>".format(tag, escape(UNWRITABLE.sub("", str(value)))))
 
-    field("Title", about.get("title"))
-    field("Series", about.get("series"))
-    field("Number", about.get("number"))
-    field("Count", about.get("count"))
-    field("Summary", about.get("summary"))
-    field("Notes", about.get("notes"))
-    field("Year", about.get("year"))
-    field("Writer", about.get("writer"))
-    field("Penciller", about.get("penciller"))
-    field("Genre", about.get("genre"))
-    field("Tags", about.get("tags"))
-    field("Web", about.get("web"))
-    field("PageCount", len(pages))
-    field("Format", FORMAT)
-    if pages:
-        lines.append("  <Pages>")
-        for at, each in enumerate(pages):
-            lines.append("    <Page {0} />".format(" ".join(
-                "{0}={1}".format(key, quoteattr(UNWRITABLE.sub("", str(value))))
-                for key, value in page_attributes(at, each, about.get("bookmark")))))
-        lines.append("  </Pages>")
+    kept = about.get("kept") or {}
+    for tag, key in SCHEMA:
+        if key:
+            field(tag, about.get(key))
+        elif tag == "PageCount":
+            field(tag, len(pages))
+        elif tag == "Format":
+            field(tag, kept.get(tag) or FORMAT)
+        elif tag == "Pages":
+            if pages:
+                lines.append("  <Pages>")
+                for at, each in enumerate(pages):
+                    lines.append("    <Page {0} />".format(" ".join(
+                        "{0}={1}".format(key, quoteattr(UNWRITABLE.sub("", str(value))))
+                        for key, value in page_attributes(at, each, about.get("bookmark")))))
+                lines.append("  </Pages>")
+        else:
+            field(tag, kept.get(tag))
+    #anything a newer schema has that this one does not still says what it said, after all it knows of
+    known = set(tag for tag, _ in SCHEMA)
+    for tag, text in kept.items():
+        if tag not in known and re.match(r"^[A-Za-z_][\w.-]*$", tag):
+            field(tag, text)
     lines.append("</ComicInfo>")
     return ("\n".join(lines) + "\n").encode("utf-8")
 

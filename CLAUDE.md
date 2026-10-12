@@ -11,7 +11,7 @@ are deliberately **not** in this file, since it is tracked. They belong in local
 
 ## What this is
 
-Five scripts, and the package they share, that mirror webcomics to a library of loose pages and `.cbz`
+Six scripts, and the package they share, that mirror webcomics to a library of loose pages and `.cbz`
 archives, and keep them up to date unattended.
 
 | File | Lines | What it is |
@@ -22,6 +22,8 @@ archives, and keep them up to date unattended.
 | `web_page/` | ~1500 | The whole front end, no build step: `index.html`, `css/`, and `js/` with one plain script per part of the page. See "The web page" below |
 | `update_comics.py` | ~190 | The long-running process: its arguments, the schedule loop, and starting the web page. The work is `comiclib` `config`, `library`, `batch` and `schedule` |
 | `adopt_comic.py` | ~120 | Takes a folder of pages someone else scraped and makes it a comic this tool can update. The work is `comiclib/adopt/`: `scan`, `report`, `adopting` |
+| `run_plugin.py` | ~110 | Runs a comic another program scrapes, through its plugin in `config/plugins/`; `--add` starts one, `--list` shows the plugins. The work is `comiclib` `plugins`, `intake`, `pluginrun`. See "Scraper plugins" below |
+| `examples/plugins/example/` | ~200 | The example plugin: a template for writing one, and what the suite runs. Its `tool/` draws a made-up series |
 | `comiclib/` | ~760 | What more than one script needs to agree on, below |
 | `reader/` | ~1500 | A separate program: a PerfectViewer-style web reader for the library, in its own image. See "The reader" below |
 
@@ -34,7 +36,10 @@ archives, and keep them up to date unattended.
 | `metadata` | Reading and writing `mirror_metadata.json` (always written aside and moved into place), timestamps, settings to command and back, schema 1 to 2 |
 | `cbz` | Every archive any script writes: a new one, one added to, a chapter's, a repack. The Uncompressed/CBZs shelf rule |
 | `standin` | Draws a page for a page no reader can show. `cbz` asks it about every file, so every archive agrees |
-| `comicinfo` | The `ComicInfo.xml` every archive carries (v2.1 draft, in the schema's element order), and a picture's size read from its first bytes. `cbz` writes it last-but-metadata and an append rewrites both on the end |
+| `comicinfo` | The `ComicInfo.xml` every archive carries (v2.1 draft, in the schema's element order), and a picture's size read from its first bytes. `cbz` writes it last-but-metadata and an append rewrites both on the end. Another program's ComicInfo is kept (`kept_tags`, in the metadata as `comicinfo` or a chapter's `comicinfo`) and written back: typed by hand beats it, it beats what is worked out here, and its `Pages`/`PageCount`/`Count` are never believed. `build` must give the same bytes for the same input - that is how an archive is known to be current |
+| `plugins` | Finding a plugin, checking its `plugin.json` and a comic's settings against its fields, building its command, a plugin comic's first metadata |
+| `intake` | Taking in what a plugin's program wrote: pages numbered on, a chapter's name in each of its pages' names (or every chapter's `001.jpg` is one `page_key`), nothing written over, the same file fetched again not taken twice, chapters added to the list |
+| `pluginrun` | One plugin run: leftovers of a killed run taken in, the program run in the staging folder until its deadline, the run recorded, the single archive kept |
 | `exits` | `mirror_base`'s exit codes and what each means, and `MirrorError`, which carries one |
 | `browser` | Starting the browser a scrape drives, and closing it however it ended |
 | `elements` | The element paths shipped as examples (comic image, next link, first-page link), finding the image and the links by them, and pressing a link |
@@ -61,12 +66,16 @@ code reaching into a script still finds it; new code should import from `comicli
 `css/` is `base` (colours and controls), `page` (the sections), `dialogs`, and `elements` (the element
 paths dialog and the check result). `js/` holds one file per part of the page: `common` (`$`, `api`,
 `post`, `esc`, the time formats), `library`, `running` (the `/api/state` poll: Running now, queue, Recent,
-log), `editor`, `elements`, `listcheck`, `bounds`, `adding`, `uploads`, `settings`, and `main`, which starts it all.
+log), `editor`, `elements`, `listcheck`, `bounds`, `adding`, `uploads`, `settings`, `plugins` (a plugin's
+settings as a form), and `main`, which starts it all.
 
 They are **plain scripts sharing one global scope, not modules**, on purpose: the dialogs hand each other
 state (`editing`, `checkJob`, `paths`), and an imported `let` cannot be assigned to. So a top-level name
 must be declared in exactly one file, and **only `main.js` may call anything as it loads**, since a
-script can then use what a later one declares. `index.html` loads them in order, `main.js` last. A new
+script can then use what a later one declares. The one exception is a plugin's own `dialog.js`, served from
+`/plugins/<name>/` and loaded on demand long after `main.js` has run, which registers itself in `pluginForms`
+as it loads. A part of the page only the built-in scraper has is marked `builtin-only`, and one only a
+plugin comic has `plugin-only`; a `with-plugin` class on the add section or the editor picks which shows. `index.html` loads them in order, `main.js` last. A new
 file needs a `<script>` tag there, and a new folder needs its two lines in `.gitignore`.
 `tests/test_web_status.py` runs the Result column's expression out of `js/library.js` by text, so moving
 that expression means moving the test's markers with it.
@@ -87,6 +96,22 @@ makes it its own root) and `npm test` in `reader/web`. `tests/test_contract.py` 
 relies on comiclib for, so **run it after any comiclib change**. Build with
 `docker build -f reader/Dockerfile -t comic-reader:0.1 .` from the repo root.
 
+### Scraper plugins
+
+A comic another program scrapes has `settings.scraper` (the plugin's folder name in `config/plugins/`) and
+`settings.plugin` (its settings; its address is `settings.url`, as every comic's is). `library.resume_argv`
+gives `run_plugin.py` just the comic, `batch.program` picks that over `mirror_base` and gives it a
+`--deadline` a little inside the batch's timeout - killed by the timeout instead, a long catch-up would be
+thrown away every day. The program runs in `<comic>/.plugin-staging/` and what it wrote is taken in after;
+a run killed part way leaves it there, and the next run takes in whatever of it is whole first. On Linux
+the program shares `run_plugin`'s process group, so the batch's `killpg` takes it too.
+
+Each plugin is the user's own, in its own repository, the program itself usually a submodule in its
+`tool/`. Nothing of a real plugin - nor the site it is for - is named in this repo; `examples/` holds the
+generic one. A plugin's `plugin.py` runs only in the process running its comic; the web page reads only its
+`plugin.json`. A plugin comic's chapters have `source: "plugin"`: never walked or aligned, packed by its
+pages' numbers (`numbered_pages`), the way a comic cut `every` so many pages is.
+
 Dependencies are **selenium and requests** today (`requirements.txt`). Adding one is allowed when it is
 genuinely needed, but it means rebuilding the container, which is a real cost to the person running this -
 so **say plainly whether a change needs a rebuild, a restart, or neither**. Prefer the standard library
@@ -106,11 +131,11 @@ where it is cheap to (`standin.py` draws PNGs and `comicinfo.py` reads image siz
   (see the wiki's Docker page, "Changing the scripts without rebuilding"). So **committing is not deploying**:
   the running copy is the mounted folder, and a new module has to reach it too or both scripts fail on
   import - `comiclib/` above all, which every script imports. `mirror_base.py`, `chapters.py`,
-  `adopt_comic.py` and `web_page/` take effect immediately; `update_comics.py`, `web_ui.py` and
+  `adopt_comic.py`, `run_plugin.py` and `web_page/` take effect immediately; `update_comics.py`, `web_ui.py` and
   anything in `comiclib/` need the container restarting, since the long-running process has them
   imported already (a scrape it starts imports `comiclib` afresh, but the web page does not).
-- **Settings live in `config/` beside the scripts** — `ComicScraper.json`, `element_paths.json`, and
-  `index/` (the per-comic record of which page is which). `MIRROR_CONFIG` overrides the folder,
+- **Settings live in `config/` beside the scripts** — `ComicScraper.json`, `element_paths.json`,
+  `index/` (the per-comic record of which page is which), and `plugins/` (each scraper plugin). `MIRROR_CONFIG` overrides the folder,
   `MIRROR_ELEMENTS` the element-path file. That folder is the user's own data: **never edit or delete
   anything in it.**
 - **The library is usually on a network share.** Listing a comic folder of a few thousand files takes
@@ -163,7 +188,7 @@ where it is cheap to (`standin.py` draws PNGs and `comicinfo.py` reads image siz
   `0` ok, `1` interrupted, `2` usage, `3` no image found, `4` download failed, `5` driver,
   `6` timeout, `7` unexpected, `8` next link runs backwards, `9` the site reuses filenames,
   `10` next link skips pages the comic's index lists, `11` the same picture found as the comic on page after
-  page.
+  page; and `run_plugin.py`'s own, `12` the plugin's program failed, `13` it ran out of time (what it got is kept).
 
 ## Testing
 

@@ -51,3 +51,14 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .move-plan div { padding: 1px 0; }
 .move-plan .stays { color: var(--warn); }
 .move-row { justify-content: flex-end; }
+/*a comic another program scrapes, through a plugin, has none of the built-in scraper's settings and its
+  plugin's instead. one class on the add section or the editor says which, rather than each part being
+  hidden by hand and one being missed*/
+.with-plugin .builtin-only { display: none !important; }
+#add-section:not(.with-plugin) .plugin-only, #editor:not(.with-plugin) .plugin-only { display: none !important; }
+/*a plugin's settings, drawn from what its plugin.json says each is, or by the plugin's own dialog.js*/
+.plugin-form { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+.plugin-form:empty { display: none; }
+.plugin-form input[type=text] { min-width: 240px; font-family: var(--mono); font-size: 12px; }
+.plugin-form input[type=number] { width: 90px; }
+.add-row .unused { visibility: hidden; }

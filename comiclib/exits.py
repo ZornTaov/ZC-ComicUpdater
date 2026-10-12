@@ -12,6 +12,9 @@ BACKWARDS = 8
 SAME_NAMES = 9
 SKIPS = 10
 REPEATS = 11
+#run_plugin's own: another program does the scraping for a plugin comic, and these say how that went
+TOOL_FAILED = 12
+TOOL_OUT_OF_TIME = 13
 
 class MirrorError(Exception):
     #a scrape failure that should end the run with a specific exit code
@@ -35,4 +38,6 @@ REASONS = {
     SAME_NAMES: "the site reuses image names between chapters; this comic needs prefix turned on",
     SKIPS: "next link skips pages the comic's record lists (check the site's next element)",
     REPEATS: "the same picture was found on page after page (check the site's image element)",
+    TOOL_FAILED: "the plugin's scraper failed (its own output says why)",
+    TOOL_OUT_OF_TIME: "the plugin's scraper ran out of time; what it fetched is kept, and the next run goes on",
 }

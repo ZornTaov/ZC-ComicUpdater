@@ -24,9 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# the program: the five commands, the page, and the package they all share. named one by one rather than
+# the program: the six commands, the page, and the package they all share. named one by one rather than
 # with a wildcard, so nothing else that happens to sit beside them ends up in a published image
-COPY mirror_base.py chapters.py update_comics.py adopt_comic.py web_ui.py /app/
+COPY mirror_base.py chapters.py update_comics.py adopt_comic.py web_ui.py run_plugin.py /app/
 COPY web_page/ /app/web_page/
 COPY comiclib/ /app/comiclib/
 

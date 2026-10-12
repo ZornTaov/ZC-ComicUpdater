@@ -18,7 +18,7 @@ from comiclib.chapters.index import KeptIndex
 from comiclib.chapters.links import same_page
 from comiclib.metadata import METADATA_FILE, now_stamp, read as read_metadata
 from comiclib.pages import clear_unfinished, held_pages, page_key, page_number, saved_name, write_page
-from comiclib.standin import NotAPicture, held_otherwise, note_body, note_name
+from comiclib.standin import NotAPicture, note_body, note_name
 from comiclib.paths import element_paths_file
 from comiclib.guards import would_lose_a_page
 #the scrape's own loop is this file; finding elements, pressing next and fetching an image are not, and
@@ -304,24 +304,7 @@ def output_folder(args):
 def cbz_update(args):
     #packs the pages into the comic's .cbz: a new archive if there is none, and otherwise only the pages it
     #does not hold yet, added to the end
-    folder = output_folder(args)
-    archive = os.path.abspath(args.cbz_path) if args.cbz_path else cbz.default_path(folder)
-    on_disk = sorted(f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)))
-    pages = [f for f in on_disk if f != metadata_file]
-    if not pages:
-        return None, 0
-    #a page no reader can show - a recording, a note saying where the video is - goes in as a drawn page
-    #saying so, named for the file with a png on the end so it falls where the page belongs. the file
-    #itself stays in the folder, which is the copy that keeps everything.
-    drawn = [name for name in pages if held_otherwise(folder, name)]
-    if drawn:
-        print("{0} page(s) no reader can show, which the archive gets a stand-in for: {1}{2}".format(
-            len(drawn), drawn[:3], "..." if len(drawn) > 3 else ""))
-    if not os.path.exists(archive):
-        #the metadata goes in last, as it does when one is added to, so its bytes can be reclaimed later
-        cbz.write(archive, folder, pages + [name for name in on_disk if name == metadata_file])
-        return archive, len(pages)
-    return archive, cbz.append(archive, folder, pages, superseded)
+    return cbz.update(output_folder(args), args.cbz_path, superseded)
 
 
 def page_images(driver, args):

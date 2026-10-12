@@ -11,9 +11,9 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from comiclib import moving
+from comiclib import moving, plugins
 from comiclib.paths import PROJECT
-from comiclib.web.adding import parse_entries
+from comiclib.web.adding import add_with_plugin, parse_entries
 from comiclib.web.edits import discard_walk, fix_chapter, insert_page, preview_move, save_config, save_settings
 from comiclib.web.edits import try_chapter_list
 from comiclib.web.elementpaths import element_settings, save_elements
@@ -33,20 +33,38 @@ page_kinds = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=ut
               ".js": "text/javascript; charset=utf-8"}
 
 
-def page_part(address):
-    #the file in the page's folder an address names, or None. resolved and then checked to still be inside
-    #the folder, so a request for /../config/ComicScraper.json reads nothing
-    name = unquote(address).lstrip("/") or "index.html"
-    full = os.path.normpath(os.path.join(page_folder, name))
+def inside(folder, name, kinds):
+    #the file a name means in this folder, or None. resolved and then checked to still be inside the folder,
+    #so a request for /../config/ComicScraper.json reads nothing
+    full = os.path.normpath(os.path.join(folder, name))
     try:
-        if os.path.commonpath([page_folder, full]) != page_folder:
+        if os.path.commonpath([folder, full]) != folder:
             return None
     except ValueError:
         #on windows, an address naming another drive, /C:/x, which join takes as absolute
         return None
-    if os.path.splitext(full)[1] not in page_kinds or not os.path.isfile(full):
+    if os.path.splitext(full)[1] not in kinds or not os.path.isfile(full):
         return None
     return full
+
+
+def page_part(address):
+    #the file in the page's folder an address names, or None
+    return inside(page_folder, unquote(address).lstrip("/") or "index.html", page_kinds)
+
+
+#what a plugin may add to the page: a script that draws its own form, and the look of it. its markup is
+#whatever that script builds, so no html of a plugin's is ever served
+plugin_kinds = {".js": page_kinds[".js"], ".css": page_kinds[".css"]}
+
+
+def plugin_part(address):
+    #/plugins/<name>/<file>: a file at the top of a plugin's own folder, never one further in - the program
+    #it runs sits below, in tool/, and is nothing the page needs
+    found = re.match(r"^/plugins/([^/]+)/([^/]+)$", unquote(address))
+    if not found or not plugins.NAME.match(found.group(1)):
+        return None
+    return inside(os.path.join(plugins.plugins_folder(), found.group(1)), found.group(2), plugin_kinds)
 
 
 def make_handler(runner, args, uc, tee):
@@ -89,7 +107,17 @@ def make_handler(runner, args, uc, tee):
             if not self.allowed():
                 return
             where = urlsplit(self.path)
-            if not where.path.startswith("/api/"):
+            if where.path.startswith("/plugins/"):
+                part = plugin_part(where.path)
+                if part is None:
+                    self.reply({"error": "not found"}, 404)
+                    return
+                try:
+                    with open(part, "rb") as f:
+                        self.reply(f.read(), kind=plugin_kinds[os.path.splitext(part)[1]])
+                except OSError as error:
+                    self.reply("could not read {0}: {1}".format(part, error).encode(), 500, "text/plain")
+            elif not where.path.startswith("/api/"):
                 #read on every request, so editing the page needs no restart
                 part = page_part(where.path)
                 if part is None:
@@ -123,6 +151,11 @@ def make_handler(runner, args, uc, tee):
                 })
             elif where.path == "/api/uploads":
                 self.reply({"uploads": pending(args.root)})
+            elif where.path == "/api/plugins":
+                #read afresh each time, so a plugin put in place shows up without a restart
+                found, problems = plugins.installed()
+                self.reply({"plugins": [plugin.view() for plugin in found], "problems": problems,
+                            "folder": plugins.plugins_folder()})
             elif where.path == "/api/config":
                 self.reply(config_view(args, uc))
             elif where.path == "/api/elements":
@@ -179,6 +212,9 @@ def make_handler(runner, args, uc, tee):
                 names = [str(name) for name in body.get("names") or []]
                 job = runner.submit_update(names, "Started from the web page")
                 self.reply({"queued": job.id, "label": job.label})
+            elif path == "/api/add" and body.get("scraper"):
+                status, result = add_with_plugin(body, runner, uc.with_config(args), uc)
+                self.reply(result, status)
             elif path == "/api/add":
                 entries, problems = parse_entries(body.get("rows") or body.get("entries") or [],
                                                   uc.with_config(args))

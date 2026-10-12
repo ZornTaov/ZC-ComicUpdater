@@ -1,6 +1,21 @@
 //Add comics: one row a comic, typed or filled from a pasted list, sent with the options beneath them
 
 let addRows = [{ folder: "", cbz: "", url: "", chapters: "" }];
+//the plugin whose program the comics being added are to be scraped by, or null for the built-in scraper
+let addPlugin = null;
+
+//the picker changed, or the plugins were read: the options the chosen scraper has, and no others
+function chooseScraper() {
+  addPlugin = pluginNamed($("add-scraper").value);
+  $("add-section").classList.toggle("with-plugin", !!addPlugin);
+  const address = addPlugin && addPlugin.fields.find((field) => field.key === "url");
+  $("add-head-url").textContent = !addPlugin ? "First page" : address ? (address.label || "Address") : "";
+  $("add-head-chapters").textContent = addPlugin ? "" : "Chapter list";
+  $("add-scraper-about").textContent = addPlugin ? (addPlugin.about || "") : "";
+  if (addPlugin) drawPluginForm($("add-plugin"), addPlugin, {}, ["url"]);
+  else clearPluginForm($("add-plugin"));
+  renderAddRows();
+}
 
 function defaultCbz(folder) {
   folder = folder.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
@@ -13,6 +28,12 @@ function renderAddRows() {
   const focus = document.activeElement;
   const where = focus && focus.dataset && focus.dataset.addField
     ? [focus.dataset.at, focus.dataset.addField, focus.selectionStart] : null;
+  //a plugin's comics have their chapters from it, and some plugins are given no address at all: the box
+  //keeps its place, so the rows are laid out the same whichever scraper is chosen
+  const address = addPlugin ? addPlugin.fields.find((field) => field.key === "url") : true;
+  const unusedUrl = address ? "" : "unused", unusedChapters = addPlugin ? "unused" : "";
+  const urlHint = addPlugin ? (address && address.placeholder) || "https://example.com/comic"
+    : "https://example.com/comic/first-page";
   $("add-rows").innerHTML = addRows.map((row, at) => `
     <div class="add-row">
       <input type="text" value="${esc(row.folder)}" data-at="${at}" data-add-field="folder" spellcheck="false"
@@ -20,9 +41,9 @@ function renderAddRows() {
       <input type="text" value="${esc(row.cbz)}" data-at="${at}" data-add-field="cbz" spellcheck="false"
         placeholder="${esc(defaultCbz(row.folder) || "MyComic/MyComic.cbz")}">
       <input type="text" value="${esc(row.url)}" data-at="${at}" data-add-field="url" spellcheck="false"
-        placeholder="https://example.com/comic/first-page">
+        class="${unusedUrl}" placeholder="${esc(urlHint)}">
       <input type="text" value="${esc(row.chapters || "")}" data-at="${at}" data-add-field="chapters" spellcheck="false"
-        placeholder="archive page, for chapters">
+        class="${unusedChapters}" placeholder="archive page, for chapters">
       <button type="button" class="small" data-drop-row="${at}" ${addRows.length === 1 ? "disabled" : ""} title="remove">✕</button>
     </div>`).join("");
   if (where) {
@@ -73,12 +94,24 @@ $("add-more").addEventListener("click", () => {
   inputs[inputs.length - 1].focus();
 });
 
+$("add-scraper").addEventListener("change", chooseScraper);
+
+//what is sent for comics a plugin's program scrapes: the rows, but for a chapter list, and its settings
+function pluginAdd() {
+  return {
+    scraper: addPlugin.name,
+    rows: addRows.map((row) => ({ folder: row.folder, cbz: row.cbz, url: row.url })),
+    plugin: readPluginForm($("add-plugin")),
+    cbz: $("cbz").checked,
+  };
+}
+
 $("add").addEventListener("click", async () => {
   const msg = $("add-msg");
   msg.className = "msg";
   msg.textContent = "";
   try {
-    const result = await post("/api/add", {
+    const result = addPlugin ? await post("/api/add", pluginAdd()) : await post("/api/add", {
       rows: addRows,
       prime: $("prime").checked,
       prefix: $("prefix").checked,

@@ -3,6 +3,7 @@
 import os
 import re
 
+from comiclib import plugins
 from comiclib.metadata import METADATA_FILE
 
 
@@ -31,10 +32,10 @@ def clean_folder(text):
     return "/".join(parts)
 
 
-def parse_entries(rows, args):
+def parse_entries(rows, args, url_needed=True):
     #one comic per row: where its pages go, where its archive goes, and the page to start from. the two
     #folders are given relative to the library's pages and archive folders, since that is all that differs
-    #between one comic and the next.
+    #between one comic and the next. a comic scraped by a plugin that takes no address has none to give.
     entries, problems = [], []
     for number, row in enumerate(rows or [], 1):
         if isinstance(row, str):
@@ -48,7 +49,7 @@ def parse_entries(rows, args):
         if listing and not re.match(r"^https?://\S+$", listing):
             problems.append("row {0}: the chapter list has to be an http(s) address".format(number))
             continue
-        if not re.match(r"^https?://\S+$", url):
+        if url_needed and not re.match(r"^https?://\S+$", url):
             problems.append("row {0}: needs one http(s) address".format(number))
             continue
         if folder is None:
@@ -72,3 +73,34 @@ def parse_entries(rows, args):
             problems.append("{0} is listed twice".format(pages_at))
         seen.add(pages_at)
     return entries, problems
+
+
+def add_with_plugin(body, runner, args, uc):
+    #comics another program scrapes, through the plugin named: the same rows as any comic, but for a chapter
+    #list, which the program's chapters stand in for, and the plugin's own settings, shared by every row but
+    #the address each row has. (status, answer)
+    try:
+        plugin = plugins.load(str(body.get("scraper")), with_hooks=False)
+    except plugins.PluginError as error:
+        return 400, {"error": str(error)}
+    rows = body.get("rows") or []
+    if any(str((row or {}).get("chapters") or "").strip() for row in rows if isinstance(row, dict)):
+        return 400, {"error": "a comic scraped by {0} has its chapters from it, so leave the chapter list "
+                              "empty".format(plugin.title)}
+    found, problems = parse_entries(rows, args, url_needed=plugin.field("url") is not None)
+    shared = dict(body.get("plugin") or {})
+    entries = []
+    for pages_at, archive_at, url, _ in found:
+        given = dict(shared, url=url) if plugin.field("url") else shared
+        values, wrong = plugins.check_values(plugin, given)
+        for problem in wrong:
+            if problem not in problems:
+                problems.append(problem)
+        entries.append((pages_at, archive_at, values))
+    if problems:
+        return 400, {"error": "; ".join(problems)}
+    if not entries:
+        return 400, {"error": "no comics given"}
+    keep = body["cbz"] if "cbz" in body else uc.load_config().get("add_defaults", {}).get("cbz", True)
+    job = runner.submit_plugin_add(plugin, entries, bool(keep))
+    return 200, {"queued": job.id, "label": job.label}

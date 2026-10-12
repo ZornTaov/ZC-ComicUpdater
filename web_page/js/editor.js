@@ -52,6 +52,16 @@ async function openEditor(name) {
     : "Working these out walks the comic once, downloading nothing. It can take a few minutes. ")
     + "Leave it blank to read the chapters out of the comic's own page addresses instead.";
   $("e-discard-walk").hidden = !detail.stale_walk;
+  //a comic another program scrapes has its plugin's settings, and none of the built-in scraper's
+  const plugin = detail.plugin;
+  $("editor").classList.toggle("with-plugin", !!plugin);
+  if (plugin && !plugin.error) {
+    $("e-plugin-note").textContent = `${plugin.title}'s settings. Its chapters come from it, as it fetches them.`;
+    drawPluginForm($("e-plugin"), plugin, pluginValues(s));
+  } else {
+    clearPluginForm($("e-plugin"));
+    $("e-plugin-note").textContent = plugin ? plugin.error : "";
+  }
   showDecision(detail.decide);
   flags.forEach((key) => { $("e-" + key).checked = onByDefault.includes(key) ? s[key] !== false : !!s[key]; });
   const next = detail.pages_in_folder + 1;
@@ -168,10 +178,11 @@ $("e-move-go").addEventListener("click", async () => {
 async function saveEditor(updateAfter) {
   const msg = $("edit-msg");
   msg.className = "msg"; msg.textContent = "Saving…";
-  const settings = {
-    url: $("e-url").value, increment: $("e-increment").value, cbz_path: $("e-cbz_path").value,
-    waittime: $("e-waittime").value, chapters_url: $("e-chapters").value, chapters_every: $("e-every").value,
-  };
+  //a plugin comic's address is one of its plugin's settings, and its chapters come from the plugin
+  const settings = editing.plugin
+    ? { cbz_path: $("e-cbz_path").value, plugin: readPluginForm($("e-plugin")) }
+    : { url: $("e-url").value, increment: $("e-increment").value, cbz_path: $("e-cbz_path").value,
+        waittime: $("e-waittime").value, chapters_url: $("e-chapters").value, chapters_every: $("e-every").value };
   flags.forEach((key) => { settings[key] = $("e-" + key).checked; });
   try {
     const result = await post("/api/settings", { name: editing.name, updated: editing.updated, settings, update_after: updateAfter });

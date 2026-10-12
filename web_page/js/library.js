@@ -41,7 +41,8 @@ function renderComics() {
     const bad = c.problem || (c.exit_code && c.exit_code !== 0);
     return `<tr class="${c.ended ? "ended" : ""} ${c.problem ? "problem" : ""}">
       <td><input type="checkbox" data-name="${esc(c.name)}" ${checked.has(c.name) ? "checked" : ""} ${c.ended || c.problem ? "disabled" : ""}></td>
-      <td class="name">${c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noreferrer" style="color:inherit">${esc(c.name)}</a>` : esc(c.name)}</td>
+      <td class="name">${c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noreferrer" style="color:inherit">${esc(c.name)}</a>` : esc(c.name)}${
+        c.scraper ? `<span class="tag scraper" title="scraped by the ${esc(c.scraper)} plugin">${esc(c.scraper)}</span>` : ""}</td>
       <td class="num">${c.pages ?? ""}</td>
       <td class="muted wide-only" style="white-space:nowrap">${esc(when(c.updated))}</td>
       <td class="wide-only ${bad ? "s-failed" : waiting ? "s-waiting" : "muted"}">${esc(result)}</td>

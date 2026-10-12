@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-from comiclib import metadata as sidecar
+from comiclib import metadata as sidecar, plugins
 from comiclib.chapters.index import reaches_newest, read_index
 
 
@@ -82,8 +82,21 @@ def library_view(args, uc):
             #page, which is not the same thing as having nothing left to fetch
             "completed": last.get("completed"),
             "problem": comic.skipped,
+            #the plugin whose program scrapes it, for a comic mirror_base does not
+            "scraper": settings.get("scraper"),
         })
     return rows
+
+
+def plugin_view(settings):
+    #what the editor needs to show a plugin comic's own settings: its plugin's fields, and whether it draws
+    #its own form. a plugin that has gone missing is said so, rather than the comic failing to open
+    if not settings.get("scraper"):
+        return None
+    try:
+        return plugins.load(settings["scraper"], with_hooks=False).view()
+    except plugins.PluginError as error:
+        return {"name": settings["scraper"], "error": str(error), "fields": []}
 
 
 def find_comic(args, uc, name):
@@ -200,6 +213,7 @@ def comic_detail(args, uc, runner, name):
         "name": comic.name,
         "updated": metadata.get("updated"),
         "settings": metadata.get("settings") or {},
+        "plugin": plugin_view(metadata.get("settings") or {}),
         "chapters": {"source_url": chapters.get("source_url"), "count": len(chapters.get("list") or []),
                      "packed": chapters.get("packed"), "folder": chapters.get("folder"),
                      "source": chapters.get("source"), "every": chapters.get("every"),

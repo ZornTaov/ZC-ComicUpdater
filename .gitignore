@@ -23,6 +23,18 @@
 !update_comics.py
 !adopt_comic.py
 !chapters.py
+!run_plugin.py
+
+# the example scraper plugin, a template for writing one and what the suite runs. a library's own plugins
+# live in its config folder, each in a repository of its own, and are never named here
+!examples/
+!examples/plugins/
+!examples/plugins/example/
+!examples/plugins/example/plugin.json
+!examples/plugins/example/*.py
+!examples/plugins/example/*.js
+!examples/plugins/example/tool/
+!examples/plugins/example/tool/*.py
 
 # what the scripts share. two lines, because * matches at every depth: the folder first, then its files
 !comiclib/

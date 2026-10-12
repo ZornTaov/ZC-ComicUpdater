@@ -7,9 +7,10 @@ import subprocess
 import sys
 import time
 
-from comiclib import moving
+from comiclib import moving, plugins
 from comiclib.chapters.index import index_path, set_aside
 from comiclib.metadata import write_json
+from comiclib.plugins import field_value
 from comiclib.web.adding import clean_folder
 from comiclib.web.views import find_comic, is_moving, is_running, read_metadata, walk_needed
 
@@ -28,6 +29,8 @@ editable = {
     "multi_page": "flag",
     "ended": "flag",
 }
+#of those, the ones a comic another program scrapes has too: everything else is mirror_base's own
+plugin_kept = ("cbz", "cbz_path", "ended")
 max_edits = 50
 
 
@@ -131,27 +134,30 @@ def clean_settings(given):
     for key, kind in editable.items():
         if key not in given:
             continue
-        value = given[key]
-        if kind == "flag":
-            cleaned[key] = bool(value)
-        elif kind == "count":
-            try:
-                number = int(str(value).strip() or 0)
-                if number < 0:
-                    raise ValueError
-                cleaned[key] = number
-            except ValueError:
-                problems.append("{0} must be a whole number, 0 or more".format(key))
-        elif kind == "url":
-            text = str(value or "").strip()
-            if not re.match(r"^https?://\S+$", text):
-                problems.append("the start page must be a full http(s) address")
-            else:
-                cleaned[key] = text
-        else:
-            text = str(value or "").strip()
-            cleaned[key] = text or None
+        try:
+            cleaned[key] = field_value(kind, given[key])
+        except ValueError:
+            problems.append("the start page must be a full http(s) address" if kind == "url"
+                            else "{0} must be a whole number, 0 or more".format(key))
     return cleaned, problems
+
+
+def plugin_settings(settings, given):
+    #a plugin comic's settings as sent: its plugin's own, checked against what its plugin.json says each is,
+    #and of the rest only what any comic has whoever scrapes it. (cleaned, the plugin's, problems)
+    try:
+        plugin = plugins.load(settings["scraper"], with_hooks=False)
+    except plugins.PluginError as error:
+        return {}, {}, [str(error)]
+    cleaned, problems = clean_settings({key: given[key] for key in plugin_kept if key in given})
+    sent = dict(given.get("plugin") or {})
+    if "url" in given and plugin.field("url"):
+        sent["url"] = given["url"]
+    values, wrong = plugins.check_values(plugin, sent, partial=True)
+    url, own = plugins.split_values(values)
+    if "url" in values:
+        cleaned["url"] = url
+    return cleaned, own, problems + wrong
 
 
 def save_settings(args, uc, runner, name, given, expected_updated):
@@ -163,21 +169,31 @@ def save_settings(args, uc, runner, name, given, expected_updated):
         return 409, {"error": "{0} is being scraped right now; stop it or wait for it to finish".format(name)}
     if is_moving(runner, comic.name):
         return 409, {"error": "{0} is being moved; reopen it once the move has finished".format(name)}
-    cleaned, problems = clean_settings(given)
-    if problems:
-        return 400, {"error": "; ".join(problems)}
-
     path = os.path.join(comic.folder, uc.metadata_file)
     try:
         metadata = read_metadata(path)
     except (OSError, ValueError) as error:
         return 500, {"error": "could not read {0}: {1}".format(path, error)}
+    settings = dict(metadata.get("settings") or {})
+    own = None
+    if settings.get("scraper"):
+        cleaned, own, problems = plugin_settings(settings, given)
+        #a plugin comic's chapters come from its runs, not from an archive page or a size to cut at
+        given = dict(given, chapters_url=None, chapters_every=None)
+    else:
+        cleaned, problems = clean_settings(given)
+    if problems:
+        return 400, {"error": "; ".join(problems)}
     if expected_updated and metadata.get("updated") != expected_updated:
         return 409, {"error": "the metadata changed since it was opened (a run may have written it). "
                               "Reopen it and make the change again."}
 
-    settings = dict(metadata.get("settings") or {})
     changed = {key: [settings.get(key), value] for key, value in cleaned.items() if settings.get(key) != value}
+    if own:
+        was = dict(settings.get("plugin") or {})
+        changed.update(("plugin." + key, [was.get(key), value]) for key, value in own.items() if was.get(key) != value)
+        was.update(own)
+        cleaned["plugin"] = was
 
     #the chapter list is not a scraping setting, so it lives beside them rather than among them
     listing = given.get("chapters_url")

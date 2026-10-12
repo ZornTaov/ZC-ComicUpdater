@@ -1,0 +1,13 @@
+{
+  "name": "Example",
+  "version": 1,
+  "about": "Draws a made-up series, one archive per chapter, so a plugin can be tried with nothing fetched. Copy this folder into the config folder's plugins/ to use it.",
+  "command": ["{python}", "{tool}/fake_scraper.py", "{url}",
+              ["--chapters", "{chapters}"], ["--pages", "{pages}"], ["--after", "{last_chapter}"]],
+  "output": "chapter-cbz",
+  "fields": [
+    {"key": "url", "type": "url", "label": "Series address"},
+    {"key": "chapters", "type": "count", "label": "Chapters it has", "default": 3},
+    {"key": "pages", "type": "count", "label": "Pages in each chapter", "default": 2}
+  ]
+}

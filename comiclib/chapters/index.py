@@ -327,6 +327,12 @@ def walk(folder, args):
             len(held), cache))
         os.remove(cache)
     metadata = read_metadata(folder)
+    if (metadata.get("settings") or {}).get("scraper"):
+        #another program scrapes this comic, and keeps what it knows of the site to itself: the pages it
+        #gave are numbered as they were taken in, which says which is which without a walk
+        print("ERROR: {0} is scraped by the {1} plugin, which mirror_base cannot walk. Its chapters come from "
+              "the plugin's runs.".format(folder, metadata["settings"]["scraper"]))
+        return None
     history = metadata.get("history") or {}
     if not start and not os.path.exists(cache):
         if history.get("first_page_number") in (0, 1) and history.get("first_page_url"):

@@ -11,6 +11,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from comiclib.pages import address_name
+
 #set by the scrape from its --verbose, for saying each path that did not match
 verbose = False
 
@@ -142,9 +144,11 @@ def comic_images(srcs, where=None):
     #with nothing to tell them apart, every match is kept: leaving a page out is the failure worth avoiding.
     if len(srcs) < 2:
         return srcs
-    numbered = [src for src in srcs if re.search(r'\d', src.rsplit('/', 1)[-1].split('?')[0])]
+    #by the name a scrape would save it under: a site serving each page as /comic-image/1650573/?token=...
+    #names it by the part before the slash, and what follows the last slash is only the token
+    numbered = [src for src in srcs if re.search(r'\d', address_name(src))]
     if numbered and len(numbered) < len(srcs):
-        left = [src.rsplit('/', 1)[-1] for src in srcs if src not in numbered]
+        left = [address_name(src) for src in srcs if src not in numbered]
         #named, because a walk of a few thousand pages says this a few dozen times and every one of them
         #is a page worth looking at yourself: the line is no use without knowing which page it came from
         print("{0}: ignoring {1} image(s) that carry no page number, so are not pages: {2}".format(

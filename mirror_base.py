@@ -859,7 +859,13 @@ def main():
         exit_code = EXIT_UNEXPECTED
         print("\nERROR: Unexpected {0}: {1}".format(type(error).__name__, error))
     finally:
-        print("The last page was at {0}.".format(current_url))
+        #where the next run starts, which is not always where the browser stopped: a next link that led to
+        #a page with no comic on it - a teaser for subscribers, the front page - leaves the browser there,
+        #and "the last page was at" that page read as though the run would carry on from it
+        carry_on = (runrecord.resume_point(scrape_state)[0] if scrape_state["pages_saved"] else None) or args.URL
+        print("The next run carries on from {0}{1}.".format(
+            carry_on, "" if not current_url or same_page(current_url) == same_page(carry_on)
+            else " (the browser stopped at {0})".format(current_url)))
 
         #final write, now that we know whether the comic ran to the end and where it stopped
         metadata_path = metadata_save(driver, args, completed, exit_code)

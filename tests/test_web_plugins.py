@@ -98,6 +98,33 @@ def visible(browser, element_id):
 
 @pytest.mark.browser
 @pytest.mark.slow
+def test_a_plugin_list_that_could_not_be_had_is_asked_for_again(library, config, web, browser):
+    #the list is asked for once as the page opens. a request that failed left it empty, and the picker
+    #hidden, until the page was reloaded - so the page is made to fail it, and must ask again
+    install(config)
+    page = web()
+    open_page(browser, page.base + "/")
+    wait_until(lambda: visible(browser, "add-scraper-row"), why="the picker never showed")
+    browser.execute_script("""
+      const real = window.fetch;
+      let refused = 0;
+      window.fetch = (address, ...rest) => {
+        if (String(address).includes("/api/plugins") && refused < 2) {
+          refused++;
+          return Promise.resolve(new Response("busy", {status: 503}));
+        }
+        return real(address, ...rest);
+      };
+      pluginList = [];
+      showScrapers();
+      loadPlugins(100);
+    """)
+    assert not visible(browser, "add-scraper-row"), "the picker should hide while there is no list"
+    wait_until(lambda: visible(browser, "add-scraper-row"), limit=15, why="the list was never asked for again")
+
+
+@pytest.mark.browser
+@pytest.mark.slow
 def test_the_picker_is_hidden_without_plugins_and_built_in_sends_what_it_always_did(library, config, web, browser):
     page = web()
     open_page(browser, page.base + "/")

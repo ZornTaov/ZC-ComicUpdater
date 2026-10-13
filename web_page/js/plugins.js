@@ -14,13 +14,18 @@ let pluginList = [];
 const pluginForms = {};
 const pluginScripts = {};
 
-async function loadPlugins() {
+//asked once as the page opens, and asked again until it is answered: a request that failed - the server
+//busy, a restart under way - left the list empty, and the Scraper picker hidden, until the page was reloaded
+async function loadPlugins(wait = 2000) {
   try {
-    const found = await (await fetch(api("/api/plugins"))).json();
+    const response = await fetch(api("/api/plugins"));
+    if (!response.ok) throw new Error(response.statusText);
+    const found = await response.json();
     pluginList = found.plugins || [];
     (found.problems || []).forEach((problem) => console.warn("plugin: " + problem));
   } catch (error) {
-    pluginList = [];
+    console.warn("could not list the plugins, asking again: " + error.message);
+    setTimeout(() => loadPlugins(Math.min(wait * 2, 30000)), wait);
   }
   showScrapers();
 }

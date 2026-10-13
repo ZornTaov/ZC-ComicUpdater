@@ -51,5 +51,8 @@ def test_a_locked_teaser_is_not_saved_as_the_newest_page(site, library, config):
     done = run("mirror_base.py", "-o", out, "--no-cbz", "-p", "-i", "2", site + "/c/2")
     assert done.returncode == 0, done.stdout[-800:]
     assert pages_in(out) == ["0001_0001.png", "0002_0002.png", "0003_0003.png"], pages_in(out)
-    #the next run carries on from the last real page, and finds page 4 once it is out
+    #the next run carries on from the last real page, and finds page 4 once it is out - and says so, rather than
+    #naming the teaser the browser was left on as where the run got to
     assert read_meta(out)["settings"]["url"] == site + "/c/3"
+    said = "The next run carries on from {0}/c/3 (the browser stopped at {0}/c/4).".format(site)
+    assert said in done.stdout, done.stdout[-600:]

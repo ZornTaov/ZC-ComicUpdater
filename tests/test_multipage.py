@@ -206,6 +206,10 @@ def test_comic_images_on_its_own(mb):
         "one image is never filtered"
     assert mb.comic_images(["https://example.com/1.png", "https://example.com/next.png?v=2"]) == \
         ["https://example.com/1.png"], "a query string does not make a button a page"
+    #a page served from an address ending in a slash and a token is named by the part before the slash, as a
+    #scrape saves it, and is the numbered one - not left out as though the token were its name
+    page = "https://example.com/comic-image/1650573/?token=ab12&expires=9"
+    assert mb.comic_images([page, "https://example.com/img/logo.png"]) == [page]
     driver = FakeDriver(mb).at("u", ["https://example.com/1.png", "https://example.com/1.png"])
     assert mb.ele_get_all(driver, COMIC) == ["https://example.com/1.png"], "the same image twice is one page"
 

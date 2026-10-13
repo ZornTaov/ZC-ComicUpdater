@@ -9,6 +9,7 @@ import os
 import re
 import sys
 
+from comiclib import pluginenv
 from comiclib.metadata import METADATA_FILE, now_stamp, write as write_metadata
 from comiclib.paths import config_folder
 
@@ -51,6 +52,25 @@ class Plugin:
         self.output = manifest.get("output") or "pages"
         self.fields = manifest.get("fields") or []
         self.command = manifest.get("command")
+        #the python its program runs with: the updater's own, until ready() finds it has a venv of its own
+        self.python = sys.executable
+
+    def ready(self, say=print):
+        #what its program needs, there before it is run: the programs it names found, and its packages
+        #installed. PluginError says what is missing and what to do about it
+        missing = pluginenv.missing_programs(self.manifest)
+        if missing:
+            raise PluginError("{0} needs {1}, which this image does not have. Ask for it to be added to the "
+                              "image, or run the plugin somewhere that has it".format(self.name, ", ".join(missing)))
+        try:
+            self.python = pluginenv.ensure(self.folder, self.manifest, say)
+        except pluginenv.EnvError as error:
+            raise PluginError("{0}: {1}".format(self.name, error))
+        return self
+
+    @property
+    def is_repository(self):
+        return os.path.isdir(os.path.join(self.folder, ".git")) or os.path.isfile(os.path.join(self.folder, ".git"))
 
     @property
     def has_dialog(self):
@@ -66,7 +86,9 @@ class Plugin:
         #what the web page is told about it
         return {"name": self.name, "title": self.title, "output": self.output, "fields": self.fields,
                 "about": self.manifest.get("about"), "dialog": self.has_dialog,
-                "style": os.path.isfile(os.path.join(self.folder, STYLE))}
+                "style": os.path.isfile(os.path.join(self.folder, STYLE)), "version": self.version,
+                "repository": self.is_repository, "env": pluginenv.state(self.folder, self.manifest),
+                "missing": pluginenv.missing_programs(self.manifest)}
 
 
 def check_manifest(name, manifest, has_hooks):
@@ -93,6 +115,26 @@ def check_manifest(name, manifest, has_hooks):
         if field["key"] in seen:
             raise PluginError("{0}'s {1} names the field {2} twice".format(name, MANIFEST, field["key"]))
         seen.add(field["key"])
+    #what names its folder, and so the comics that use it: a folder of another name was put there by hand,
+    #and installing it again from its repository would put it beside itself
+    own = manifest.get("id")
+    if own is not None and (not isinstance(own, str) or not NAME.match(own)):
+        raise PluginError("{0}'s {1} has an id of {2!r}; it has to be letters, digits, '.', '_' and '-'".format(
+            name, MANIFEST, own))
+    if own is not None and own != name:
+        raise PluginError("{0}'s {1} says its id is {2}, so its folder has to be named {2} too. Rename the "
+                          "folder, and the scraper in the settings of any comic that uses it".format(
+                              name, MANIFEST, own))
+    install = manifest.get("install")
+    if install is not None and not (isinstance(install, dict)
+                                    and isinstance(install.get("pip", []), list)
+                                    and all(isinstance(bit, str) for bit in install.get("pip", []))
+                                    and isinstance(install.get("requirements", ""), str)):
+        raise PluginError("{0}'s install has to be {{\"pip\": [\"package\", ...], \"requirements\": "
+                          "\"tool/requirements.txt\"}}, either or both".format(name))
+    needs = manifest.get("needs")
+    if needs is not None and not (isinstance(needs, list) and all(isinstance(bit, str) for bit in needs)):
+        raise PluginError("{0}'s needs has to list the programs it runs, [\"ffmpeg\", ...]".format(name))
     command = manifest.get("command")
     if command is None and not has_hooks:
         raise PluginError("{0}'s {1} has no command, and it has no {2} to build one. Add "
@@ -252,7 +294,7 @@ def command_values(plugin, settings, state, staging):
             values[key] = (field.get("option") or "--" + key.replace("_", "-")) if on else None
         else:
             values[key] = given.get(key)
-    values.update(python=sys.executable, plugin=plugin.folder, tool=os.path.join(plugin.folder, "tool"),
+    values.update(python=plugin.python, plugin=plugin.folder, tool=os.path.join(plugin.folder, "tool"),
                   staging=staging)
     return values
 
@@ -263,6 +305,10 @@ def build_command(plugin, settings, state, staging):
     own = plugin.hook("build_command")
     if own is not None:
         command = own(settings, state, staging)
+        #a plugin.py written before plugins had packages of their own starts its program with the python
+        #it was loaded by, which would not see them
+        if command and command[0] == sys.executable:
+            command = [plugin.python] + list(command[1:])
     else:
         command = fill(plugin.command, command_values(plugin, settings, state, staging))
     if not command or not all(isinstance(word, str) for word in command):

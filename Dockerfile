@@ -13,10 +13,12 @@ ENV PYTHONUNBUFFERED=1 \
     MIRROR_DRIVER_BINARY=/usr/bin/chromedriver \
     MIRROR_BROWSER_ARGS=--no-sandbox
 
-# chromium-driver comes from the same repository as chromium, so the two versions always agree
+# chromium-driver comes from the same repository as chromium, so the two versions always agree. git is for
+# scraper plugins, which are installed and updated from their repositories, their programs as submodules
 RUN apt-get update && apt-get install -y --no-install-recommends \
         chromium \
         chromium-driver \
+        git \
         tzdata \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*

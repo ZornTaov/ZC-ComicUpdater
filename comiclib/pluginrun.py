@@ -125,6 +125,14 @@ def run_comic(folder, deadline):
     except plugins.PluginError as error:
         print("ERROR: {0}".format(error))
         return exits.USAGE
+    #its packages, installed now if this is its first run or a new image has come since the last. a failure
+    #is the program's not being able to run, so it is counted as the program failing, day after day, until
+    #it is fixed - and what a run killed part way left behind is still there for the run that can
+    try:
+        plugin.ready(lambda line: print(line, flush=True))
+    except plugins.PluginError as error:
+        print("ERROR: {0}".format(error), flush=True)
+        return exits.TOOL_FAILED
 
     started = now_stamp()
     state = dict((metadata.get("state") or {}).get("plugin") or {})

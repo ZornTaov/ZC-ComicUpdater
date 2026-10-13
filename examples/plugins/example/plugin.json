@@ -1,4 +1,5 @@
 {
+  "id": "example",
   "name": "Example",
   "version": 1,
   "about": "Draws a made-up series, one archive per chapter, so a plugin can be tried with nothing fetched. Copy this folder into the config folder's plugins/ to use it.",

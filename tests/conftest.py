@@ -365,11 +365,11 @@ def console_errors(driver):
 # ---------------- the web page ----------------
 class WebUI:
     #update_comics serving its page over a library, and a client for its api
-    def __init__(self, root, config, password=None, extra=()):
+    def __init__(self, root, config, password=None, extra=(), env=None):
         self.port = free_port()
         self.base = "http://127.0.0.1:{0}".format(self.port)
         self.password = password
-        env = {"MIRROR_WEB_PASSWORD": password} if password else {}
+        env = dict(env or {}, **({"MIRROR_WEB_PASSWORD": password} if password else {}))
         self.process = subprocess.Popen(
             [sys.executable, os.path.join(PROJECT, "update_comics.py"), str(root), "--web", str(self.port),
              "--web-host", "127.0.0.1", "--progress", "0", "--config", str(config)] + list(extra),
@@ -437,8 +437,8 @@ def web(library, config):
     #the page over this test's library. started on first use, so a test can set the library up first
     started = []
 
-    def start(password=None, extra=()):
-        page = WebUI(library, config, password, extra)
+    def start(password=None, extra=(), env=None):
+        page = WebUI(library, config, password, extra, env)
         started.append(page)
         return page
 

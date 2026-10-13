@@ -4,12 +4,13 @@
 #scraper, the way it runs mirror_base for the rest.
 #
 #this is the command; the work is in comiclib - plugins (finding one, its settings, its command), intake
-#(taking in what it wrote) and pluginrun (one run).
+#(taking in what it wrote), pluginrun (one run), pluginenv (its packages) and pluginfetch (installing a
+#plugin from its repository).
 import argparse
 import os
 import sys
 
-from comiclib import exits, plugins
+from comiclib import exits, pluginfetch, plugins
 from comiclib.pluginrun import run
 
 
@@ -30,7 +31,24 @@ def setup():
                         help="Seconds the plugin's program may run before it is stopped and what it "
                              "fetched is taken in. 0, the default, is no limit.")
     params.add_argument("--list", action="store_true", help="List the plugins there are, and their settings.")
+    params.add_argument("--install", metavar="GIT_ADDRESS",
+                        help="Install a plugin from its git repository, with its tool and its packages.")
+    params.add_argument("--ref", help="With --install: the branch or tag to install, if not the default branch.")
+    params.add_argument("--update", metavar="PLUGIN",
+                        help="Bring an installed plugin up to date from its repository, and its packages.")
     return params
+
+
+def fetch(args):
+    try:
+        if args.install:
+            pluginfetch.install(args.install, args.ref)
+        else:
+            pluginfetch.update(args.update)
+    except (pluginfetch.FetchError, plugins.PluginError, OSError) as error:
+        print("ERROR: {0}".format(error))
+        return exits.USAGE
+    return exits.OK
 
 
 def list_plugins():
@@ -39,7 +57,11 @@ def list_plugins():
         print("No plugins in {0}. A plugin is a folder there holding a plugin.json.".format(
             plugins.plugins_folder()))
     for plugin in found:
-        print("{0}  ({1}, {2})".format(plugin.name, plugin.title, plugin.output))
+        view = plugin.view()
+        print("{0}  ({1}, {2}{3}{4})".format(
+            plugin.name, plugin.title, plugin.output,
+            ", packages {0}".format(view["env"]) if view["env"] else "",
+            ", MISSING {0}".format(", ".join(view["missing"])) if view["missing"] else ""))
         for field in plugin.fields:
             print("    {0:<20} {1:<6} {2}".format(field["key"], field["type"], field.get("label") or ""))
     for problem in problems:
@@ -90,6 +112,8 @@ def main(argv=None):
     args = params.parse_args(argv)
     if args.list:
         return list_plugins()
+    if args.install or args.update:
+        return fetch(args)
     if not args.folder:
         params.print_usage()
         return exits.USAGE

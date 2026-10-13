@@ -62,3 +62,10 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .plugin-form input[type=text] { min-width: 240px; font-family: var(--mono); font-size: 12px; }
 .plugin-form input[type=number] { width: 90px; }
 .add-row .unused { visibility: hidden; }
+/*the Plugins dialog: a row a plugin, what it is on the left and what can be done to it on the right. a
+  plugin's about is a sentence or two and wraps rather than push its buttons off the edge*/
+.plugin-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--line);
+  font-size: 13px; overflow-wrap: anywhere; }
+.plugin-row .grow { flex: 1; min-width: 0; }
+.plugin-row > span { white-space: nowrap; }
+#plugins .bad { color: var(--bad); }

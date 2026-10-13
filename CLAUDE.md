@@ -22,7 +22,7 @@ archives, and keep them up to date unattended.
 | `web_page/` | ~1500 | The whole front end, no build step: `index.html`, `css/`, and `js/` with one plain script per part of the page. See "The web page" below |
 | `update_comics.py` | ~190 | The long-running process: its arguments, the schedule loop, and starting the web page. The work is `comiclib` `config`, `library`, `batch` and `schedule` |
 | `adopt_comic.py` | ~120 | Takes a folder of pages someone else scraped and makes it a comic this tool can update. The work is `comiclib/adopt/`: `scan`, `report`, `adopting` |
-| `run_plugin.py` | ~110 | Runs a comic another program scrapes, through its plugin in `config/plugins/`; `--add` starts one, `--list` shows the plugins. The work is `comiclib` `plugins`, `intake`, `pluginrun`. See "Scraper plugins" below |
+| `run_plugin.py` | ~130 | Runs a comic another program scrapes, through its plugin in `config/plugins/`; `--add` starts one, `--list` shows the plugins, `--install`/`--update` fetch one from its repository. The work is `comiclib` `plugins`, `intake`, `pluginrun`, `pluginenv`, `pluginfetch`. See "Scraper plugins" below |
 | `examples/plugins/example/` | ~200 | The example plugin: a template for writing one, and what the suite runs. Its `tool/` draws a made-up series |
 | `comiclib/` | ~760 | What more than one script needs to agree on, below |
 | `reader/` | ~1500 | A separate program: a PerfectViewer-style web reader for the library, in its own image. See "The reader" below |
@@ -40,6 +40,8 @@ archives, and keep them up to date unattended.
 | `plugins` | Finding a plugin, checking its `plugin.json` and a comic's settings against its fields, building its command, a plugin comic's first metadata |
 | `intake` | Taking in what a plugin's program wrote: pages numbered on, a chapter's name in each of its pages' names (or every chapter's `001.jpg` is one `page_key`), nothing written over, the same file fetched again not taken twice, chapters added to the list |
 | `pluginrun` | One plugin run: leftovers of a killed run taken in, the program run in the staging folder until its deadline, the run recorded, the single archive kept |
+| `pluginenv` | A plugin's python packages (`install` in its `plugin.json`), in a `.venv` of its own in its folder, built again when its stamp says another python or another ask; and the programs it `needs`, only looked for |
+| `pluginfetch` | Installing a plugin from its git repository (cloned aside, checked, renamed to its `id`), updating it, removing one no comic uses, and whether the web page may (`MIRROR_WEB_PASSWORD`, or `MIRROR_ALLOW_PLUGIN_INSTALLS`) |
 | `exits` | `mirror_base`'s exit codes and what each means, and `MirrorError`, which carries one |
 | `browser` | Starting the browser a scrape drives, and closing it however it ended |
 | `elements` | The element paths shipped as examples (comic image, next link, first-page link), finding the image and the links by them, and pressing a link |
@@ -108,7 +110,14 @@ a run killed part way leaves it there, and the next run takes in whatever of it 
 the program shares `run_plugin`'s process group, so the batch's `killpg` takes it too.
 
 Each plugin is the user's own, in its own repository, the program itself usually a submodule in its
-`tool/`. Nothing of a real plugin - nor the site it is for - is named in this repo; `examples/` holds the
+`tool/`. Its `plugin.json`'s `id` names its folder - and so every comic's `settings.scraper` - and a folder
+of another name is refused rather than guessed at. The web page's Plugins dialog (and `run_plugin.py
+--install`/`--update`) clones it with git, which the image carries for this. Its python packages go in
+`<plugin>/.venv`, made `--system-site-packages` so the image's selenium is still seen: the config mount
+keeps it through a new image, and a stamp written last rebuilds it when the image's python changes. The
+plugin's command runs with that venv's python - `{python}`, or a `plugin.py` command starting with
+`sys.executable`, which is swapped for it. Nothing apt would install is handled yet, only named in `needs`
+and reported missing; that waits for a plugin that needs one. Nothing of a real plugin - nor the site it is for - is named in this repo; `examples/` holds the
 generic one. A plugin's `plugin.py` runs only in the process running its comic; the web page reads only its
 `plugin.json`. A plugin comic's chapters have `source: "plugin"`: never walked or aligned, packed by its
 pages' numbers (`numbered_pages`), the way a comic cut `every` so many pages is.

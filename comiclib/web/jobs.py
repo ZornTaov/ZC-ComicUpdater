@@ -11,8 +11,9 @@ import time
 import traceback
 import zipfile
 
-from comiclib import moving, plugins
+from comiclib import moving, pluginfetch, plugins
 from comiclib.batch import chapter_step, own_group
+from comiclib.library import find_comics
 from comiclib.chapters.index import index_path, numbering_trouble, set_aside, set_aside_pages
 from comiclib.exits import USAGE
 from comiclib.metadata import METADATA_FILE, write_json
@@ -480,6 +481,39 @@ class Runner:
             comics[0].name if len(comics) == 1 else "{0} new comics".format(len(comics)), plugin.title)
         return self.submit(Job("add", label, work))
 
+
+    def submit_plugin(self, action, target, ref=None):
+        #a plugin installed from its repository, updated from it, or removed: in the queue, so a plugin is
+        #never pulled or deleted out from under a comic its program is scraping. what git and pip say goes
+        #to the log, and the page lists the plugins again once it is done
+        def say(line):
+            print(line, flush=True)
+            if line.strip():
+                job.doing = line.strip()
+
+        def work(job):
+            try:
+                if action == "install":
+                    name = pluginfetch.install(target, ref, say)
+                    job.outcome = "installed as {0}".format(name)
+                elif action == "update":
+                    job.outcome = "updated" if pluginfetch.update(target, say) else "already up to date"
+                else:
+                    args = self.uc.with_config(self.args)
+                    in_use = [comic.name for comic in find_comics(args.root, args.max_depth)
+                              if (comic.metadata.get("settings") or {}).get("scraper") == target]
+                    pluginfetch.remove(target, in_use, say)
+                    job.outcome = "removed"
+            except (pluginfetch.FetchError, plugins.PluginError, OSError) as error:
+                job.error = str(error)
+                print("ERROR: {0}: {1}".format(job.label, error), flush=True)
+                return 1
+            return 0
+
+        label = {"install": "Install plugin from {0}", "update": "Update plugin {0}",
+                 "remove": "Remove plugin {0}"}[action].format(target)
+        job = Job("plugin", label, work)
+        return self.submit(job)
 
     def submit_place(self, chosen):
         #an upload put into the library: in the queue like everything else, so it never unpacks into a folder

@@ -28,6 +28,10 @@ services:
       # scrapes. The browser asks for a username too; any will do.
       # MIRROR_WEB_PASSWORD: change-me
 
+      # OPTIONAL: installing scraper plugins from the web page runs whatever they hold, so it is only
+      # offered behind the password above. To allow it without one - a page only you can reach - say so here.
+      # MIRROR_ALLOW_PLUGIN_INSTALLS: "yes"
+
     # the web page, at http://<host>:8081/. Change the left number to use another port.
     ports:
       - "8081:8081"

@@ -11,6 +11,8 @@
 //  };
 
 let pluginList = [];
+//the rest of what the list said: what cannot be used, and whether plugins can be installed from here
+let pluginSetup = {};
 const pluginForms = {};
 const pluginScripts = {};
 
@@ -22,7 +24,9 @@ async function loadPlugins(wait = 2000) {
     if (!response.ok) throw new Error(response.statusText);
     const found = await response.json();
     pluginList = found.plugins || [];
+    pluginSetup = found;
     (found.problems || []).forEach((problem) => console.warn("plugin: " + problem));
+    if ($("plugins").open) drawPluginsDialog();
   } catch (error) {
     console.warn("could not list the plugins, asking again: " + error.message);
     setTimeout(() => loadPlugins(Math.min(wait * 2, 30000)), wait);

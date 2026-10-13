@@ -1,7 +1,9 @@
 //Running now, the queue, Recent and the log, all drawn from the one /api/state the page polls every two
 //seconds
 
-let seq = 0, lastHistoryId = null, lastHistoryHtml = null;
+//undefined until the first poll: null is what an empty Recent gives, and taken for "not polled yet" the
+//first job ever to finish read nothing again
+let seq = 0, lastHistoryId = undefined, lastHistoryHtml = null;
 
 function comicLine(c) {
   const numbers = c.state === "waiting" ? "" :
@@ -134,7 +136,11 @@ function renderState(state) {
   // the library changes when a job finishes, so re-read it then rather than on every poll
   const newest = state.history.length ? state.history[0].id : null;
   if (newest !== lastHistoryId) {
-    if (lastHistoryId !== null) loadComics();
+    if (lastHistoryId !== undefined) {
+      loadComics();
+      //a plugin installed, updated or removed, or one whose packages a run has just built
+      loadPlugins();
+    }
     lastHistoryId = newest;
   }
 

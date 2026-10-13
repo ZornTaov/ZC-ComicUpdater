@@ -5,13 +5,14 @@ import hmac
 import json
 import os
 import re
+import shutil
 import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from comiclib import moving, plugins, runlogs
+from comiclib import moving, pluginfetch, plugins, runlogs
 from comiclib.paths import PROJECT
 from comiclib.web.adding import add_with_plugin, parse_entries
 from comiclib.web.edits import discard_walk, fix_chapter, insert_page, preview_move, save_config, save_settings
@@ -168,8 +169,10 @@ def make_handler(runner, args, uc, tee):
             elif where.path == "/api/plugins":
                 #read afresh each time, so a plugin put in place shows up without a restart
                 found, problems = plugins.installed()
+                may, why_not = pluginfetch.page_may_install()
                 self.reply({"plugins": [plugin.view() for plugin in found], "problems": problems,
-                            "folder": plugins.plugins_folder()})
+                            "folder": plugins.plugins_folder(), "may_install": may, "why_not": why_not,
+                            "git": shutil.which("git") is not None})
             elif where.path == "/api/config":
                 self.reply(config_view(args, uc))
             elif where.path == "/api/elements":
@@ -378,6 +381,20 @@ def make_handler(runner, args, uc, tee):
                         job = runner.submit_move(name, body.get("into"))
                         result.update(queued=job.id, label=job.label)
                     self.reply(result, status)
+            elif path in ("/api/plugins/install", "/api/plugins/update", "/api/plugins/remove"):
+                #asked again on every request rather than once at start, so the answer is the environment's
+                may, why_not = pluginfetch.page_may_install()
+                action = path.rsplit("/", 1)[1]
+                target = str(body.get("url" if action == "install" else "name") or "").strip()
+                if not may:
+                    self.reply({"error": why_not}, 403)
+                elif action == "install" and not pluginfetch.ADDRESS.match(target):
+                    self.reply({"error": "give the plugin repository's git address, https://... or git@..."}, 400)
+                elif action != "install" and not plugins.NAME.match(target):
+                    self.reply({"error": "no plugin named {0}".format(target)}, 404)
+                else:
+                    job = runner.submit_plugin(action, target, body.get("ref") if action == "install" else None)
+                    self.reply({"queued": job.id, "label": job.label})
             elif path == "/api/upload/place":
                 status, result = plan(uc.with_config(args), body)
                 if status == 200:
@@ -407,5 +424,7 @@ def start(args, uc):
     shown = "localhost" if args.web_host in ("0.0.0.0", "", "::") else args.web_host
     print("Web page on http://{0}:{1}/{2}".format(
         shown, args.web, "" if os.environ.get("MIRROR_WEB_PASSWORD") else
-        " (no password set; anyone who can reach this port can start scrapes)"), flush=True)
+        " (no password set; anyone who can reach this port can start scrapes{0})".format(
+            ", and install plugins, which run whatever they hold" if pluginfetch.page_may_install()[0] else "")),
+        flush=True)
     return runner

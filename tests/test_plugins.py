@@ -31,6 +31,7 @@ def install(config, output=None, extra=(), hooks=True, name="example", **manifes
         said["output"] = output
         said["command"] += ["--shape", {"chapter-cbz": "cbz", "chapter-folders": "folders"}.get(output, output)]
     said["command"] += list(extra)
+    said["id"] = name
     said.update(manifest)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(said, f)

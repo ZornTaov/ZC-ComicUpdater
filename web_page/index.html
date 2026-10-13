@@ -57,6 +57,7 @@
     <section id="add-section">
       <h2><span class="grow">Add comics</span><button class="small" id="open-listcheck">Check chapter list</button>
         <button class="small" id="open-config">Settings</button>
+        <button class="small" id="open-plugins">Plugins</button>
         <button class="small" id="open-elements">Element paths</button></h2>
       <div class="row" id="add-scraper-row" style="display:none">
         <label class="check">Scraper <select id="add-scraper"><option value="">Built in</option></select></label>
@@ -163,6 +164,30 @@
       <div class="msg" id="cfg-msg"></div>
       <button type="button" id="cfg-cancel">Close</button>
       <button type="button" class="primary" id="cfg-save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="plugins">
+  <form method="dialog">
+    <div class="dlg-head"><h3>Plugins</h3><span class="muted" id="pl-folder"></span></div>
+    <div class="dlg-body">
+      <div class="help">A plugin runs another program to scrape a comic that program already handles well.
+        Each is a folder in the config folder's plugins/, installed from its git repository with its program
+        and the python packages it asks for. Those are kept in its folder, so a new image keeps them; one
+        that brings a newer python has them installed again by the plugin's next run.</div>
+      <div id="pl-list"></div>
+      <div class="field" style="margin-top:14px"><label for="pl-url">Install from</label>
+        <input type="text" id="pl-url" spellcheck="false" placeholder="https://github.com/SomeAuthor/TheirPlugin.git">
+        <div class="note">The plugin's repository. Its plugin.json's id names its folder here.</div></div>
+      <div class="field"><label for="pl-ref">Branch or tag</label>
+        <input type="text" id="pl-ref" spellcheck="false" placeholder="its default branch" style="width:220px"></div>
+      <div class="note bad" id="pl-why-not" hidden></div>
+    </div>
+    <div class="dlg-foot">
+      <div class="msg" id="pl-msg"></div>
+      <button type="button" id="pl-close">Close</button>
+      <button type="button" class="primary" id="pl-install">Install</button>
     </div>
   </form>
 </dialog>
@@ -394,6 +419,7 @@
 <script src="js/uploads.js"></script>
 <script src="js/settings.js"></script>
 <script src="js/plugins.js"></script>
+<script src="js/pluginsetup.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

@@ -179,11 +179,15 @@ def scrape_and_pack(comic, args, command, started):
     #failed are whole and in the index, and left unpacked they would wait for a later run that both gains
     #pages and finishes - a comic that fails at its newest page every day would never have them packed
     known = chapters_now(comic)
-    #a plugin comic started from the command line took its first chapters outside any update, so the first
-    #update to find nothing new is the first chance to pack them
-    unpacked = is_plugin_comic(comic) and known.get("list") and not known.get("packed")
+    in_chapters = known.get("list") or known.get("source_url") or known.get("every")
+    #a comic in chapters that has never been packed is packed whether or not it gained anything: a plugin
+    #comic started from the command line took its first chapters outside any update, a comic set to be cut
+    #once it had caught up gains nothing to trigger it, and an add whose packing never happened left a whole
+    #comic unpacked behind updates that each found nothing new. one keeping no archives never is packed
+    unpacked = (in_chapters and not known.get("packed")
+                and (comic.metadata.get("settings") or {}).get("cbz") is not False)
     if ((comic.gained or unpacked) and not comic.stopped and getattr(args, "pack_chapters", True)
-            and (known.get("list") or known.get("source_url") or known.get("every"))):
+            and in_chapters):
         try:
             pack_chapters(comic, args)
         except (OSError, subprocess.SubprocessError) as error:

@@ -413,15 +413,19 @@ class Runner:
                 listing, every = listings.get(comic.name), cuts.get(comic.name)
                 if not (listing or every):
                     continue
-                if not comic.ok:
+                if not uc.folder_pages(comic.folder):
                     #a comic that saved nothing leaves nothing behind but the note we just wrote, which
                     #would otherwise make the folder look like a comic that is already in the library
-                    if not uc.folder_pages(comic.folder):
-                        try:
-                            os.remove(os.path.join(comic.folder, METADATA_FILE))
-                            os.rmdir(comic.folder)
-                        except OSError:
-                            pass
+                    try:
+                        os.remove(os.path.join(comic.folder, METADATA_FILE))
+                        os.rmdir(comic.folder)
+                    except OSError:
+                        pass
+                    continue
+                #however the scrape ended, short of being stopped by hand, as an update packs: a first scrape
+                #of hundreds of pages that failed on its last one left every page before it unpacked, and an
+                #update finding nothing new never came back to them
+                if comic.stopped:
                     continue
                 #a primed comic has one page and no chapters to find yet, so where they come from is written
                 #down and the chapters are worked out by the update that fetches the rest

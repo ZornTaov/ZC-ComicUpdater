@@ -1,7 +1,8 @@
 #a comic added from the web page to be cut every so many pages: the scrape keeps its index as it goes and
 #the parts are written from it, with no walk and no single archive - whether it is scraped whole straight
 #away or primed and finished by an update. and a comic primed first and set to be cut afterwards does not
-#keep the one-page archive its prime built.
+#keep the one-page archive its prime built. a first scrape that fails on its last page is cut all the same,
+#and a comic set to be cut once it had caught up is cut by an update that finds nothing new.
 import os
 
 import pytest
@@ -12,6 +13,22 @@ from test_web_new_chapters import TOTAL, Chaptered
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 PARTS = ["Pages 1-4", "Pages 5-8", "Pages 9-12"]
+
+
+class EndsBroken(Chaptered):
+    #the newest page links on to one whose picture is not up yet: the scrape saves every page before it and
+    #then fails to download, as a site putting up its next page before the image does
+    def do_GET(self):
+        if self.path == "/p/{0}".format(TOTAL):
+            self.send('<html><body><div id="wrap"><a href="/p/{0}">Next</a><img id="cc-comic" '
+                      'src="/img/{1:04d}.png"></div></body></html>'.format(TOTAL + 1, TOTAL))
+        elif self.path == "/p/{0}".format(TOTAL + 1):
+            self.send('<html><body><div id="wrap"><img id="cc-comic" src="/missing/{0:04d}.png">'
+                      '</div></body></html>'.format(TOTAL + 1))
+        elif self.path.startswith("/missing/"):
+            self.send_error(404)
+        else:
+            super().do_GET()
 
 
 @pytest.fixture
@@ -58,6 +75,42 @@ def test_a_comic_added_to_be_cut_is_archived_in_parts_without_a_walk(site, libra
         kept = f.read()
     assert "--- chapters: pack:" in kept, kept[-400:]
     assert "chapters worked out in" in kept.splitlines()[-1], kept[-400:]
+
+
+def test_a_first_scrape_that_fails_on_its_last_page_is_cut_all_the_same(serve, library, config, web, chapters):
+    #the add packed only a scrape that ended well, and the updates after found nothing new, so a whole
+    #comic sat unpacked until its chapters were worked out by hand
+    broken = serve(EndsBroken)
+    page = web()
+    code, answer = page.call("/api/add", {"rows": [{"folder": "Cut", "url": broken + "/p/1"}], "every": "4"})
+    assert code == 200, answer
+    assert page.wait_idle(600), "the add never finished"
+    said = page.said()
+    assert "download failed" in said.lower(), "the scrape was meant to fail on its last page: {0}".format(
+        page.log[-12:])
+    assert "chapters: pack took" in said, page.log[-12:]
+    assert_cut(library, config, chapters, "Cut")
+
+
+def test_a_caught_up_comic_set_to_be_cut_is_cut_by_an_update_with_nothing_new(site, library, config, web,
+                                                                             chapters):
+    page = web()
+    page.call("/api/add", {"rows": [{"folder": "Later", "url": site + "/p/1"}]})
+    assert page.wait_idle(600), "the add never finished"
+    assert shelf_of(library, "Later") == ["Later.cbz"], shelf_of(library, "Later")
+    comic = library / "Uncompressed" / "Later"
+    meta = read_meta(comic)
+    meta["chapters"] = {"source": "every", "every": 4, "list": []}
+    write_meta(comic, meta)
+
+    done = run("update_comics.py", library, "--progress", "0", timeout=600)
+    assert done.returncode == 0, done.stdout[-600:]
+    assert "No new pages" in done.stdout or "up to date" in done.stdout, done.stdout[-600:]
+    assert_cut(library, config, chapters, "Later")
+    assert (read_meta(comic).get("chapters") or {}).get("packed")
+    #and once packed, an update with nothing new leaves it be
+    again = run("update_comics.py", library, "--progress", "0", timeout=600)
+    assert "writing the chapter archives" not in again.stdout, again.stdout[-600:]
 
 
 def test_a_comic_primed_to_be_cut_is_cut_by_the_update_that_finishes_it(site, library, config, web, chapters):

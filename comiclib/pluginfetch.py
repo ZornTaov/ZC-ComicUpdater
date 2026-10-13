@@ -156,6 +156,7 @@ def update(name, say=print):
             name, before[:12]))
     else:
         say("Updating {0} ...".format(name))
+        tidy_line_endings(name, plugin.folder, say)
         git("pull", "--ff-only", cwd=plugin.folder, say=say)
     git("submodule", "update", "--init", "--recursive", cwd=plugin.folder, say=say)
     after = git("rev-parse", "HEAD", cwd=plugin.folder, say=lambda line: None).strip()
@@ -167,6 +168,32 @@ def update(name, say=print):
     say("{0} is {1}.".format(name, "now at " + after[:12] if after != before else "already up to date"))
     ready_packages(name, say)
     return after != before
+
+
+def tidy_line_endings(name, folder, say):
+    #a plugin cloned on windows and copied in has every text file ending its lines in \r\n, which git here
+    #counts as a change to each one, and a pull refuses to write over them. changes that are only that are
+    #put back as the repository has them; a change of substance is someone's edit, and is never thrown away
+    quiet = lambda line: None
+    changed = git("status", "--porcelain", "--untracked-files=no", "--ignore-submodules=dirty",
+                  cwd=folder, say=quiet).splitlines()
+    if not changed:
+        return
+    #read from the patch itself: --name-only and --stat list a file whose bytes differ, \r or not. a file
+    #differing only in its line endings, or in its mode, which a copy from windows changes too, has no hunk
+    real, current = [], None
+    for line in git("diff", "HEAD", "--ignore-cr-at-eol", "--ignore-submodules=dirty", "--no-color",
+                    "--no-ext-diff", cwd=folder, say=quiet).splitlines():
+        if line.startswith("diff --git "):
+            current = line.split(" b/", 1)[-1]
+        elif current and current not in real and (line.startswith("@@") or line.startswith("Binary files")):
+            real.append(current)
+    if real:
+        raise FetchError("{0} has changes made to it here, which an update would write over: {1}. Commit "
+                         "them to its repository, or put them back, and update again".format(name, ", ".join(real)))
+    say("Its files' line endings were changed when it was copied in ({0} files); putting them back as its "
+        "repository has them.".format(len(changed)))
+    git("reset", "--hard", "-q", "HEAD", cwd=folder, say=say)
 
 
 def remove(name, in_use, say=print):

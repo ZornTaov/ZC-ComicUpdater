@@ -123,6 +123,39 @@ def test_an_update_brings_the_plugin_and_says_when_there_was_nothing(config, tmp
     assert status.stdout == ""
 
 
+def crlf(path):
+    with open(path, "rb") as f:
+        held = f.read().replace(b"\r\n", b"\n")
+    with open(path, "wb") as f:
+        f.write(held.replace(b"\n", b"\r\n"))
+
+
+@needs_git
+def test_a_plugin_copied_in_from_windows_still_updates_but_an_edit_is_kept(config, tmp_path):
+    #cloned on windows and copied into the container, every file ends its lines in \r\n, which git there
+    #counts as changes that a pull will not write over
+    source = repository(tmp_path)
+    pluginfetch.install(source.as_uri())
+    installed = config / "plugins" / "example"
+    git(installed, "config", "core.autocrlf", "false")
+    crlf(str(installed / "plugin.json"))
+    crlf(str(installed / "plugin.py"))
+    said = json.loads((source / "plugin.json").read_text(encoding="utf-8"))
+    said["about"] = "changed"
+    (source / "plugin.json").write_text(json.dumps(said), encoding="utf-8")
+    git(source, "commit", "-q", "-am", "second")
+    lines = []
+    assert pluginfetch.update("example", lines.append) is True
+    assert any("line endings were changed" in line for line in lines)
+    assert plugins.load("example").manifest["about"] == "changed"
+    #an edit made here is someone's, and is never thrown away
+    with open(str(installed / "plugin.py"), "a", encoding="utf-8") as f:
+        f.write("# mine\n")
+    with pytest.raises(pluginfetch.FetchError, match="changes made to it here.*plugin.py"):
+        pluginfetch.update("example")
+    assert "# mine" in (installed / "plugin.py").read_text(encoding="utf-8")
+
+
 def test_a_plugin_put_in_by_hand_cannot_be_updated(config):
     install(config)
     with pytest.raises(pluginfetch.FetchError, match="not installed from a repository"):

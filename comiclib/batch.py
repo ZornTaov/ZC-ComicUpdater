@@ -12,7 +12,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from comiclib import exits
+from comiclib import exits, runlogs
 from comiclib.chapters.index import index_path
 from comiclib.config import load_config
 from comiclib.library import find_comics, page_count, resume_argv
@@ -119,15 +119,26 @@ def run_comic(comic, args):
         return comic
     comic.started_at = started
     say("  start   {0}".format(comic.name))
-    grouping = own_group()
+    #everything it says, and its chapter steps after, kept for the page to open: the log above has only
+    #the line saying how it went
+    comic.log = runlogs.RunLog(comic.name, command)
+    comic.log_name = comic.log.name
+    if comic.log.problem:
+        say("  {0:<40} WARNING: what it says is not being kept: {1}".format(comic.name, comic.log.problem))
+    try:
+        return scrape_and_pack(comic, args, command, started)
+    finally:
+        comic.log.close(describe(comic) if comic.code is not None else "did not finish")
 
+
+def scrape_and_pack(comic, args, command, started):
     try:
         #unbuffered, or python holds a piped child's output back in blocks and a live view sees nothing for minutes
-        process = subprocess.Popen(command, cwd=args.root, stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT, text=True, errors='replace',
-                                   env=dict(os.environ, PYTHONUNBUFFERED="1"), **grouping)
+        process = subprocess.Popen(command, cwd=args.root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   env=dict(os.environ, PYTHONUNBUFFERED="1"), **own_group())
     except OSError as error:
         comic.code, comic.output = 5, "could not start {0}: {1}".format(command[1], error)
+        comic.log.write(comic.output)
         comic.elapsed = time.time() - started
         return comic
 
@@ -135,22 +146,28 @@ def run_comic(comic, args):
     comic.process = process
     said = []
 
-    def listen():
-        for line in process.stdout:
-            said.append(line)
-            if line.strip():
-                comic.last_line = line.rstrip()
+    def finished(line):
+        said.append(line + "\n")
+        comic.log.write(line)
+        showing(line)
 
-    listener = threading.Thread(target=listen, daemon=True)
+    def showing(line):
+        if line.strip():
+            comic.last_line = line.rstrip()
+
+    listener = threading.Thread(target=runlogs.follow, args=(process.stdout, finished, showing), daemon=True)
     listener.start()
+    timed_out = False
     try:
         process.wait(timeout=args.timeout or None)
         comic.code = stopped_code if comic.stopped else process.returncode
     except subprocess.TimeoutExpired:
         kill_tree(process)
-        said.append("timed out after {0}s\n".format(args.timeout))
-        comic.code = 124
+        timed_out, comic.code = True, 124
     listener.join(timeout=15)
+    if timed_out:
+        #after what it said, which the reading above has finished with
+        finished("timed out after {0}s".format(args.timeout))
     comic.output = "".join(said)
 
     comic.elapsed = time.time() - started
@@ -197,25 +214,36 @@ def chapter_step(comic, args, command, what):
     say("  {0:<40} chapters: {1} ...".format(comic.name, STEP_SAID.get(what, what)))
     began = time.time()
     comic.doing = "chapters: {0}".format(STEP_SAID.get(what, what))
+    log = getattr(comic, "log", None)
+    if log is not None:
+        log.section("chapters: {0}: {1}".format(what, runlogs.shown(command)))
     said = []
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                               errors='replace', env=dict(os.environ, PYTHONUNBUFFERED="1"), **own_group())
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               env=dict(os.environ, PYTHONUNBUFFERED="1"), **own_group())
 
-    def listen():
-        for line in process.stdout:
-            said.append(line)
-            if line.strip():
-                comic.doing = "chapters, {0}: {1}".format(what, line.strip())
+    def finished(line):
+        said.append(line + "\n")
+        if log is not None:
+            log.write(line)
+        showing(line)
 
-    listener = threading.Thread(target=listen, daemon=True)
+    def showing(line):
+        if line.strip():
+            comic.doing = "chapters, {0}: {1}".format(what, line.strip())
+
+    listener = threading.Thread(target=runlogs.follow, args=(process.stdout, finished, showing), daemon=True)
     listener.start()
+    timed_out = False
     try:
         code = process.wait(timeout=args.timeout or None)
     except subprocess.TimeoutExpired:
         kill_tree(process)
-        said.append("timed out after {0}s\n".format(args.timeout))
-        code = 124
+        timed_out, code = True, 124
     listener.join(timeout=15)
+    if timed_out:
+        finished("timed out after {0}s".format(args.timeout))
+    elif code and log is not None:
+        log.write("(exit {0})".format(code))
     say("  {0:<40} chapters: {1} took {2:.0f}s".format(comic.name, what, time.time() - began))
     return subprocess.CompletedProcess(command, code, "".join(said), "")
 
@@ -407,6 +435,7 @@ def run_batch(comics, runnable, args, doing="Updating"):
         return 2
 
     started = time.time()
+    runlogs.prune()
     #a daemon so a ctrl-c or a docker stop is never held up waiting for the next tick
     stop_watching = threading.Event()
     watcher = None

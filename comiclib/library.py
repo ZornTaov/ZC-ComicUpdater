@@ -37,6 +37,9 @@ class Comic:
         #what is being done for it after its scrape - its chapters lined up, read again, packed - shown on
         #the page as it goes, since that can take minutes on its own
         self.doing = None
+        #the file everything it says during an update is kept in, and what the page asks for it by
+        self.log = None
+        self.log_name = None
 
     @property
     def gained(self):

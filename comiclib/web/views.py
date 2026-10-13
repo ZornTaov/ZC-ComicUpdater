@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-from comiclib import metadata as sidecar, plugins
+from comiclib import metadata as sidecar, plugins, runlogs
 from comiclib.chapters.index import reaches_newest, read_index
 from comiclib.chapters.numbering import numbered
 
@@ -36,6 +36,9 @@ def comic_view(comic, uc, live):
         view["last_line"] = comic.doing
     if state == "failed":
         view["tail"] = [line for line in comic.output.splitlines() if line.strip()][-4:]
+    #everything it said, which Recent keeps the name of so the run can be opened after it is over
+    if getattr(comic, "log_name", None):
+        view["log"] = comic.log_name
     return view
 
 
@@ -238,6 +241,9 @@ def comic_detail(args, uc, runner, name):
                                                 "last_page_number", "pages_saved", "stop_reason", "exit_code")}
                  for run in runs[-8:]][::-1],
         "edits": (history.get("edits") or [])[-8:][::-1],
+        #the week's updates of it, each one's output in full - a run with nothing new writes no run record,
+        #but still has a log
+        "logs": runlogs.listing(comic.name),
         "pages_in_folder": uc.folder_pages(comic.folder),
         "running": is_running(runner, comic.name),
         "moving": is_moving(runner, comic.name),

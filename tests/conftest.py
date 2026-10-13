@@ -223,6 +223,8 @@ def no_real_config(tmp_path_factory, monkeypatch):
     (folder / "index").mkdir()
     monkeypatch.setenv("MIRROR_CONFIG", str(folder))
     monkeypatch.delenv("MIRROR_ELEMENTS", raising=False)
+    #and its comics' logs, which otherwise sit beside the config folder - shared by every test in a worker
+    monkeypatch.setenv("MIRROR_LOGS", str(tmp_path_factory.mktemp("logs")))
 
 
 @pytest.fixture
@@ -233,6 +235,7 @@ def config(tmp_path, monkeypatch):
     (folder / "index").mkdir(parents=True)
     monkeypatch.setenv("MIRROR_CONFIG", str(folder))
     monkeypatch.delenv("MIRROR_ELEMENTS", raising=False)
+    monkeypatch.setenv("MIRROR_LOGS", str(tmp_path / "logs"))
     return folder
 
 

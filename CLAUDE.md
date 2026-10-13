@@ -51,6 +51,7 @@ archives, and keep them up to date unattended.
 | `config` | `ComicScraper.json`: the setup's settings and their defaults, read fresh before every run |
 | `library` | `Comic`, finding every comic in a library, and the command each resumes with |
 | `batch` | One update of a library: each comic its own process, the lock, chapters packed after, the summary |
+| `runlogs` | Everything a comic says during an update, a file per run in `logs/` beside the config folder (`MIRROR_LOGS` overrides), kept a week. Its pipe is read as bytes and split here, since a progress bar redrawn with `\r` is kept once, as last drawn, and shown on the page as it is drawn |
 | `schedule` | The daily time, and the `update-now` file that starts a run sooner |
 | `moving` | Moving a comic to another folder of the library: its pages, its archive or chapter archives to the matching place on the CBZs shelf, the settings naming them, and its index named in the comic so it is still found. Renames only, undone if one fails. Each rename goes into `history.moves`, which the reader reads (through `metadata.moves`/`before_moves`) to carry a comic's place, settings and cover to its new id - so a scrape must keep that key, as `runrecord` does |
 | `web/` | The web page's server: the one job queue (`jobs`), what the page is shown (`views`), the element paths as it edits them (`elementpaths`), the add form (`adding`), a comic uploaded as a zip and put in or adopted (`uploads`), the changes it can make (`edits`), and the http handler (`server`). The page itself is `web_page/`, at the top |

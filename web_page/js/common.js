@@ -32,3 +32,8 @@ async function post(path, body) {
 function link(url) {
   return url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(url)}</a>` : `<span class="muted">none</span>`;
 }
+//everything one comic said during one update, opened as plain text in a tab of its own
+function logLink(name, text) {
+  return `<a class="log-link" href="${esc(api("/api/log?name=" + encodeURIComponent(name)))}" target="_blank"
+    rel="noreferrer">${esc(text || "log")}</a>`;
+}

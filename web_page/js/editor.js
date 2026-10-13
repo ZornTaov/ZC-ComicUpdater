@@ -73,10 +73,13 @@ async function openEditor(name) {
     <td>${r.last_page_number ?? ""}</td><td>${link(r.last_url)}</td></tr>`).join("");
   const edits = detail.edits.map((e) => `<div class="history-item line">${esc(when(e.at))}: ${esc(Object.entries(e.changed)
     .map(([key, pair]) => `${key} ${JSON.stringify(pair[0])} → ${JSON.stringify(pair[1])}`).join(", "))}</div>`).join("");
+  //a week of its updates, each one's output in full, newest first - an update that found nothing new is here too
+  const logs = (detail.logs || []).map((l) => logLink(l.name, when(l.at))).join(" · ");
   $("edit-runs").innerHTML = (runs ? `<div class="table-wrap" style="max-height:none"><table class="runs"><thead><tr><th>Started</th>
     <th>Saved</th><th>Ended</th><th>At #</th><th>Last page</th></tr></thead><tbody>${runs}</tbody></table></div>` : "") +
+    (logs ? `<div class="muted" style="margin-top:10px">What each update said</div><div class="line">${logs}</div>` : "") +
     (edits ? `<div class="muted" style="margin-top:10px">Edits</div>${edits}` : "");
-  $("edit-runs-box").hidden = !runs && !edits;
+  $("edit-runs-box").hidden = !runs && !edits && !logs;
 
   $("e-move-into").value = parentOf(detail.name);
   showPlaces(movePlaces(detail.name));

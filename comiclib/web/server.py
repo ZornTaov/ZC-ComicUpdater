@@ -11,7 +11,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from comiclib import moving, plugins
+from comiclib import moving, plugins, runlogs
 from comiclib.paths import PROJECT
 from comiclib.web.adding import add_with_plugin, parse_entries
 from comiclib.web.edits import discard_walk, fix_chapter, insert_page, preview_move, save_config, save_settings
@@ -132,6 +132,20 @@ def make_handler(runner, args, uc, tee):
                         self.reply(f.read(), kind=page_kinds[os.path.splitext(part)[1]])
                 except OSError as error:
                     self.reply("could not read {0}: {1}".format(part, error).encode(), 500, "text/plain")
+            elif where.path == "/api/log":
+                #one comic's run in full, as plain text: only a .log inside the logs folder, so a name
+                #reaching out of it reads nothing
+                name = (parse_qs(where.query).get("name") or [""])[0]
+                path = inside(runlogs.logs_folder(), name, {runlogs.SUFFIX: runlogs.KIND})
+                if path is None:
+                    self.reply("No log {0}: logs are kept for {1} days.".format(name, runlogs.keep_days).encode(),
+                               404, "text/plain; charset=utf-8")
+                    return
+                try:
+                    with open(path, "rb") as f:
+                        self.reply(f.read(), kind=runlogs.KIND)
+                except OSError as error:
+                    self.reply("could not read {0}: {1}".format(path, error).encode(), 500, "text/plain")
             elif where.path == "/api/state":
                 since = int((parse_qs(where.query).get("since") or ["0"])[0] or 0)
                 lines, seq = tee.since(since)

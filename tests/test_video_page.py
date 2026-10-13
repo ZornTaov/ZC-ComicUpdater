@@ -68,6 +68,26 @@ def test_the_archives_hold_a_stand_in_rather_than_the_video(filmy, library, tmp_
     assert (filmy / "0003.mp4").is_file(), "the video was moved or deleted"
 
 
+def test_a_single_archive_given_up_for_chapters_leaves_no_copy_of_its_stand_in(filmy, library, tmp_path):
+    #the single archive holds the stand-in under a name the folder does not have - 0003.png for 0003.mp4 - and
+    #giving it up for chapter archives once wrote that out beside them as an extra the folder never had
+    archive = library / "CBZs" / "Filmy.cbz"
+    archive.parent.mkdir(exist_ok=True)
+    with zipfile.ZipFile(str(archive), "w") as zf:
+        zf.writestr("0001.png", b"an older copy")
+    assert run("chapters.py", "repack", filmy, "--root", library).returncode == 0
+    run("chapters.py", "align", filmy, "--root", library)
+    starts = tmp_path / "starts.txt"
+    starts.write_text("https://x.test/p/1 | The Start\nhttps://x.test/p/4 | After The Animation\n", encoding="utf-8")
+    run("chapters.py", "chapters", filmy, "--root", library, "--list", starts, "--save")
+    done = run("chapters.py", "pack", filmy, "--root", library, "--replace")
+    assert done.returncode == 0, done.stdout[-600:]
+    assert not archive.exists(), "the single archive should be given up: " + done.stdout[-600:]
+    assert "which no page is" not in done.stdout, done.stdout[-600:]
+    loose = [n for _, _, names in os.walk(str(library / "CBZs")) for n in names if not n.endswith(".cbz")]
+    assert loose == [], loose
+
+
 def test_a_repacked_single_archive_holds_the_stand_in_too(filmy, library):
     #the single archive written afresh has to read the same as one a scrape added to, page for page: repack
     #once wrote every file as it was, so a comic repacked after a refetch had its video back in the archive

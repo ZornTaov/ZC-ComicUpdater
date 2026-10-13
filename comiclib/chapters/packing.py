@@ -16,7 +16,7 @@ from comiclib.metadata import METADATA_FILE as metadata_file, now_stamp as time_
 from comiclib.metadata import record_moves
 from comiclib.metadata import write as write_metadata
 from comiclib.pages import SET_ASIDE, listing as folder_pages, sizes as file_sizes
-from comiclib.standin import held_otherwise
+from comiclib.standin import archive_entry, held_otherwise
 
 
 def tidy_name(text):
@@ -363,6 +363,9 @@ def keep_extras(full, folder, keep_in):
     aside = os.path.join(folder, SET_ASIDE)
     places = [folder] + ([aside] if os.path.isdir(aside) else [])
     on_disk = {name for place in places for name in os.listdir(place)}
+    #a page no reader can show - a video, a note of where a page lives - is held in an archive as the picture
+    #standing in for it, under a name the folder does not have, and is as much the page as the file is
+    on_disk |= {archive_entry(folder, name)[0] for name in os.listdir(folder) if held_otherwise(folder, name)}
     #a page renamed since the archive was made - given back the site's own name - is in the folder under
     #another name, so a picture whose name is not here is only an extra if no page here has its bytes. the
     #size says which pages could be, and the bytes are compared only for those

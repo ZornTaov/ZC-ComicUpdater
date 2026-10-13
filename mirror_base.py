@@ -42,6 +42,9 @@ element_names, next_ele_names, first_ele_names = elements.with_saved_paths(eleme
 #page where it was already left out for another reason
 last_page_url = None
 last_page_srcs = set()
+#every picture anywhere on that page, whatever found it: the site's own furniture, as far as a path that
+#has never found this comic before is concerned
+last_page_all = set()
 #how many pages of this run each image has turned up on. a button is on every page there is, while a
 #picture the comic re-uses shows twice in the whole comic, which is what tells the two apart
 seen_on_pages = {}
@@ -313,7 +316,7 @@ def page_images(driver, args):
     #every comic image on the page the browser is on, in reading order, with the path that found them
     #remembered for the pages that follow
     global image_xpath, fallbacks_in_row
-    global last_page_url, last_page_srcs, seen_on_pages
+    global last_page_url, last_page_srcs, last_page_all, seen_on_pages
     #whatever way this page was reached, the browser's own error page is never read as one of the comic's:
     #its picture would be saved or recorded as the page, and its missing next link taken for the comic's end
     browser.load_or_retry(driver)
@@ -353,6 +356,12 @@ def page_images(driver, args):
             if element == image_xpath:
                 continue
             srcs = ele_get_all(driver, element)
+            if srcs and image_xpath and last_page_url != here:
+                #a path loose enough to match most of a page - anything inside an element with "comic" in
+                #its class - finds the site's logo too. on a page with no comic at all, a teaser for
+                #subscribers say, the logo is all it finds, and it was saved as the comic's newest page. a
+                #picture the page before also showed, anywhere on it, is the site's and not a page
+                srcs = [src for src in srcs if src not in last_page_all]
             if srcs:
                 found_by = element
                 break
@@ -379,7 +388,7 @@ def page_images(driver, args):
     #described, and on one that renames its buttons tomorrow.
     if here != last_page_url:
         was_here = last_page_srcs
-        last_page_url, last_page_srcs = here, set(srcs)
+        last_page_url, last_page_srcs, last_page_all = here, set(srcs), every_picture(driver)
         for src in set(srcs):
             seen_on_pages[src] = seen_on_pages.get(src, 0) + 1
         #a comic that re-uses one of its own pictures later on - an old page's image served again as a
@@ -391,6 +400,20 @@ def page_images(driver, args):
         if fresh:
             srcs = fresh
     return comic_images(srcs, here)
+
+
+def every_picture(driver):
+    #asked of the page in one go, rather than element by element, so it costs a page nothing to know
+    try:
+        return set(driver.execute_script("return Array.from(document.images, function (i) { return i.src; });")
+                   or [])
+    except (se.WebDriverException, AttributeError):
+        pass
+    #a browser that will run no script at all is asked the slow way
+    try:
+        return {one.get_attribute("src") for one in driver.find_elements(By.TAG_NAME, "img")} - {None}
+    except (se.WebDriverException, AttributeError, TypeError):
+        return set()
 
 
 def present(driver, xpath):

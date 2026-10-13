@@ -12,7 +12,7 @@ import traceback
 import zipfile
 
 from comiclib import moving, plugins
-from comiclib.batch import own_group
+from comiclib.batch import chapter_step, own_group
 from comiclib.chapters.index import index_path, numbering_trouble, set_aside, set_aside_pages
 from comiclib.exits import USAGE
 from comiclib.metadata import METADATA_FILE, write_json
@@ -576,14 +576,24 @@ def split_into_chapters(comic, listing, args, uc, keeps_archives=True, every=Non
     #is given up as soon as every page is checked to be in a chapter
     if keeps_archives:
         steps.append(["pack", "--replace"])
-    for step in steps:
-        done = subprocess.run([sys.executable, script, step[0], comic.folder, "--root", args.root]
-                              + step[1:], capture_output=True, text=True, errors="replace",
-                              env=dict(os.environ, PYTHONUNBUFFERED="1"), timeout=1800)
-        said = (done.stdout or done.stderr or "").strip().splitlines()
-        print("  {0}: {1}".format(step[0], said[-1][:120] if said else "exit {0}".format(done.returncode)),
-              flush=True)
-        if done.returncode != 0:
-            print("  {0} stopped there, so its chapters were not written. The pages are saved either "
-                  "way.".format(comic.name), flush=True)
-            return
+    #each step said as it starts and how long it took, and what it is saying shown under Running now as it
+    #goes, the way an update's chapter steps are: a comic of thousands of pages packs for minutes, and run
+    #silently until each step was over, it looked like the job had hung. its output goes in the scrape's log
+    started = time.time()
+    if comic.log is not None:
+        comic.log.reopen()
+    try:
+        for step in steps:
+            done = chapter_step(comic, args, [sys.executable, script, step[0], comic.folder, "--root", args.root]
+                                + step[1:], step[0])
+            said = (done.stdout or "").strip().splitlines()
+            print("  {0}: {1}".format(step[0], said[-1][:120] if said else "exit {0}".format(done.returncode)),
+                  flush=True)
+            if done.returncode != 0:
+                print("  {0} stopped there, so its chapters were not written. The pages are saved either "
+                      "way.".format(comic.name), flush=True)
+                return
+    finally:
+        comic.doing = None
+        if comic.log is not None:
+            comic.log.close("chapters worked out in {0:.0f}s".format(time.time() - started))

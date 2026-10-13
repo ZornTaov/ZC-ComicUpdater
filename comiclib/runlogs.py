@@ -89,6 +89,16 @@ class RunLog:
         #a step after the scrape, its chapters worked on, set apart from what the scrape said
         self.write("", "--- {0} ---".format(title))
 
+    def reopen(self):
+        #carried on after the update closed it: a new comic's chapters, worked out once its scrape is over,
+        #belong in the same file as the scrape
+        with self.lock:
+            if self.file is None and self.path:
+                try:
+                    self.file = open(self.path, "a", encoding="utf-8", errors="replace", newline="\n")
+                except OSError as error:
+                    self.problem = str(error)
+
     def close(self, ended):
         self.write("", "# ended {0}: {1}, after {2:.0f}s".format(
             time.strftime("%H:%M:%S", time.localtime()), ended, time.time() - self.started))

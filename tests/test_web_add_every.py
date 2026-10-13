@@ -6,6 +6,7 @@ import os
 
 import pytest
 
+from comiclib import runlogs
 from conftest import pages_in, read_meta, run, write_meta
 from test_web_new_chapters import TOTAL, Chaptered
 
@@ -46,7 +47,17 @@ def test_a_comic_added_to_be_cut_is_archived_in_parts_without_a_walk(site, libra
     assert code == 200, answer
     assert page.wait_idle(600), "the add never finished"
     assert_cut(library, config, chapters, "Cut")
-    assert "Walking" not in page.said(), page.log[-8:]
+    said = page.said()
+    assert "Walking" not in said, page.log[-8:]
+    #each step after the scrape said as it starts and how long it took, as an update's are, not left silent
+    for step in ("chapters: writing the chapter archives ...", "chapters: pack took"):
+        assert step in said, page.log[-12:]
+    #and in the comic's own log, after its scrape
+    (log,) = [os.path.join(where, name) for where, _, names in os.walk(runlogs.logs_folder()) for name in names]
+    with open(log, encoding="utf-8") as f:
+        kept = f.read()
+    assert "--- chapters: pack:" in kept, kept[-400:]
+    assert "chapters worked out in" in kept.splitlines()[-1], kept[-400:]
 
 
 def test_a_comic_primed_to_be_cut_is_cut_by_the_update_that_finishes_it(site, library, config, web, chapters):

@@ -10,7 +10,7 @@
 #     docker build -t comics-updater:local .
 services:
   comics:
-    # :latest follows main; a :sha-<commit> tag pins one build, should a newer one misbehave
+    # :latest is the newest release; :1.2.0 pins one, :nightly is main as of last night
     image: ghcr.io/zorntaov/comics-updater:latest
     container_name: comics-updater
     restart: unless-stopped

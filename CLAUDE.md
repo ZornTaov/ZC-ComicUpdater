@@ -135,11 +135,12 @@ where it is cheap to (`standin.py` draws PNGs and `comicinfo.py` reads image siz
   `adopt_comic.py`, `run_plugin.py` and `web_page/` take effect immediately; `update_comics.py`, `web_ui.py` and
   anything in `comiclib/` need the container restarting, since the long-running process has them
   imported already (a scrape it starts imports `comiclib` afresh, but the web page does not).
-- **Pushing to main publishes both images.** `.github/workflows/images.yml` builds the updater and the
-  reader for amd64 and arm64 and pushes them to `ghcr.io/zorntaov/` as `:latest` (and `:sha-<commit>`,
-  and `:1.2.3` for a `v1.2.3` tag), whenever something that goes into an image changes. Both compose files
-  pull those, so a push reaches anyone who next pulls - but not a container running already, nor one
-  running scripts from a mounted folder.
+- **A version tag publishes both images; a push to main does not.** `.github/workflows/images.yml` builds
+  the updater and the reader for amd64 and arm64 and pushes them to `ghcr.io/zorntaov/`. The two share one
+  version: `git tag v1.2.0 && git push origin v1.2.0` releases both as `:1.2.0`, `:1.2`, `:1` and
+  `:latest`, which both compose files pull. Main is built as `:nightly` (and `:sha-<commit>`) once a night,
+  only when it has moved. A release reaches whoever next pulls - not a container running already, nor one
+  running scripts from a mounted folder. Tag a release only when the user asks for one.
 - **Settings live in `config/` beside the scripts** — `ComicScraper.json`, `element_paths.json`,
   `index/` (the per-comic record of which page is which), and `plugins/` (each scraper plugin). `MIRROR_CONFIG` overrides the folder,
   `MIRROR_ELEMENTS` the element-path file. That folder is the user's own data: **never edit or delete

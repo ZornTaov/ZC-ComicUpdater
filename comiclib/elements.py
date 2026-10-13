@@ -199,14 +199,19 @@ def site_of(url):
     return host[4:] if host.startswith("www.") else host
 
 
+def href_of(one):
+    #where pressing an element would go, when it is a link or inside one; None for a button that runs a script
+    link = one.find_elements(By.XPATH, "./ancestor-or-self::a[@href][1]")
+    return link[0].get_attribute("href") if link else None
+
+
 def leaves_the_site(driver, one):
     #whether pressing this would take the browser to another site altogether. a path written loosely
     #enough - any element whose title mentions "next" - also matches a link in the footer to a friend's
     #site whose name happens to contain the word, and on the latest page, where the real next button is
     #gone, that link is the only match left. no comic's next page is on somebody else's site.
     try:
-        link = one.find_elements(By.XPATH, "./ancestor-or-self::a[@href][1]")
-        href = link[0].get_attribute("href") if link else None
+        href = href_of(one)
         here = driver.current_url
     except (se.WebDriverException, AttributeError):
         return False

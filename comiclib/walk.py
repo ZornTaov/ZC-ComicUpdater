@@ -36,11 +36,11 @@ def go_to_first(driver, first_paths):
     return False
 
 
-def build_index(driver, args, page_images, next, still_on, first_paths=()):
+def build_index(driver, args, page_images, next, still_on, first_paths=(), elsewhere=None):
     #walks the comic the way a scrape does, but saves nothing: this is only about which page is which.
     #each line is written as it is reached, so a walk that is stopped or times out keeps what it had.
-    #page_images(driver, args), next(driver, args) and still_on(driver, before) are the scrape's own, and
-    #first_paths are the library's links back to page 1.
+    #page_images(driver, args), next(driver, args), still_on(driver, before) and elsewhere(driver, args,
+    #left, known) are the scrape's own, and first_paths are the library's links back to page 1.
     path = args.index
     folder = os.path.dirname(os.path.abspath(path))
     if folder:
@@ -126,7 +126,9 @@ def build_index(driver, args, page_images, next, still_on, first_paths=()):
             if not next(driver, args):
                 print("No next link, so this is the latest page.")
                 break
-            if still_on(driver, here):
+            #unless another known next path goes on from here to a page the walk has not seen: the one that
+            #pressed may have matched a picture of the page to come, linked to this one
+            if still_on(driver, here) and not (elsewhere and elsewhere(driver, args, here, lambda url, srcs: url in seen)):
                 print("The next link stays on the same page, so this is the latest page.")
                 break
             #a browser the scrape set up to be renewed every so many pages; one handed in plain is kept

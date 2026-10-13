@@ -652,9 +652,70 @@ def next_instead(driver, args, left):
     return False
 
 
+def next_elsewhere(driver, args, left, known):
+    #pressing next stayed on this page, which is how a comic says it has no newer one - unless the path that
+    #pressed it matched the wrong thing. a page can carry a picture of the page to come, linked to the page it
+    #is on, which a loose next path takes for the next button; remembered, every run after stops there and
+    #calls the comic caught up while new pages come out. so each other known path that points at something
+    #else here is pressed in turn, from this page afresh, and the first to reach a page with a comic picture
+    #on it that known(address, pictures) says is not already held is used from now on. False, back on the
+    #page left, when none does - the comic really is caught up
+    global next_xpath
+    if args.element_find_next_manual:
+        return False
+    #asked of the page as it stands, before anything is pressed: most of the list matches the one next link
+    #every theme has, and pressing it again from a fresh copy of the page would only stay here again
+    pressed = elements.next_element(driver, next_xpath) if next_xpath else None
+    pointed = {pressed} if pressed is not None else set()
+    others = []
+    for element in next_ele_names:
+        if element == next_xpath:
+            continue
+        try:
+            found = elements.next_element(driver, element)
+            if found is None or found in pointed:
+                continue
+            pointed.add(found)
+            href = elements.href_of(found)
+        except se.WebDriverException:
+            continue
+        if href and (same_page(href) == same_page(left) or known(href, None)):
+            continue
+        others.append(element)
+    wrong = next_xpath
+    for element in others:
+        driver.get(left)
+        browser.load_or_retry(driver)
+        if not test_next_ele_get(driver, element) or not next_ele_get(driver, element):
+            continue
+        browser.load_or_retry(driver)
+        reached = driver.current_url
+        if still_on(driver, left) or came_round(left, reached) or kept_index.went_back(left, reached):
+            continue
+        srcs = ele_get_all(driver, image_xpath) if image_xpath else []
+        if not srcs or set(srcs) == last_page_srcs or known(reached, srcs):
+            continue
+        print("Pressing the next button {0} stays on this page, but {1} goes on to {2}, a page not saved yet, "
+              "so it is used from now on.".format(wrong, element, reached))
+        next_xpath = element
+        return True
+    if others:
+        driver.get(left)
+    return False
+
+
+def held_already(url, srcs):
+    #a page this run has saved, or one whose picture is already among the comic's files: anything but a page
+    #the comic does not have yet. the record of which page is which is no help here - read from a site's list
+    #of posts, it holds pages not fetched yet - and one it puts behind this page went_back has turned away
+    if url in visited_urls:
+        return True
+    return any(page_key(saved_name(src)) in existing_pages for src in srcs or [] if isinstance(src, str))
+
+
 def main():
     #the scrape itself, or one of the modes that look instead: --page-source, --index and --check
-    global stop_reason
+    global stop_reason, next_xpath
     driver, increment, args = setup()
     if args.page_source:
         #whatever the browser ended up with, for something else to read
@@ -667,7 +728,7 @@ def main():
         #a walk that records what it saw and downloads nothing
         code = EXIT_OK
         try:
-            walk.build_index(driver, args, page_images, next, still_on, first_ele_names)
+            walk.build_index(driver, args, page_images, next, still_on, first_ele_names, next_elsewhere)
         except MirrorError as error:
             print("\nERROR: {0}".format(error))
             code = error.code
@@ -690,6 +751,9 @@ def main():
             quit_quietly(driver)
     completed = False
     exit_code = EXIT_OK
+    #the next path that last went on to a new page. on the newest page the only match can be something that
+    #stays there - a teaser for the page to come - and remembering that would have the next run press it first
+    moved_by = next_xpath
     try:
         #proceeds if it can both save an image and hit the next button.
         while img_save(driver, increment, args):
@@ -699,22 +763,25 @@ def main():
                 stop_reason = "no next button"
                 completed = True
                 break
-            if still_on(driver, current_url):
+            if still_on(driver, current_url) and not next_elsewhere(driver, args, current_url, held_already):
                 print("Caught up: pressing next goes to the same page, so this is the latest page.")
                 stop_reason = "next goes to the same page"
                 completed = True
+                next_xpath = moved_by
                 break
             if driver.current_url in visited_urls:
                 #some comics wrap from the last page back to the first, which would otherwise re-scrape everything
                 print("Reached a page that was already saved this run, so the comic has looped.")
                 stop_reason = "looped back to an already saved page"
                 completed = True
+                next_xpath = moved_by
                 break
             if came_round(current_url, driver.current_url):
                 print("Caught up: the next link has come round to {0}, which is where the comic begins, so {1} "
                       "is the latest page.".format(driver.current_url, current_url))
                 stop_reason = "came round to the comic's beginning"
                 completed = True
+                next_xpath = moved_by
                 break
             gap = kept_index.skipped(current_url, driver.current_url)
             if gap and not next_instead(driver, args, current_url):
@@ -729,6 +796,7 @@ def main():
             #a page followed a next link to, and meant to be saved: this is what a later run carries on
             #from if this one stops before it gets there, and the only thing that counts as having moved on
             scrape_state["walked_to"] = driver.current_url
+            moved_by = next_xpath
             if args.prime:
                 #the next link has been found and followed, so the metadata resumes on the second page and the
                 #rest of the comic is left for update_comics, wherever that runs

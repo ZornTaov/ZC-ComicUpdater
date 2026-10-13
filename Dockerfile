@@ -32,9 +32,10 @@ COPY web_page/ /app/web_page/
 COPY comiclib/ /app/comiclib/
 
 # settings and element paths are written here: mount a folder over it to keep them across a new container.
-# writable by anyone, since the container runs as the library's owner rather than as root, and the web
-# page has to be able to save them even when nothing is mounted
-RUN mkdir -p /app/config/index && chmod -R 0777 /app/config
+# each comic's run log goes in logs/ beside it, mounted or not. both writable by anyone, since the container
+# runs as the library's owner rather than as root, and /app itself is root's: with only config/ mounted,
+# a run as any other user could not make logs/ and every log said permission denied
+RUN mkdir -p /app/config/index /app/logs && chmod -R 0777 /app/config /app/logs
 
 # chrome writes a profile under $HOME as it starts, and exits at once if it cannot. run as the library's
 # owner, as the compose file does, the user has no home of its own and $HOME is /, which only root can

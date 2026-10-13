@@ -42,6 +42,10 @@ services:
       # lost whenever it is recreated. An empty folder is fine; it fills itself.
       - /path/to/ComicScraper/config:/app/config
 
+      # OPTIONAL: a folder for each comic's run logs, kept a week and shown on the web page. Without it they
+      # live inside the container and are lost whenever it is recreated.
+      # - /path/to/ComicScraper/logs:/app/logs
+
       # OPTIONAL, instead of the line above: run the scripts from a folder on the host rather than the
       # copies built into the image, so an edit needs a container restart rather than a new image.
       # The folder has to hold everything the image does - the six .py scripts, the web_page/ and

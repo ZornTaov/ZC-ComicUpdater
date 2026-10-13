@@ -20,8 +20,9 @@ KIND = "text/plain; charset=utf-8"
 
 
 def logs_folder():
-    #MIRROR_LOGS names it outright, which is how a test keeps its own; otherwise beside the config folder,
-    #which in the container is the mounted folder, so the logs outlive a restart and can be read off the share
+    #MIRROR_LOGS names it outright, which is how a test keeps its own; otherwise beside the config folder -
+    #in the container /app/logs, which the image leaves writable, and which outlives a recreate only where
+    #/app or /app/logs is mounted
     named = os.environ.get("MIRROR_LOGS")
     return os.path.abspath(named or os.path.join(os.path.dirname(os.path.abspath(config_folder())), "logs"))
 

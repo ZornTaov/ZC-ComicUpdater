@@ -95,7 +95,7 @@ data folder; `app`: the routes). `web/` is TypeScript built by Vite inside the i
 Its suite runs apart: `cd reader && python -m pytest` (offline, a couple of seconds; `reader/pytest.ini`
 makes it its own root) and `npm test` in `reader/web`. `tests/test_contract.py` there checks what it
 relies on comiclib for, so **run it after any comiclib change**. Build with
-`docker build -f reader/Dockerfile -t comic-reader:0.1 .` from the repo root.
+`docker build -f reader/Dockerfile -t comic-reader:local .` from the repo root.
 
 ### Scraper plugins
 
@@ -135,6 +135,11 @@ where it is cheap to (`standin.py` draws PNGs and `comicinfo.py` reads image siz
   `adopt_comic.py`, `run_plugin.py` and `web_page/` take effect immediately; `update_comics.py`, `web_ui.py` and
   anything in `comiclib/` need the container restarting, since the long-running process has them
   imported already (a scrape it starts imports `comiclib` afresh, but the web page does not).
+- **Pushing to main publishes both images.** `.github/workflows/images.yml` builds the updater and the
+  reader for amd64 and arm64 and pushes them to `ghcr.io/zorntaov/` as `:latest` (and `:sha-<commit>`,
+  and `:1.2.3` for a `v1.2.3` tag), whenever something that goes into an image changes. Both compose files
+  pull those, so a push reaches anyone who next pulls - but not a container running already, nor one
+  running scripts from a mounted folder.
 - **Settings live in `config/` beside the scripts** — `ComicScraper.json`, `element_paths.json`,
   `index/` (the per-comic record of which page is which), and `plugins/` (each scraper plugin). `MIRROR_CONFIG` overrides the folder,
   `MIRROR_ELEMENTS` the element-path file. That folder is the user's own data: **never edit or delete

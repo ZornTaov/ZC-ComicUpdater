@@ -1,15 +1,17 @@
-# Container Station -> Applications -> Create, or `docker compose up -d` over ssh.
-# The image is built separately and on purpose, and carries the scripts as well as python and chromium,
-# so it runs with nothing but a library and a settings folder mounted:
+# `docker compose up -d` beside this file, or hand it to whatever runs compose files on your host - a NAS's
+# container app, Portainer and the like. The image is published from the repository, and carries the
+# scripts as well as python and chromium, so it runs with nothing but a library and a settings folder
+# mounted. `docker compose pull && docker compose up -d` takes a newer one.
 #
-#     docker build -t comics-updater:1.0 .
+# There is deliberately no `build:` key here: some compose GUIs try to build for themselves when they find
+# one, from a context they do not have, and end up with a second image that holds nothing useful. To run
+# an image of your own instead, build it from the repo root and put its tag below:
 #
-# There is deliberately no `build:` key here. Container Station tries to build for itself when it
-# finds one, from a context it does not have, and ends up with a second image entry that holds
-# nothing useful. Building by hand keeps one image with one tag.
+#     docker build -t comics-updater:local .
 services:
   comics:
-    image: comics-updater:1.0
+    # :latest follows main; a :sha-<commit> tag pins one build, should a newer one misbehave
+    image: ghcr.io/zorntaov/comics-updater:latest
     container_name: comics-updater
     restart: unless-stopped
 
@@ -26,33 +28,34 @@ services:
       # scrapes. The browser asks for a username too; any will do.
       # MIRROR_WEB_PASSWORD: change-me
 
-    # the web page, at http://<nas address>:8081/. Change the left number to use another port.
+    # the web page, at http://<host>:8081/. Change the left number to use another port.
     ports:
       - "8081:8081"
 
     volumes:
       # CHANGE ME: the library root, the folder holding CBZs/ and Uncompressed/. Always mounted at
       # /library, because comics are addressed by paths relative to it in their metadata.
-      - /share/Media/Comics:/library
+      - /path/to/Comics:/library
 
       # CHANGE ME: a folder for the settings - ComicScraper.json, the element paths the web page edits,
       # and index/, the record of which page is which. Without it they live inside the container and are
       # lost whenever it is recreated. An empty folder is fine; it fills itself.
-      - /share/Container/ComicScraper/config:/app/config
+      - /path/to/ComicScraper/config:/app/config
 
-      # OPTIONAL, instead of the line above: run the scripts from a folder on the share rather than the
-      # copies built into the image, so an edit needs a container restart rather than an image build.
-      # The folder has to hold everything the image does - the five .py scripts, the web_page/ and
+      # OPTIONAL, instead of the line above: run the scripts from a folder on the host rather than the
+      # copies built into the image, so an edit needs a container restart rather than a new image.
+      # The folder has to hold everything the image does - the six .py scripts, the web_page/ and
       # comiclib/ folders - and its own config/, which then does the job of the line above, so drop that
       # one. An empty or missing path here mounts an empty /app and nothing will start.
       #
-      # - /share/Container/ComicScraper:/app
+      # - /path/to/ComicScraper:/app
 
     # chromium wants more than docker's default 64m of shared memory
     shm_size: 512m
 
-    # Container Station rejects mem_limit here and wants it in Advanced Settings instead.
-    # One headless chromium is a few hundred MB, so 4 GB is headroom rather than a target.
+    # a memory limit is optional: one headless chromium is a few hundred MB, so 4 GB is headroom rather
+    # than a target. some NAS container apps reject mem_limit here and want it in their own settings.
+    # mem_limit: 4g
 
     # --schedule keeps the container alive and runs at that local time daily.
     # Raise --jobs to update several comics at once; each one is its own browser.

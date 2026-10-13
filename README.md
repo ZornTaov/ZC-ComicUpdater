@@ -42,10 +42,10 @@ python update_comics.py "D:/Comics" --dry-run
 python update_comics.py "D:/Comics" --schedule 03:30 --now --web 8080
 ```
 
-Or in Docker:
+Or in Docker, with the published image (edit the paths in
+[`docker-compose.yml`](docker-compose.yml) first):
 
 ```sh
-docker build -t comics-updater:1.0 .
 docker compose up -d
 ```
 

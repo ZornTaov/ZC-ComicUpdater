@@ -1,7 +1,8 @@
 # The comic reader, as an image of its own beside the scraper's. Built from the repo root, so it can take
-# comiclib - the scraper's own rules for what a page is and the order pages read in - rather than a copy:
+# comiclib - the scraper's own rules for what a page is and the order pages read in - rather than a copy.
+# Published as ghcr.io/zorntaov/comic-reader by .github/workflows/images.yml; to build it yourself:
 #
-#     docker build -f reader/Dockerfile -t comic-reader:0.1 .
+#     docker build -f reader/Dockerfile -t comic-reader:local .
 #
 # The web page is built here too, so nothing but docker is needed on the machine doing the building.
 

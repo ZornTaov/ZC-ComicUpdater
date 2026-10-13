@@ -1,12 +1,13 @@
-# Comic mirror for Container Station, or any docker host. Bundles python, chromium and the matching
-# chromedriver so the toolchain cannot be broken by a NAS firmware update, and the scripts themselves, so
-# the image runs on its own with nothing but a library mounted.
+# Comic mirror for any docker host. Bundles python, chromium and the matching chromedriver so the toolchain
+# cannot be broken by an update to the host, and the scripts themselves, so the image runs on its own with
+# nothing but a library mounted. Published as ghcr.io/zorntaov/comics-updater by .github/workflows/images.yml;
+# build it yourself from the repo root with `docker build -t comics-updater:local .`
 #
 # Mounting a folder over /app replaces the scripts baked in here with that folder's, which is how to run
-# edits without rebuilding: change a file on the share, restart the container. See the wiki's Docker page.
+# edits without a new image: change a file in that folder, restart the container. See the wiki's Docker page.
 FROM python:3.12-slim
 
-# unbuffered output so progress shows up in the Container Station log while a run is still going
+# unbuffered output so progress shows up in the container's log while a run is still going
 ENV PYTHONUNBUFFERED=1 \
     MIRROR_BROWSER_BINARY=/usr/bin/chromium \
     MIRROR_DRIVER_BINARY=/usr/bin/chromedriver \

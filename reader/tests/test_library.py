@@ -377,3 +377,22 @@ def test_a_page_gone_altogether_keeps_the_place_by_number(make_app, library):
     stream = app.state.library.stream(only(app))
     assert app.state.library.position(stream, {"key": "not-a-page.png", "position": 3, "seen": 5}) == 3
     assert app.state.library.position(stream, {"key": None, "position": 99, "seen": 5}) == 4
+
+
+def test_a_scan_says_what_it_found_the_first_time_and_then_only_when_it_changes(capsys):
+    #the container's log was empty on a reader working perfectly well, and as empty on one that had been
+    #handed the wrong folder
+    from types import SimpleNamespace
+
+    from comicreader.app import report_scan
+    reader = SimpleNamespace(comics={}, config=SimpleNamespace(library="/library"))
+    assert report_scan(reader, None, 0.5) == 0
+    assert "found no comics: check the library is mounted" in capsys.readouterr().out
+    reader.comics = {"a": {}, "b": {}}
+    assert report_scan(reader, 0, 0.5) == 2
+    assert "2 comics (+2)" in capsys.readouterr().out
+    report_scan(reader, 2, 0.5)
+    assert capsys.readouterr().out == "", "the same count was said again"
+    reader.comics = {"a": {}, "b": {}, "c": {}}
+    report_scan(reader, None, 0.5)
+    assert capsys.readouterr().out.strip().endswith(": 3 comics")

@@ -360,15 +360,33 @@ def ranged(request, size, read, media_type):
                     headers={"Accept-Ranges": "bytes", "Content-Range": "bytes {0}-{1}/{2}".format(start, end, size)})
 
 
+def report_scan(library, counted, took):
+    #the first scan always says what it found, since a reader showing nothing is otherwise silent about why;
+    #after that only a change in the count, or a log fills with the same line every quarter of an hour
+    count = len(library.comics)
+    if count == 0:
+        print("scanned {0} in {1:.1f}s and found no comics: check the library is mounted there and holds "
+              "Uncompressed/ or CBZs/, and that the container's user can read it".format(
+                  library.config.library, took), flush=True)
+    elif count != counted:
+        print("scanned {0} in {1:.1f}s: {2} comics{3}".format(
+            library.config.library, took, count,
+            "" if counted is None else " ({0:+d})".format(count - counted)), flush=True)
+    return count
+
+
 def keep_scanning(library, minutes, settle=None):
     #every so many minutes, or sooner when something the last scan found has gone - a comic moved to another
     #folder showed for a quarter of an hour as tiles pointing at nothing. a move is several renames, so the
     #scan waits a few seconds for the rest before it looks
     settle = SETTLE if settle is None else settle
+    counted = None
     while True:
         library.wanted.clear()
         try:
-            library.scan()
+            began = time.time()
+            if library.scan():
+                counted = report_scan(library, counted, time.time() - began)
         except Exception as error:  # noqa: BLE001 - one bad scan must not stop the next
             print("scan failed: {0}".format(error), flush=True)
         if library.wanted.wait(max(minutes, 1) * 60):

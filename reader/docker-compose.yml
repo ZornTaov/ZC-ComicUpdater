@@ -27,6 +27,9 @@ services:
       # how often the library is looked over for new pages, in minutes. a comic being read is always
       # looked at as it is opened, whatever this says
       READER_SCAN_MINUTES: ${READER_SCAN_MINUTES:-15}
+      # the log says how the reader started and what each scan found. info adds the server's own lines,
+      # every request among them - hundreds a chapter, so only for chasing a fault
+      READER_LOG_LEVEL: ${READER_LOG_LEVEL:-warning}
 
     # the reader, at http://<host>:8082/
     ports:

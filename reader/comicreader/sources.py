@@ -32,7 +32,14 @@ VIDEO_MEDIA = {".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", 
 
 
 #what a reading of a source holds. a reading kept from an older reader, holding less, is read again once
-FORMAT = 5
+FORMAT = 6
+
+
+def mac_leftover(name):
+    #what a mac's own zipping adds beside every file: a __MACOSX tree of '._' files holding its finder data,
+    #each named as the file it belongs to - '._0001.jpg' - so it looks like a page and is not a picture. and
+    #with that tree beside the comic's folder, the comic no longer sits under one folder of its own
+    return name.startswith("__MACOSX/") or posixpath.basename(name).startswith("._")
 
 
 def head_of(zf, info):
@@ -160,7 +167,7 @@ def read_archive(path):
     #and those are pages too - in their place, shown as what they are rather than skipped as gaps
     before = stamp(path)
     with zipfile.ZipFile(path) as zf:
-        infos = {info.filename: info for info in zf.infolist() if not info.is_dir()}
+        infos = {info.filename: info for info in zf.infolist() if not info.is_dir() and not mac_leftover(info.filename)}
         prefix = top_folder(list(infos))
         notes = {}
         for name, info in infos.items():

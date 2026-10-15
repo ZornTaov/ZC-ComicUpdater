@@ -86,6 +86,17 @@ def test_a_bonus_folder_beside_the_pages_is_not_read_as_pages(library, client):
     assert len(comic["pages"]) == 2
 
 
+def test_what_a_mac_zips_beside_the_pages_is_not_read_as_pages(library, client):
+    #a comic zipped on a mac: its folder, and a __MACOSX tree beside it with a '._' file named for every page
+    #that is no picture at all. read, those came first as a run of pages that would not show
+    fork = b"\x00\x05\x16\x07" + b"\x00" * 324
+    unadopted(library, entries={"__MACOSX/._TheirComic": fork,
+                                "TheirComic/p2.png": png(40, 61), "__MACOSX/TheirComic/._p2.png": fork,
+                                "TheirComic/p1.png": png(40, 60), "__MACOSX/TheirComic/._p1.png": fork})
+    _, comic = opened(client)
+    assert [(page[1], page[2]) for page in comic["pages"]] == [(40, 60), (40, 61)]
+
+
 def test_every_page_is_the_right_shape_before_it_loads(library, client):
     #so scrolling through a comic never jumps as its pictures and players arrive: pictures measured from
     #their first bytes, flash from its own header, a video or a link to one as a wide screen

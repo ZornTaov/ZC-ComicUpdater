@@ -5,7 +5,7 @@ import { api, type StandIn } from "./api";
 import { attachGestures } from "./gestures";
 import { chapterOf, chapterTarget, keyAction, tapAction, TRIAL_PAGES, trialKept, typedPage, viewOf, views, wanted } from "./layout";
 import { Strip } from "./strip";
-import { clean, merged, type Settings } from "./settings";
+import { clean, merged, scopeOf, type Scope, type Settings } from "./settings";
 import { coverMessage, el, esc, refusal } from "./dom";
 import { embedFor } from "./media";
 
@@ -16,9 +16,14 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
   const [comic, global] = await Promise.all([api.comic(id), api.settings().catch(() => ({}))]);
   let own: Partial<Settings> = clean(comic.settings || {});
   let globalSettings: Partial<Settings> = clean(global);
-  let settings = merged(globalSettings, own);
-  // a comic with settings of its own keeps changing those; otherwise a change is for every comic
-  let scope: "comic" | "all" = Object.keys(own).length ? "comic" : "all";
+  // a comic from elsewhere kept one archive per chapter is a series of one-chapter comics, so what is meant
+  // for the whole of it has to be kept for its series, not for the chapter open. a series of one is just a
+  // comic, as it is on the shelf - an archive this tool writes names itself its own series
+  const inSeries = Boolean(comic.series && (comic.previous || comic.next));
+  let seriesOwn: Partial<Settings> = inSeries ? clean(comic.seriesSettings || {}) : {};
+  let settings = merged(globalSettings, own, seriesOwn);
+  // a comic or series with settings of its own keeps changing those; otherwise a change is for every comic
+  let scope: Scope = scopeOf(own, seriesOwn, inSeries);
   const starts = comic.chapters.map((chapter) => chapter.start);
   let shown = views(comic.pages, settings, starts);
   let view = viewOf(shown, clamp(startAt ?? comic.position, 0, comic.pages.length - 1));
@@ -465,12 +470,22 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     if (scope === "comic") {
       own = { ...own, ...changes };
       api.saveComicSettings(comic.id, own).catch(() => notify("Could not save the setting"));
+    } else if (scope === "series") {
+      seriesOwn = { ...seriesOwn, ...changes };
+      api.saveSeriesSettings(comic.id, seriesOwn).catch(() => notify("Could not save the setting"));
+      // the chapter open is part of the series too: the same setting kept for it alone would win over the
+      // series' and the change would seem to do nothing - as it would for a chapter set before series could be
+      const shadowed = Object.keys(changes).filter((key) => key in own);
+      if (shadowed.length) {
+        own = Object.fromEntries(Object.entries(own).filter(([key]) => !shadowed.includes(key))) as Partial<Settings>;
+        api.saveComicSettings(comic.id, own).catch(() => undefined);
+      }
     } else {
       globalSettings = { ...globalSettings, ...changes };
       api.saveSettings(globalSettings).catch(() => notify("Could not save the setting"));
     }
     const wasWebtoon = settings.mode === "webtoon";
-    settings = merged(globalSettings, own);
+    settings = merged(globalSettings, own, seriesOwn);
     shown = views(comic.pages, settings, starts);
     view = viewOf(shown, at);
     if (wasWebtoon && settings.mode !== "webtoon") clearStrip();
@@ -481,7 +496,9 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     sheet.innerHTML = `
       <h2>Reading settings</h2>
       <label class="row">Remember for
-        <select data-set="scope"><option value="all">every comic</option><option value="comic">this comic only</option></select></label>
+        <select data-set="scope"><option value="all">every comic</option>
+          ${inSeries ? '<option value="series">this series</option><option value="comic">this chapter only</option>'
+                     : '<option value="comic">this comic only</option>'}</select></label>
       <label class="row">Background <input type="color" data-set="background"></label>
       <label class="row">Side padding <span class="value" data-show="padding"></span>
         <input type="range" min="0" max="40" step="1" data-set="padding"></label>
@@ -492,13 +509,19 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
       <label class="row"><input type="checkbox" data-set="coverAlone"> First page alone in two-page view</label>
       <label class="row">Pages ready ahead <input type="number" min="1" max="12" data-set="ahead"></label>
       <div class="row buttons">
-        ${scope === "comic" ? '<button data-act="forget-own">Use the settings for every comic</button>' : ""}
+        ${scope === "comic" ? `<button data-act="forget-own">Use the settings for ${
+          inSeries && Object.keys(seriesOwn).length ? "the series" : "every comic"}</button>` : ""}
+        ${scope === "series" ? '<button data-act="forget-series">Use the settings for every comic</button>' : ""}
         <button data-act="restart">Mark as unread</button>
         <button data-act="close">Done</button>
       </div>`;
     const input = <T extends HTMLElement>(name: string) => sheet.querySelector<T>(`[data-set="${name}"]`)!;
     input<HTMLSelectElement>("scope").value = scope;
-    input<HTMLSelectElement>("scope").onchange = (event) => { scope = (event.target as HTMLSelectElement).value as "comic" | "all"; };
+    // shown again, so the button for forgetting what is kept matches what changes are now kept for
+    input<HTMLSelectElement>("scope").onchange = (event) => {
+      scope = (event.target as HTMLSelectElement).value as Scope;
+      openSheet();
+    };
     input<HTMLInputElement>("background").value = settings.background;
     input<HTMLInputElement>("background").onchange = (event) => change({ background: (event.target as HTMLInputElement).value });
     const padding = input<HTMLInputElement>("padding");
@@ -531,15 +554,26 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     input<HTMLInputElement>("ahead").value = String(settings.ahead);
     input<HTMLInputElement>("ahead").onchange = (event) => change({ ahead: Number((event.target as HTMLInputElement).value) });
     const forget = sheet.querySelector<HTMLButtonElement>('[data-act="forget-own"]');
-    if (forget) forget.onclick = () => {
-      own = {};
-      scope = "all";
-      api.saveComicSettings(comic.id, {}).catch(() => undefined);
-      settings = merged(globalSettings, own);
+    const forgotten = () => {
+      settings = merged(globalSettings, own, seriesOwn);
       shown = views(comic.pages, settings, starts);
       view = viewOf(shown, page());
       render();
       openSheet();
+    };
+    // a chapter's own settings forgotten falls back to its series', where it has any
+    if (forget) forget.onclick = () => {
+      own = {};
+      scope = scopeOf(own, seriesOwn, inSeries);
+      api.saveComicSettings(comic.id, {}).catch(() => undefined);
+      forgotten();
+    };
+    const forgetSeries = sheet.querySelector<HTMLButtonElement>('[data-act="forget-series"]');
+    if (forgetSeries) forgetSeries.onclick = () => {
+      seriesOwn = {};
+      scope = "all";
+      api.saveSeriesSettings(comic.id, {}).catch(() => undefined);
+      forgotten();
     };
     // marked unread, the comic is closed: the place stops being kept first, or leaving it - or the next
     // scroll - would save it straight back

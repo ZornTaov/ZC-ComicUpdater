@@ -1,5 +1,6 @@
-// how a comic is read. kept on the server, once for every comic and again for any one comic that differs,
-// so a phone and a tablet read the same comic the same way
+// how a comic is read. kept on the server, once for every comic, again for any series that differs - every
+// chapter of a comic kept one archive per chapter - and again for any one comic, so a phone and a tablet
+// read the same comic the same way
 export type Mode = "single" | "spread" | "webtoon";
 export type Fit = "screen" | "width" | "height" | "original";
 
@@ -39,8 +40,18 @@ export const defaults: Settings = {
   gap: 0,
 };
 
-export function merged(global: Partial<Settings>, comic: Partial<Settings>): Settings {
-  return { ...defaults, ...clean(global), ...clean(comic) };
+// the nearer wins: one comic's own over its series', its series' over every comic's
+export function merged(global: Partial<Settings>, comic: Partial<Settings>, series: Partial<Settings> = {}): Settings {
+  return { ...defaults, ...clean(global), ...clean(series), ...clean(comic) };
+}
+
+export type Scope = "all" | "series" | "comic";
+
+// what a change made in the reader is kept for: the nearest that has settings of its own, or every comic
+export function scopeOf(comic: Partial<Settings>, series: Partial<Settings>, inSeries: boolean): Scope {
+  if (Object.keys(comic).length) return "comic";
+  if (inSeries && Object.keys(series).length) return "series";
+  return "all";
 }
 
 // only what this version knows, at sensible values, whatever an older or newer page stored

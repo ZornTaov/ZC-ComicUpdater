@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Page } from "./api";
 import { chapterOf, chapterTarget, keyAction, pageAt, placeStrip, tapAction, trialKept, typedPage, viewOf, views, wanted } from "./layout";
-import { clean, merged } from "./settings";
+import { clean, merged, scopeOf } from "./settings";
 import { runLine, startingValues } from "./info";
 import { coverMessage, refusal } from "./dom";
 import { describeCover } from "./coverdialog";
@@ -228,6 +228,19 @@ describe("a comic opened at random", () => {
 describe("settings", () => {
   it("lets a comic's own settings win over every comic's", () => {
     expect(merged({ fit: "width", direction: "ltr" }, { direction: "rtl" })).toMatchObject({ fit: "width", direction: "rtl", mode: "single" });
+  });
+
+  it("puts a series' settings between every comic's and one chapter's own", () => {
+    expect(merged({ gap: 20, padding: 10, fit: "width" }, { fit: "original" }, { gap: 0, fit: "screen" }))
+      .toMatchObject({ gap: 0, padding: 10, fit: "original" });
+  });
+
+  it("keeps a change for the nearest that has settings of its own", () => {
+    expect(scopeOf({ gap: 0 }, { gap: 4 }, true)).toBe("comic");
+    expect(scopeOf({}, { gap: 4 }, true)).toBe("series");
+    expect(scopeOf({}, {}, true)).toBe("all");
+    // what was kept for a series it is no longer part of says nothing
+    expect(scopeOf({}, { gap: 4 }, false)).toBe("all");
   });
 
   it("drops what it does not know and keeps numbers in range", () => {

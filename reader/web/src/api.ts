@@ -91,6 +91,8 @@ export interface Comic {
   chapters: Chapter[];
   pages: Page[];
   settings: Partial<Settings>;
+  // what was kept for the whole series it is a part of: every chapter, where each chapter is its own archive
+  seriesSettings: Partial<Settings>;
   // the parts either side of it in its series - the chapters of a comic, the issues of a series
   previous: { id: string; title: string } | null;
   next: { id: string; title: string } | null;
@@ -184,4 +186,6 @@ export const api = {
   settings: () => call<Partial<Settings>>("/api/settings"),
   saveSettings: (settings: Partial<Settings>) => put<Partial<Settings>>("/api/settings", settings),
   saveComicSettings: (id: string, settings: Partial<Settings>) => put(`/api/comics/${id}/settings`, settings),
+  // the series named by one of its parts, so it is the series the server says that part is in
+  saveSeriesSettings: (id: string, settings: Partial<Settings>) => put(`/api/comics/${id}/series/settings`, settings),
 };

@@ -96,6 +96,9 @@ def create_app(config=None, scan_in_background=True):
                 "pages": [[page["v"], page["w"], page["h"], 1 if page["standin"] else 0, page.get("media")]
                           for page in stream["pages"]],
                 "settings": store.settings("comic:" + comic_id),
+                #a comic from elsewhere in one archive per chapter is a series of comics of one chapter each, so
+                #settings meant for the comic are kept for its series, under every part of it
+                "seriesSettings": store.settings("series:" + summary["series"]) if summary["series"] else {},
                 #the parts either side of it in its series, for reading on past either end
                 **library.neighbours.get(comic_id, {"previous": None, "next": None})}
 
@@ -324,6 +327,16 @@ def create_app(config=None, scan_in_background=True):
         comic_or_404(comic_id)
         store.save_settings("comic:" + comic_id, await request.json())
         return store.settings("comic:" + comic_id)
+
+    @app.put("/api/comics/{comic_id}/series/settings")
+    async def save_series_settings(comic_id: str, request: Request):
+        #named by one of its parts, so the series is the one the server says it is in - the same name its
+        #shelf and its cover go by - and never a name the page spelled differently
+        series = library.summary(comic_or_404(comic_id), None)["series"]
+        if not series:
+            raise HTTPException(409, "This comic is not part of a series; keep its settings for it alone.")
+        store.save_settings("series:" + series, await request.json())
+        return store.settings("series:" + series)
 
     @app.get("/api/health")
     def health():

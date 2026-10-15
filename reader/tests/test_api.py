@@ -1,6 +1,7 @@
 #the server as the web page uses it: the library with what is unread, a page's bytes cached for good once
 #the page names its version, where a comic was read up to, and the real file behind a stand-in.
 import base64
+import zipfile
 
 from conftest import comic_folder, page_names, png
 
@@ -141,6 +142,31 @@ def test_settings_are_kept_for_every_comic_and_for_one(library, client):
     api.put("/api/comics/{0}/settings".format(comic_id), json={"direction": "rtl"})
     assert api.get("/api/settings").json() == {"fit": "width", "direction": "ltr"}
     assert api.get("/api/comics/{0}".format(comic_id)).json()["settings"] == {"direction": "rtl"}
+
+
+def test_a_comic_in_no_series_has_no_series_settings(library, client):
+    comic_folder(library, "MyComic", 2, settings={"cbz": False})
+    api, _ = client()
+    comic_id = first(api)["id"]
+    assert api.get("/api/comics/{0}".format(comic_id)).json()["seriesSettings"] == {}
+    assert api.put("/api/comics/{0}/series/settings".format(comic_id), json={"gap": 0}).status_code == 409
+
+
+def test_settings_kept_for_a_series_are_seen_from_every_chapter_of_it(library, client):
+    #a comic from elsewhere, one archive per chapter, is a comic per chapter: settings meant for the whole
+    #of it are kept once for the series, not for the chapter they were set in
+    shelf = library / "CBZs" / "SomeAuthor"
+    shelf.mkdir()
+    for name in ("Their Comic - c001.cbz", "Their Comic - c002.cbz"):
+        with zipfile.ZipFile(str(shelf / name), "w") as zf:
+            zf.writestr("01.png", png(4, 4))
+    api, _ = client()
+    chapters = [comic["id"] for comic in api.get("/api/library").json()["comics"] if comic["series"] == "Their Comic"]
+    assert len(chapters) == 2
+    api.put("/api/comics/{0}/series/settings".format(chapters[0]), json={"gap": 0, "padding": 0})
+    for chapter in chapters:
+        details = api.get("/api/comics/{0}".format(chapter)).json()
+        assert (details["seriesSettings"], details["settings"]) == ({"gap": 0, "padding": 0}, {})
 
 
 def test_a_password_is_asked_for_everything_but_the_home_screen_icon(library, client):

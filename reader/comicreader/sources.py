@@ -19,7 +19,7 @@ import zlib
 
 from comiclib import comicinfo
 from comiclib.metadata import METADATA_FILE
-from comiclib.pages import PAGE_TYPES, listing, page_key, reading_order
+from comiclib.pages import PAGE_TYPES, listing, mac_leftover, page_key, reading_order
 from comiclib.standin import (NOTE_LIMIT, address_in, flash_types, held_otherwise, is_note_name, lines_for,
                               link_types, note_address, stand_in, video_types)
 
@@ -33,13 +33,6 @@ VIDEO_MEDIA = {".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", 
 
 #what a reading of a source holds. a reading kept from an older reader, holding less, is read again once
 FORMAT = 6
-
-
-def mac_leftover(name):
-    #what a mac's own zipping adds beside every file: a __MACOSX tree of '._' files holding its finder data,
-    #each named as the file it belongs to - '._0001.jpg' - so it looks like a page and is not a picture. and
-    #with that tree beside the comic's folder, the comic no longer sits under one folder of its own
-    return name.startswith("__MACOSX/") or posixpath.basename(name).startswith("._")
 
 
 def head_of(zf, info):

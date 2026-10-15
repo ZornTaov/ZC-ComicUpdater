@@ -12,6 +12,15 @@ PAGE_TYPES = re.compile(r'\.(png|jpe?g|gif|webp|bmp|avif)$', re.I)
 NUMBERED = re.compile(r'^(\d+)(?:[._])')
 
 
+def mac_leftover(entry):
+    #what a mac's own zipping adds beside every file of an archive: a __MACOSX tree of '._' files holding its
+    #finder data, each named as the file it belongs to - '._0001.jpg' - so it looks like a page and is no
+    #picture. and with that tree beside the comic's folder, the comic no longer sits under one folder of its
+    #own. nothing in one is the comic's, so every archive someone else made is read without them
+    entry = entry.replace('\\', '/')
+    return entry.startswith('__MACOSX/') or entry.rsplit('/', 1)[-1].startswith('._')
+
+
 def page_key(name):
     #what makes two filenames the same page, ignoring how each happened to be named: the '0742_' a scrape
     #adds in front moves whenever a comic is renumbered, and an extension has been appended to names that

@@ -5,6 +5,7 @@ import re
 import zipfile
 
 from comiclib.metadata import METADATA_FILE as metadata_file
+from comiclib.pages import mac_leftover
 
 page_types = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif', '.jxl')
 
@@ -23,7 +24,7 @@ def list_pages(path):
     #the years hold stray files - a copy of the script, a Thumbs.db - that should not count as pages.
     if os.path.isfile(path) and path.lower().endswith('.cbz'):
         with zipfile.ZipFile(path) as zf:
-            return sorted(os.path.basename(n) for n in zf.namelist() if is_page(n))
+            return sorted(os.path.basename(n) for n in zf.namelist() if is_page(n) and not mac_leftover(n))
     pages = []
     for root, dirs, files in os.walk(path):
         dirs[:] = [d for d in dirs if not d.startswith('.')]

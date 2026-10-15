@@ -11,7 +11,7 @@ from comiclib import comicinfo
 from comiclib.chapters.chapterlist import chapters_block, settle_chapters
 from comiclib.chapters.index import numbered_pages
 from comiclib.metadata import METADATA_FILE
-from comiclib.pages import PAGE_TYPES, held_pages, page_key, page_number, safe_name, sort_key, write_page
+from comiclib.pages import PAGE_TYPES, held_pages, mac_leftover, page_key, page_number, safe_name, sort_key, write_page
 
 #where a plugin's program is run, inside the comic's own folder so taking a page in is a rename. a dot
 #folder, which the library's search never goes into and no archive takes in
@@ -183,7 +183,7 @@ def chapter_archives(staging, files, taken):
         full = os.path.join(staging, path.replace('/', os.sep))
         try:
             with zipfile.ZipFile(full) as zf:
-                entries = [entry for entry in zf.infolist() if not entry.is_dir()]
+                entries = [entry for entry in zf.infolist() if not entry.is_dir() and not mac_leftover(entry.filename)]
                 info = next((entry for entry in entries if is_comicinfo(entry.filename)), None)
                 kept = comicinfo.kept_tags(zf.read(info)) if info else {}
                 pictures = sorted((entry for entry in entries if PAGE_TYPES.search(entry.filename)),

@@ -7,7 +7,7 @@ import zipfile
 
 from comiclib import comicinfo
 from comiclib.metadata import METADATA_FILE
-from comiclib.pages import PAGE_TYPES, reading_order
+from comiclib.pages import PAGE_TYPES, mac_leftover, reading_order
 from comiclib.standin import archive_entry, held_otherwise
 
 #the Compress-Archive name for the tree beside a library's loose pages
@@ -22,7 +22,7 @@ def archive_prefix(zf, folder):
     #the ComicInfo is at the top of every archive whatever its pages are under, since that is where a
     #reader looks for it, so it says nothing about where the pages are
     prefix = os.path.basename(os.path.abspath(folder)) + '/'
-    names = [name for name in zf.namelist() if name != comicinfo.NAME]
+    names = [name for name in zf.namelist() if name != comicinfo.NAME and not mac_leftover(name)]
     return prefix if names and all(name.startswith(prefix) for name in names) else ''
 
 
@@ -83,7 +83,8 @@ def page_order(entries, prefix):
     #the entries a reader turns through as pages, in the order it reads them: pictures directly under the
     #prefix, ordered the way the comic's folder is. a ComicInfo numbers its pages in this order
     names = {entry[len(prefix):]: entry for entry in entries
-             if entry.startswith(prefix) and '/' not in entry[len(prefix):] and PAGE_TYPES.search(entry)}
+             if entry.startswith(prefix) and '/' not in entry[len(prefix):] and PAGE_TYPES.search(entry)
+             and not mac_leftover(entry)}
     return [names[name] for name in reading_order(None, list(names))]
 
 

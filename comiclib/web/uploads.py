@@ -17,6 +17,7 @@ from comiclib.adopt.adopting import adopt_one
 from comiclib.adopt.scan import inspect as numbering, is_page
 from comiclib.adopt.unpacking import CHUNK, Refused, pages_folder, unpack  # noqa: F401
 from comiclib.metadata import METADATA_FILE, migrate, now_stamp, read as read_metadata, write as write_metadata
+from comiclib.pages import mac_leftover
 from comiclib.web.adding import clean_folder, default_cbz, under_root
 
 #inside the library, as dot-folders: the library scan skips anything whose name starts with a dot, so a
@@ -88,7 +89,9 @@ def look_inside(path):
     #what an archive holds, from its own list of contents: its pages, how they are numbered, and whether
     #it is a comic this tool has already adopted. nothing is unpacked
     with zipfile.ZipFile(path) as archive:
-        names = [info.filename.replace("\\", "/") for info in archive.infolist() if not info.is_dir()]
+        #what a mac zipped beside the pages is not even something left out: it was never the comic's
+        names = [info.filename.replace("\\", "/") for info in archive.infolist()
+                 if not info.is_dir() and not mac_leftover(info.filename)]
         inner = pages_folder(names)
         pages = [name for name in names if is_page(name)]
         kept = posixpath.join(inner, METADATA_FILE) if inner else METADATA_FILE

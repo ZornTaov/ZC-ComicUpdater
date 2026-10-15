@@ -15,7 +15,7 @@ from comiclib.library import find_comics
 from comiclib.metadata import METADATA_FILE as metadata_file, now_stamp as time_stamp, read as read_metadata
 from comiclib.metadata import record_moves
 from comiclib.metadata import write as write_metadata
-from comiclib.pages import SET_ASIDE, listing as folder_pages, sizes as file_sizes
+from comiclib.pages import SET_ASIDE, listing as folder_pages, mac_leftover, sizes as file_sizes
 from comiclib.standin import archive_entry, held_otherwise
 
 
@@ -393,9 +393,11 @@ def keep_extras(full, folder, keep_in):
 
     try:
         with zipfile.ZipFile(full) as zf:
-            #the ComicInfo was written for the single archive, and each chapter archive has its own
+            #the ComicInfo was written for the single archive, and each chapter archive has its own. what a
+            #mac zipped beside the pages is its own finder data, and written out it would be a '._0001.jpg'
+            #on the shelf for any reader to take for a page
             extras = [info for info in zf.infolist()
-                      if not info.is_dir() and info.filename != comicinfo.NAME
+                      if not info.is_dir() and info.filename != comicinfo.NAME and not mac_leftover(info.filename)
                       and posixpath.basename(info.filename) not in on_disk
                       and not renamed_page(zf, info)]
             names = [posixpath.basename(info.filename) for info in extras]

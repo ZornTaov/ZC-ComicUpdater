@@ -11,6 +11,7 @@ import zipfile
 from comiclib.adopt.adopting import adopt_one
 from comiclib.adopt.scan import is_page, relative_output
 from comiclib.metadata import METADATA_FILE
+from comiclib.pages import mac_leftover
 from comiclib.standin import flash_types, video_types
 
 #read and written a megabyte at a time, so a file of gigabytes never sits in memory
@@ -67,7 +68,7 @@ def unpack(path, inner, staging, cancel=None):
     with zipfile.ZipFile(path) as archive:
         for info in archive.infolist():
             name = info.filename.replace("\\", "/")
-            if info.is_dir() or (inner is not None and posixpath.dirname(name) != inner):
+            if info.is_dir() or mac_leftover(name) or (inner is not None and posixpath.dirname(name) != inner):
                 continue
             base = posixpath.basename(name)
             if not (a_page(base) or base == METADATA_FILE):
@@ -99,7 +100,8 @@ def unpack_and_adopt(args):
         return False, "{0} is already a comic".format(args.unpack_to)
     try:
         with zipfile.ZipFile(archive) as opened:
-            names = [info.filename.replace("\\", "/") for info in opened.infolist() if not info.is_dir()]
+            names = [info.filename.replace("\\", "/") for info in opened.infolist()
+                     if not info.is_dir() and not mac_leftover(info.filename)]
         inner = pages_folder(names, getattr(args, "flatten", False))
     except (Refused, zipfile.BadZipFile, OSError) as error:
         return False, "cannot unpack {0}: {1}".format(args.path, error)

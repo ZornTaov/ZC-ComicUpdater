@@ -165,6 +165,14 @@ export function chapterTarget(chapterStarts: number[], page: number, forward: bo
   return at === 0 && starts[0] > 0 ? 0 : null;
 }
 
+// a comic opened at random is only tried until it is really being read: its place is kept once this many
+// pages of it have been seen, or its last one has, so one looked at and put down never joins what is being read
+export const TRIAL_PAGES = 5;
+
+export function trialKept(seen: number, at: number, pages: number): boolean {
+  return seen >= TRIAL_PAGES || at >= pages - 1;
+}
+
 // the page a typed page number means: counted from one as the reader sees them, kept within the comic.
 // null for anything that is not a number, which leaves the reader where it is
 export function typedPage(text: string, count: number): number | null {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Page } from "./api";
-import { chapterOf, chapterTarget, keyAction, pageAt, placeStrip, tapAction, typedPage, viewOf, views, wanted } from "./layout";
+import { chapterOf, chapterTarget, keyAction, pageAt, placeStrip, tapAction, trialKept, typedPage, viewOf, views, wanted } from "./layout";
 import { clean, merged } from "./settings";
 import { runLine, startingValues } from "./info";
 import { coverMessage, refusal } from "./dom";
@@ -211,6 +211,17 @@ describe("the info page", () => {
   it("says why a change was refused in the server's own words", () => {
     expect(refusal(new Error('409 {"detail":"Try again in a few minutes."}'))).toBe("Try again in a few minutes.");
     expect(refusal(new Error("500 Internal Server Error"))).toBe("500 Internal Server Error");
+  });
+});
+
+describe("a comic opened at random", () => {
+  it("keeps its place once five pages are seen, or the last one is", () => {
+    expect(trialKept(4, 3, 100)).toBe(false);
+    expect(trialKept(5, 4, 100)).toBe(true);
+    expect(trialKept(1, 99, 100)).toBe(true);
+    // a comic shorter than five pages is kept only read to its end
+    expect(trialKept(2, 1, 3)).toBe(false);
+    expect(trialKept(3, 2, 3)).toBe(true);
   });
 });
 

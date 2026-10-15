@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ComicSummary } from "./api";
-import { compareComics, grewBy, readShare, reading,recentlyUpdated, shelf, upTo } from "./shelves";
+import { compareComics, grewBy, openingPage, randomPick, readShare, reading,recentlyUpdated, shelf, upTo } from "./shelves";
 
 const comic = (over: Partial<ComicSummary>): ComicSummary => ({
   id: over.name ?? over.title ?? "x", name: over.title ?? "x", title: "MyComic", series: null, number: null,
@@ -176,5 +176,57 @@ describe("series and authors", () => {
     const top = shelf(library, "author", "");
     expect(top.groups.map((group) => group.label)).toEqual(["Someone"]);
     expect(titles(top.comics)).toEqual(["Nobody's", "Standalone"]);
+  });
+});
+
+describe("random pick", () => {
+  // draws given in turn: the first picks the folder, the second what is in it
+  const draws = (...values: number[]) => () => values.shift() ?? 0;
+  const picked = (list: ComicSummary[], ...values: number[]) => randomPick(list, "folder", "", draws(...values))?.id;
+  const part = (n: number, over: Partial<ComicSummary> = {}) =>
+    comic({ title: `Part ${n}`, series: "MyComic", number: String(n), place: "CBZs/MyComic", ...over });
+  const read = { position: 9, unread: 0 };
+
+  it("opens a series at its first part not read through", () => {
+    expect(picked([part(1, read), part(2, read), part(3)])).toBe("Part 3");
+  });
+
+  it("counts from the start of a series, not on from the latest part read", () => {
+    expect(picked([part(3, read), part(1), part(2)])).toBe("Part 1");
+    expect(picked([part(1, read), part(2), part(3, read)])).toBe("Part 2");
+  });
+
+  it("opens a part read part way where it was left, and one grown since it was finished on its first new page", () => {
+    expect(randomPick([part(1, { position: 4, unread: 5 })], "folder", "", draws())).toEqual({ id: "Part 1", at: null });
+    const grown = comic({ title: "Grown", pages: 12, position: 9, unread: 2, new: 2 });
+    expect(randomPick([grown], "folder", "", draws())).toEqual({ id: "Grown", at: 10 });
+    expect(openingPage(grown)).toBe(10);
+  });
+
+  it("never picks what is read through, and has nothing when everything is", () => {
+    const list = [part(1, read), part(2, read), comic({ title: "Done", ...read }), comic({ title: "Empty", pages: 0 })];
+    expect(randomPick(list, "folder", "", draws())).toBeNull();
+    expect(picked([...list, comic({ title: "Left" })], 0.99)).toBe("Left");
+  });
+
+  it("gives a folder of many one-shots the same chance as a comic on its own", () => {
+    const oneShots = Array.from({ length: 40 }, (_, n) => comic({ title: `Fan ${n}`, place: "Fan Comics" }));
+    const list = [...oneShots, comic({ title: "Lone" })];
+    const low = picked(list, 0.1, 0.5);
+    const high = picked(list, 0.9, 0.5);
+    expect([low, high].filter((id) => id === "Lone")).toHaveLength(1);
+    expect([low, high].filter((id) => id?.startsWith("Fan "))).toHaveLength(1);
+  });
+
+  it("picks only from inside the folder being browsed, and not from one whose name starts the same", () => {
+    const list = [comic({ title: "In", place: "Site" }), comic({ title: "Next door", place: "Site B" }), comic({ title: "Top" })];
+    for (const value of [0, 0.5, 0.99]) {
+      expect(randomPick(list, "folder", "Site", draws(value, value))?.id).toBe("In");
+    }
+  });
+
+  it("by series, picks within that series", () => {
+    const list = [part(1, read), part(2), comic({ title: "Other" })];
+    expect(randomPick(list, "series", "MyComic", draws(0.99, 0.99))?.id).toBe("Part 2");
   });
 });

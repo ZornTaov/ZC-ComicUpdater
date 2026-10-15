@@ -1,6 +1,6 @@
-// three screens, chosen by the address: #/browse/<how>/<where> is the library, #/read/<comic>[/<page>] a comic
-// open for reading, and #/info/<comic> what a comic is and where it came from, so the back button and a
-// bookmark all do what they should
+// three screens, chosen by the address: #/browse/<how>/<where> is the library, #/read/<comic>[/<page>][/try] a
+// comic open for reading - /try one picked at random, whose place is kept only once it is really read - and
+// #/info/<comic> what a comic is and where it came from, so the back button and a bookmark all do what they should
 import "./style.css";
 import { esc } from "./dom";
 import { openInfo } from "./info";
@@ -19,7 +19,7 @@ let shownBefore = false;
 async function route() {
   close();
   close = () => undefined;
-  const reading = location.hash.match(/^#\/read\/([0-9a-f]+)(?:\/(\d+))?/);
+  const reading = location.hash.match(/^#\/read\/([0-9a-f]+)(?:\/(\d+))?(\/try)?/);
   const browsing = location.hash.match(/^#\/browse\/(folder|series|author|all)(?:\/(.*))?$/);
   const about = location.hash.match(/^#\/info\/([0-9a-f]+)/);
   const cameFrom = shownBefore;
@@ -34,15 +34,18 @@ async function route() {
     } else if (reading) {
       document.body.classList.add("reading");
       close = await openReader(root, reading[1], reading[2] !== undefined ? Number(reading[2]) - 1 : null,
-                               () => { location.hash = lastBrowse || browseHash(rememberedBrowse()); });
+                               () => { location.hash = lastBrowse || browseHash(rememberedBrowse()); },
+                               reading[3] !== undefined);
       // a page in the address is where to open, once: coming back to it - from the info page - opens the
-      // comic where it was left, not on that page again
-      if (reading[2] !== undefined) history.replaceState(null, "", `#/read/${reading[1]}`);
+      // comic where it was left, not on that page again. a trial stays one until the reader keeps its place
+      if (reading[2] !== undefined) history.replaceState(null, "", `#/read/${reading[1]}${reading[3] ?? ""}`);
     } else if (browsing) {
       document.body.classList.remove("reading");
       lastBrowse = location.hash;
       close = await openLibrary(root, browsing[1] as Browse, browsing[2] ? decodeURIComponent(browsing[2]) : "",
-                                (id, at) => { location.hash = at === null ? `#/read/${id}` : `#/read/${id}/${at + 1}`; });
+                                (id, at, trial = false) => {
+                                  location.hash = `#/read/${id}${at === null ? "" : `/${at + 1}`}${trial ? "/try" : ""}`;
+                                });
     } else {
       location.replace(browseHash(rememberedBrowse()));
     }

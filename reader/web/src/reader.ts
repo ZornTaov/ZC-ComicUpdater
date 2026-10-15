@@ -3,7 +3,7 @@
 // changes, by page rather than by number, so it survives the comic growing or being renumbered.
 import { api, type StandIn } from "./api";
 import { attachGestures } from "./gestures";
-import { chapterOf, chapterTarget, keyAction, tapAction, typedPage, viewOf, views, wanted } from "./layout";
+import { chapterOf, chapterTarget, keyAction, tapAction, TRIAL_PAGES, trialKept, typedPage, viewOf, views, wanted } from "./layout";
 import { Strip } from "./strip";
 import { clean, merged, type Settings } from "./settings";
 import { coverMessage, el, esc, refusal } from "./dom";
@@ -11,7 +11,8 @@ import { embedFor } from "./media";
 
 const CACHE = 24;
 
-export async function openReader(root: HTMLElement, id: string, startAt: number | null, leave: () => void): Promise<() => void> {
+export async function openReader(root: HTMLElement, id: string, startAt: number | null, leave: () => void,
+                                 trial = false): Promise<() => void> {
   const [comic, global] = await Promise.all([api.comic(id), api.settings().catch(() => ({}))]);
   let own: Partial<Settings> = clean(comic.settings || {});
   let globalSettings: Partial<Settings> = clean(global);
@@ -27,6 +28,10 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
   let lastSaved = "";
   // false once the comic has been marked unread from inside it
   let keepingPlace = true;
+  // opened at random: nothing is saved until enough of it has been seen to say it is being read, so one put
+  // straight down leaves no trace. every page on screen counts once, however often it is turned back to
+  let trying = trial;
+  const looked = new Set<number>();
   // how far down its page the reader was, for the first time a scrolled comic is shown
   let startPart = startAt === null ? comic.part || 0 : 0;
 
@@ -109,6 +114,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     keepNear([...pages, ...near]);
     showStandIn(pages);
     updateMenu();
+    pages.forEach((n) => looked.add(n));
     remember();
   }
 
@@ -138,6 +144,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
           view = viewOf(shown, n);
           standinButton.hidden = true;
           updateMenu();
+          shown[view].forEach((each) => looked.add(each));
           remember();
         },
         moved: remember,
@@ -147,6 +154,7 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
     // opened again exactly where it was left: the same page, the same way down it
     scrolling.jumpTo(page(), startPart);
     startPart = 0;
+    shown[view].forEach((n) => looked.add(n));
     updateMenu();
   }
 
@@ -168,6 +176,12 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
   function save(closing = false) {
     if (!keepingPlace) return;
     const at = page();
+    if (trying) {
+      if (!trialKept(looked.size, at, comic.pages.length)) return;
+      // being read now: from here on an ordinary comic, and the address one that opens it as one
+      trying = false;
+      if (location.hash.startsWith(`#/read/${comic.id}`)) history.replaceState(null, "", `#/read/${comic.id}`);
+    }
     const part = settings.mode === "webtoon" && scrolling ? scrolling.partOf(at) : 0;
     const said = `${at}:${part.toFixed(3)}`;
     if (said === lastSaved) return;
@@ -726,7 +740,9 @@ export async function openReader(root: HTMLElement, id: string, startAt: number 
 
   buildMenu();
   render();
-  if (startAt === null && comic.position > 0 && comic.position >= comic.seen - 1 && comic.pages.length > comic.seen) {
+  if (trial) {
+    notify(`Picked at random - your place is kept after ${TRIAL_PAGES} pages`);
+  } else if (startAt === null && comic.position > 0 && comic.position >= comic.seen - 1 && comic.pages.length > comic.seen) {
     notify(`${comic.pages.length - comic.seen} new since you last read`);
   }
 

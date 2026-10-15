@@ -3,7 +3,7 @@
 import { api, type ComicSummary, type Fit, type GroupCovers } from "./api";
 import { openCoverDialog, type CoverTarget } from "./coverdialog";
 import { el, esc, fitClass, refusal } from "./dom";
-import { BROWSE_LABELS, type Browse, type Group, grewBy, matches, nextIssues, pathLabel, readShare, reading, recentlyUpdated, shelf, upTo } from "./shelves";
+import { BROWSE_LABELS, type Browse, type Group, grewBy, matches, nextIssues, openingPage, pathLabel, randomPick, readShare, reading, recentlyUpdated, shelf, upTo } from "./shelves";
 
 // each name encoded alone and joined with real slashes, so a folder's address reads as its path. the whole
 // rest of the address is decoded as one, so this comes back the same - a series named with a slash in it
@@ -32,7 +32,7 @@ let cached: ComicSummary[] | null = null;
 let cachedCovers: GroupCovers = {};
 
 export async function openLibrary(root: HTMLElement, browse: Browse, path: string,
-                                  open: (id: string, at: number | null) => void): Promise<() => void> {
+                                  open: (id: string, at: number | null, trial?: boolean) => void): Promise<() => void> {
   remember(browse);
   root.innerHTML = "";
   const page = el("div", "library");
@@ -42,6 +42,7 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
       <input type="search" placeholder="Find a comic" aria-label="Find a comic">
       <select aria-label="Arrange by">${(Object.keys(BROWSE_LABELS) as Browse[]).map((each) =>
         `<option value="${each}"${each === browse ? " selected" : ""}>${BROWSE_LABELS[each]}</option>`).join("")}</select>
+      <button data-act="random" title="Open something to read, picked at random from here">Random</button>
       <button data-act="scan" title="Look for new pages now">Refresh</button>
     </header>
     <main></main>
@@ -268,11 +269,15 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     event.preventDefault();
     const comic = comics.find((each) => each.id === link.dataset.id);
     // a comic that has gained pages since it was read through opens on its first new page
-    const at = comic && comic.new > 0 && comic.position !== null && comic.unread <= comic.new
-      ? comic.position + 1 : null;
-    open(link.dataset.id!, at);
+    open(link.dataset.id!, comic ? openingPage(comic) : null);
   });
   search.addEventListener("input", draw);
+  // opened as a trial: the reader keeps its place only once it is really being read
+  page.querySelector<HTMLButtonElement>('[data-act="random"]')!.onclick = () => {
+    const picked = randomPick(comics, browse, path);
+    if (picked) open(picked.id, picked.at, true);
+    else notify(comics.length ? "Everything here is read" : "No comics yet");
+  };
   arrange.addEventListener("change", () => { location.hash = browseHash(arrange.value as Browse); });
   page.querySelector<HTMLButtonElement>('[data-act="scan"]')!.onclick = async (event) => {
     const button = event.target as HTMLButtonElement;

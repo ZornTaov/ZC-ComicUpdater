@@ -170,6 +170,44 @@ export function upTo(comics: ComicSummary[], browse: Browse, path: string, id: s
   return at < 0 ? [] : ordered.slice(0, at + 1);
 }
 
+// where a comic opens from its card: one read to its end that has since gained pages on its first new page,
+// anything else where it was left
+export function openingPage(comic: ComicSummary): number | null {
+  return comic.new > 0 && comic.position !== null && comic.unread <= comic.new ? comic.position + 1 : null;
+}
+
+const readThrough = (comic: ComicSummary) => comic.position !== null && comic.unread <= 0;
+
+// something to read, picked at random from what is here, for when choosing is the hard part. a series is
+// one pick, opened at its first part not read through counted from its start - not the one after the
+// furthest read, since a series caught up on its latest part before its first was ever read still has the
+// first to read. each folder below here has the same chance, and only then a comic or series inside it, so
+// a folder of forty one-shots does not crowd out everything else; a comic sitting here is a folder of its
+// own. null when everything here is read
+export function randomPick(comics: ComicSummary[], browse: Browse, path: string,
+                           random: () => number = Math.random): { id: string; at: number | null } | null {
+  const within = shelf(comics, browse, path).within;
+  const units = within.filter((comic) => comic.series === null && comic.pages > 0 && !readThrough(comic));
+  for (const list of groupedBy(within.filter((comic) => comic.series !== null), (comic) => `${comic.place}\n${comic.series}`).values()) {
+    const first = list.sort(compareComics).find((comic) => comic.pages > 0 && !readThrough(comic));
+    if (first) units.push(first);
+  }
+  // a folder only means something below where the folders are being browsed; by series or author, the
+  // library's own top folders
+  const base = browse === "folder" ? path : "";
+  const buckets = groupedBy(units, (comic) => {
+    const rest = !base ? comic.place : comic.place === base ? "" : comic.place.slice(base.length + 1);
+    const top = rest.split("/")[0];
+    return top ? `/${top}` : `#${comic.id}`;
+  });
+  // in a fixed order, so the same draw picks the same thing whatever order the library arrived in
+  const choices = [...buckets].sort(([a], [b]) => collator.compare(a, b)).map(([, list]) => list.sort(compareComics));
+  if (!choices.length) return null;
+  const draw = <T>(list: T[]) => list[Math.min(Math.floor(random() * list.length), list.length - 1)];
+  const comic = draw(draw(choices));
+  return { id: comic.id, at: openingPage(comic) };
+}
+
 // what a path is called, for the heading
 export function pathLabel(browse: Browse, path: string): string {
   if (!path) return "Comics";

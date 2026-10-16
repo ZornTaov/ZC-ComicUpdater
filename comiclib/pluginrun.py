@@ -8,7 +8,7 @@ import subprocess
 import time
 import traceback
 
-from comiclib import exits, intake, plugins
+from comiclib import exits, intake, plugins, pluginsetup
 from comiclib.batch import kill_tree, own_group
 from comiclib.cbz import update as update_archive
 from comiclib.metadata import METADATA_FILE, now_stamp, read as read_metadata, write as write_metadata
@@ -46,11 +46,12 @@ def stop_program(process):
         signal.signal(signal.SIGTERM, was)
 
 
-def run_program(command, staging, deadline):
+def run_program(command, staging, deadline, setup=None):
     #(exit code, stopped for time). its output goes straight to this one's, so the batch's last line and
-    #the web page's Running now follow it as it goes
+    #the web page's Running now follow it as it goes. setup is the plugin's own settings, handed over in its
+    #environment, where neither the log nor the run record ever sees them
     try:
-        process = subprocess.Popen(command, cwd=staging, env=dict(os.environ, PYTHONUNBUFFERED="1"),
+        process = subprocess.Popen(command, cwd=staging, env=dict(os.environ, PYTHONUNBUFFERED="1", **(setup or {})),
                                    **({} if leading_own_group() else own_group()))
     except OSError as error:
         print("ERROR: could not start {0}: {1}. Check the plugin's command, and that its program is where "
@@ -148,6 +149,9 @@ def run_comic(folder, deadline):
         print("ERROR: {0}".format(error), flush=True)
         return exits.TOOL_FAILED
 
+    #the plugin's own settings, for its plugin.py as settings["setup"]: read now, as a run's other settings
+    #are, and never written into the comic's metadata, which settings itself is not
+    settings = dict(settings, setup=pluginsetup.values(plugin))
     started = now_stamp()
     state = dict((metadata.get("state") or {}).get("plugin") or {})
     was_state = dict(state)
@@ -185,7 +189,7 @@ def run_comic(folder, deadline):
     os.makedirs(staging, exist_ok=True)
     print("Running {0}: {1}".format(plugin.title, subprocess.list2cmdline(command)), flush=True)
     began = time.time()
-    said, out_of_time = run_program(command, staging, deadline)
+    said, out_of_time = run_program(command, staging, deadline, pluginsetup.environment(plugin))
     take(cut_short=out_of_time)
     #asked only of a run whose program finished: one that failed or ran out of time cannot know it has it all
     ended = (said == 0 and not out_of_time and may_mark_ended(metadata)

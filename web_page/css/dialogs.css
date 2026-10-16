@@ -69,3 +69,8 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .plugin-row .grow { flex: 1; min-width: 0; }
 .plugin-row > span { white-space: nowrap; }
 #plugins .bad { color: var(--bad); }
+/*a plugin's own settings, opened under its row: the dialog's usual label-and-input rows*/
+.plugin-setup { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.plugin-setup .field input[type=password] { width: 100%; font-family: var(--mono); font-size: 12px; }
+.plugin-setup .secret-in { display: flex; gap: 6px; }
+.plugin-setup .setup-foot { display: flex; justify-content: flex-end; }

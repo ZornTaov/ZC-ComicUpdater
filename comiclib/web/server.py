@@ -12,7 +12,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from comiclib import moving, pluginfetch, plugins, runlogs
+from comiclib import moving, pluginfetch, plugins, pluginsetup, runlogs
 from comiclib.paths import PROJECT
 from comiclib.web.adding import add_with_plugin, parse_entries
 from comiclib.web.edits import discard_walk, fix_chapter, insert_page, preview_move, save_config, save_settings
@@ -381,6 +381,19 @@ def make_handler(runner, args, uc, tee):
                         job = runner.submit_move(name, body.get("into"))
                         result.update(queued=job.id, label=job.label)
                     self.reply(result, status)
+            elif path == "/api/plugins/setup":
+                #a plugin's own settings, saved at once: nothing is run, so it is not a job, and it is not
+                #held back with installing - it changes what a plugin is told, never what it is
+                name = str(body.get("name") or "")
+                try:
+                    plugin = plugins.load(name, with_hooks=False)
+                    self.reply({"setup": pluginsetup.save(plugin, body.get("values") or {})})
+                except plugins.PluginError as error:
+                    self.reply({"error": str(error)}, 404)
+                except pluginsetup.SetupError as error:
+                    self.reply({"error": str(error)}, 400)
+                except OSError as error:
+                    self.reply({"error": "the settings could not be written: {0}".format(error)}, 500)
             elif path in ("/api/plugins/install", "/api/plugins/update", "/api/plugins/remove"):
                 #asked again on every request rather than once at start, so the answer is the environment's
                 may, why_not = pluginfetch.page_may_install()

@@ -49,6 +49,17 @@ Or in Docker, with the published image (edit the paths in
 docker compose up -d
 ```
 
+## Reader app
+
+The [reader can be installed on Android and iOS](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Reader#installing-on-a-phone-or-computer)
+for reading without browser controls. Launch it from its installed app icon, rather than a browser tab;
+the wiki has the installation and fullscreen instructions for each platform.
+
+**Cloudflare Access can interfere with installation in Chromium browsers on Android:** the manifest
+request may not authenticate even after you have signed in to the reader. Safari on iOS authenticates
+that request correctly in the same setup, so installation can work there while failing on Android.
+This is separate from HTTPS: a valid certificate does not resolve an authentication-blocked manifest.
+
 ## Documentation
 
 - [Home](https://github.com/ZornTaov/ZC-ComicUpdater/wiki) - what the scripts are, and where each old README section went

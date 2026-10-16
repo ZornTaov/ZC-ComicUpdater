@@ -50,7 +50,7 @@ button {
 .library-bar {
   position: sticky; top: 0; z-index: 2;
   display: flex; gap: 8px; align-items: center;
-  padding: 10px 16px;
+  padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left));
   background: var(--bg);
   border-bottom: 1px solid var(--line);
 }
@@ -74,7 +74,7 @@ button {
 /* bottom left, since the ⋯ has the top */
 .badge.left { left: 6px; right: auto; top: auto; bottom: 6px; z-index: 2; }
 .card.group .cover { margin: 5px 5px 0 0; }
-.library main { padding: 8px 16px 40px; }
+.library main { padding: 8px max(16px, env(safe-area-inset-right)) max(40px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
 .library section h2 { font-size: 15px; margin: 20px 0 10px; }
 .library section h2 span { color: var(--muted); font-weight: normal; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 16px 12px; }
@@ -171,11 +171,11 @@ button {
 .menu header, .menu footer {
   position: absolute; left: 0; right: 0;
   background: rgba(18, 17, 16, .92); color: #eee;
-  padding: max(8px, env(safe-area-inset-top)) 12px 8px;
+  padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
   display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
 }
 .menu header { top: 0; }
-.menu footer { bottom: 0; flex-direction: column; align-items: stretch; padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+.menu footer { bottom: 0; flex-direction: column; align-items: stretch; padding-top: 8px; padding-bottom: max(10px, env(safe-area-inset-bottom)); }
 .menu .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .menu select { max-width: 45vw; background: #2a2724; border: 1px solid #444; border-radius: 8px; padding: 6px; }
 .menu button { background: #2a2724; border-color: #444; color: #eee; }
@@ -202,7 +202,7 @@ button {
 .sheet select, .sheet input[type="number"] { background: #2a2724; border: 1px solid #444; border-radius: 6px; padding: 4px 6px; }
 .sheet button { background: #2a2724; border-color: #444; color: #eee; }
 /* a comic's info page */
-.info main { padding: 16px 16px 40px; max-width: 860px; margin: 0 auto; }
+.info main { padding: 16px max(16px, env(safe-area-inset-right)) max(40px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); max-width: 860px; margin: 0 auto; }
 .info-title { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .info-top { display: flex; gap: 20px; align-items: flex-start; }
 .info-top .cover { width: 150px; flex: none; }
@@ -275,4 +275,4 @@ button {
 }
 .player { position: absolute; inset: 0; background: #000; display: flex; align-items: center; justify-content: center; }
 .player video { max-width: 100%; max-height: 100%; }
-.player-close { position: absolute; top: max(10px, env(safe-area-inset-top)); right: 10px; font-size: 22px; line-height: 1; padding: 6px 12px; }
+.player-close { position: absolute; top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); font-size: 22px; line-height: 1; padding: 6px 12px; }

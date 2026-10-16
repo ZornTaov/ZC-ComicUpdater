@@ -4,12 +4,13 @@
 #   ghcr.io/zorntaov/comics-updater   the updater (Dockerfile)
 #   ghcr.io/zorntaov/comic-reader     the reader (reader/Dockerfile, built from the root for comiclib)
 #
-# Nothing is built per commit. The two share one version, and a release is a tag:
+# Main is not built per commit. The two share one version, and a release is a tag:
 #
 #   git tag v1.2.0 && git push origin v1.2.0   ->  :1.2.0, :1.2, :1 and :latest, for both images
 #
 # Between releases, main is built once a night as :nightly (and :sha-<commit>, to pin one), but only on a
 # night something was committed since the last one. Run workflow on the Actions tab builds a nightly now.
+# PR branches are built separately by pr-images.yml as moving :pr-<number> tags, removed on close/merge.
 # amd64 and arm64 both, since a NAS can be either.
 name: images
 

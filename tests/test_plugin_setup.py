@@ -85,6 +85,17 @@ def test_a_setup_that_cannot_work_says_what_is_wrong(config, setup, command, sai
         plugins.load("example")
 
 
+def test_a_setting_saved_as_its_default_is_not_pinned(config):
+    plugin = loaded(config)
+    #the form shows the default to edit; pressing Save without touching it keeps nothing
+    pluginsetup.save(plugin, {"agent": "Example/1.0", "account": "someone"})
+    with open(os.path.join(str(config), "plugin-setup", "example.json"), encoding="utf-8") as f:
+        assert json.load(f) == {"account": "someone"}
+    #so a plugin that changes its default is followed
+    plugin.manifest["setup"][2]["default"] = "Example/2.0"
+    assert pluginsetup.values(plugin)["agent"] == "Example/2.0"
+
+
 def test_a_setting_of_the_wrong_kind_is_refused_and_nothing_is_written(config):
     plugin = loaded(config, setup=[{"key": "tries", "type": "count", "label": "Tries"}])
     with pytest.raises(pluginsetup.SetupError, match="Tries must be a whole number"):

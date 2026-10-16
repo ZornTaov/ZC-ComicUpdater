@@ -118,7 +118,9 @@ def view(plugin):
 
 def save(plugin, given):
     #the settings as sent from the page, checked against what plugin.json says each is, laid over what was
-    #kept: a setting not sent is left as it was, and one sent empty is cleared, back to its default
+    #kept: a setting not sent is left as it was, and one sent empty is cleared, back to its default. one sent
+    #as its default is not kept either - the form shows the default to edit, and saving it unchanged must
+    #not pin it, or a plugin that improves its default would never reach anyone who once pressed Save
     from comiclib.plugins import field_value
     kept = stored(plugin.name)
     problems = []
@@ -133,15 +135,29 @@ def save(plugin, given):
             kept.pop(key, None)
             continue
         try:
-            kept[key] = field_value(kind, value)
+            value = field_value(kind, value)
         except ValueError:
             problems.append({"url": "{0} must be a full http(s) address",
                              "count": "{0} must be a whole number, 0 or more"}.get(kind, "{0} is not usable")
                             .format(field.get("label") or key))
+            continue
+        if value == default_of(field, kind, field_value):
+            kept.pop(key, None)
+        else:
+            kept[key] = value
     if problems:
         raise SetupError("; ".join(problems))
     write(plugin.name, kept)
     return view(plugin)
+
+
+def default_of(field, kind, field_value):
+    #a setting's default as its value would be kept, or a stand-in that nothing equals when it has none, or
+    #when the plugin's own default is not one its type could hold
+    try:
+        return field_value(kind, field["default"]) if "default" in field else object()
+    except ValueError:
+        return object()
 
 
 def write(name, kept):

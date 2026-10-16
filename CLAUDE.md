@@ -1,9 +1,11 @@
 # Working on this project
 
 Notes for whoever picks this up next, written down because they were worked out the slow way more than
-once. The user-facing documentation is the GitHub wiki (https://github.com/ZornTaov/ZC-ComicUpdater/wiki,
-its own git repo, `ZC-ComicUpdater.wiki.git`) - read it for *what* the tools do; the README is a short
-front page pointing there. A change users would notice needs its wiki page updated too.
+once. The project is **ZornCoMix** - ZornCoMix Updater and ZornCoMix Reader, `zcm-` for short in image and
+container names; it was ZC-ComicUpdater before, and archives already made still say so in their ComicInfo
+notes, which are left alone since a changed note would rewrite every archive's ComicInfo. The user-facing
+documentation is the GitHub wiki (https://github.com/ZornTaov/ZornCoMix/wiki, its own git repo,
+`ZornCoMix.wiki.git`) - read it for *what* the tools do; the README is a short front page pointing there. A change users would notice needs its wiki page updated too.
 This file is about *how the pieces fit* and *what is easy to get wrong*.
 
 Paths on any particular machine — which drive the library is on, where the container folder is mounted —
@@ -97,7 +99,7 @@ data folder; `app`: the routes). `web/` is TypeScript built by Vite inside the i
 Its suite runs apart: `cd reader && python -m pytest` (offline, a couple of seconds; `reader/pytest.ini`
 makes it its own root) and `npm test` in `reader/web`. `tests/test_contract.py` there checks what it
 relies on comiclib for, so **run it after any comiclib change**. Build with
-`docker build -f reader/Dockerfile -t comic-reader:local .` from the repo root.
+`docker build -f reader/Dockerfile -t zcm-reader:local .` from the repo root.
 
 ### Scraper plugins
 
@@ -145,7 +147,9 @@ where it is cheap to (`standin.py` draws PNGs and `comicinfo.py` reads image siz
   anything in `comiclib/` need the container restarting, since the long-running process has them
   imported already (a scrape it starts imports `comiclib` afresh, but the web page does not).
 - **A version tag publishes both images; a push to main does not.** `.github/workflows/images.yml` builds
-  the updater and the reader for amd64 and arm64 and pushes them to `ghcr.io/zorntaov/`. The two share one
+  the updater and the reader for amd64 and arm64 and pushes them to `ghcr.io/zorntaov/` as `zcm-updater`
+  and `zcm-reader`, and under their names from before the rename (`comics-updater`, `comic-reader`) too,
+  until a release drops those (each matrix entry's `legacy`). The two share one
   version: `git tag v1.2.0 && git push origin v1.2.0` releases both as `:1.2.0`, `:1.2`, `:1` and
   `:latest`, which both compose files pull. Main is built as `:nightly` (and `:sha-<commit>`) once a night,
   only when it has moved. A release reaches whoever next pulls - not a container running already, nor one

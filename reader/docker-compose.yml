@@ -2,7 +2,7 @@
 # is all it takes; `docker compose pull && docker compose up -d` takes a newer one. To run an image of
 # your own instead, build it from the repo root and put its tag below:
 #
-#     docker build -f reader/Dockerfile -t comic-reader:local .
+#     docker build -f reader/Dockerfile -t zcm-reader:local .
 #
 # The places on your machine come from the environment (a .env file beside this one, or your compose
 # GUI's environment settings), so nothing here is anyone's own setup:
@@ -13,8 +13,8 @@
 services:
   reader:
     # :latest is the newest release; :1.2.0 pins one, :nightly is main as of last night
-    image: ghcr.io/zorntaov/comic-reader:latest
-    container_name: comic-reader
+    image: ghcr.io/zorntaov/zcm-reader:latest
+    container_name: zcm-reader
     restart: unless-stopped
 
     # the library's owner, as the scraper runs: what the info page writes into the library - a comic's

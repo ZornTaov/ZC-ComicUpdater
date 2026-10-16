@@ -55,12 +55,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: comics-updater
+          - name: zcm-updater
             dockerfile: Dockerfile
             cache-inputs: |
               source/Dockerfile
               source/requirements.txt
-          - name: comic-reader
+          - name: zcm-reader
             dockerfile: reader/Dockerfile
             cache-inputs: |
               source/reader/Dockerfile

@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
 
-# Comic mirror for any docker host. Bundles python, chromium and the matching chromedriver so the toolchain
-# cannot be broken by an update to the host, and the scripts themselves, so the image runs on its own with
-# nothing but a library mounted. Published as ghcr.io/zorntaov/comics-updater by .github/workflows/images.yml;
-# build it yourself from the repo root with `docker build -t comics-updater:local .`
+# ZornCoMix Updater, the comic mirror for any docker host. Bundles python, chromium and the matching
+# chromedriver so the toolchain cannot be broken by an update to the host, and the scripts themselves, so the
+# image runs on its own with nothing but a library mounted. Published as ghcr.io/zorntaov/zcm-updater by
+# .github/workflows/images.yml; build it yourself from the repo root with `docker build -t zcm-updater:local .`
 #
 # Mounting a folder over /app replaces the scripts baked in here with that folder's, which is how to run
 # edits without a new image: change a file in that folder, restart the container. See the wiki's Docker page.

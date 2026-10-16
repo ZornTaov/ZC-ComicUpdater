@@ -1,6 +1,11 @@
-# ZC-ComicUpdater
+# ZornCoMix
 
-Downloads a webcomic page by page, packs it into a `.cbz`, and remembers enough about the run to carry on
+**ZornCoMix Updater** keeps a webcomic library up to date; **ZornCoMix Reader** (in `reader/`) reads it.
+Formerly ZC-ComicUpdater - the images are now `ghcr.io/zorntaov/zcm-updater` and `zcm-reader`, and the
+old names (`comics-updater`, `comic-reader`) are still published for now, so an existing setup keeps
+updating until it is moved over (see [Docker](https://github.com/ZornTaov/ZornCoMix/wiki/Docker)).
+
+The updater downloads a webcomic page by page, packs it into a `.cbz`, and remembers enough about the run to carry on
 from where it stopped the next time. Point it at a library folder and it will update every comic in it
 unattended, on a timer, in a container if you like.
 
@@ -11,7 +16,7 @@ or re-syncing 250 MB. New pages are appended to the archive, so a sync carries o
 It can also split a comic into one archive per chapter, adopt comics you already have, and be driven from
 a small web page.
 
-**Full documentation is in the [wiki](https://github.com/ZornTaov/ZC-ComicUpdater/wiki).**
+**Full documentation is in the [wiki](https://github.com/ZornTaov/ZornCoMix/wiki).**
 
 ## Requirements
 
@@ -23,7 +28,7 @@ pip install -r requirements.txt
 ```
 
 Or skip all of that and use the container - see
-[Docker](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Docker).
+[Docker](https://github.com/ZornTaov/ZornCoMix/wiki/Docker).
 
 ## Quick start
 
@@ -51,7 +56,7 @@ docker compose up -d
 
 ## Reader app
 
-The [reader can be installed on Android and iOS](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Reader#installing-on-a-phone-or-computer)
+The [reader can be installed on Android and iOS](https://github.com/ZornTaov/ZornCoMix/wiki/Reader#installing-on-a-phone-or-computer)
 for reading without browser controls. Launch it from its installed app icon, rather than a browser tab;
 the wiki has the installation and fullscreen instructions for each platform.
 
@@ -62,21 +67,21 @@ This is separate from HTTPS: a valid certificate does not resolve an authenticat
 
 ## Documentation
 
-- [Home](https://github.com/ZornTaov/ZC-ComicUpdater/wiki) - what the scripts are, and where each old README section went
-- [Installation and Quick Start](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Installation-and-Quick-Start) - flags, file naming, priming
-- [Library Layout](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Library-Layout)
-- [Adopting Comics](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Adopting-Comics)
-- [Running Unattended](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Running-Unattended) - schedule, `update-now`, `restart`, exit codes
-- [The Web Page](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/The-Web-Page)
-- [Docker](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Docker)
-- [Reader](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Reader) - a web reader for the library, in `reader/`
-- [Archives and ComicInfo](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Archives-and-ComicInfo)
-- [Page Index and Alignment](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Page-Index-and-Alignment)
-- [Chapters](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Chapters)
-- [Settings and Metadata](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Settings-and-Metadata)
-- [Element Paths](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Element-Paths)
-- [Notes and Limits](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Notes-and-Limits)
-- [Contributing](https://github.com/ZornTaov/ZC-ComicUpdater/wiki/Contributing) - running the tests
+- [Home](https://github.com/ZornTaov/ZornCoMix/wiki) - what the scripts are, and where each old README section went
+- [Installation and Quick Start](https://github.com/ZornTaov/ZornCoMix/wiki/Installation-and-Quick-Start) - flags, file naming, priming
+- [Library Layout](https://github.com/ZornTaov/ZornCoMix/wiki/Library-Layout)
+- [Adopting Comics](https://github.com/ZornTaov/ZornCoMix/wiki/Adopting-Comics)
+- [Running Unattended](https://github.com/ZornTaov/ZornCoMix/wiki/Running-Unattended) - schedule, `update-now`, `restart`, exit codes
+- [The Web Page](https://github.com/ZornTaov/ZornCoMix/wiki/The-Web-Page)
+- [Docker](https://github.com/ZornTaov/ZornCoMix/wiki/Docker)
+- [Reader](https://github.com/ZornTaov/ZornCoMix/wiki/Reader) - a web reader for the library, in `reader/`
+- [Archives and ComicInfo](https://github.com/ZornTaov/ZornCoMix/wiki/Archives-and-ComicInfo)
+- [Page Index and Alignment](https://github.com/ZornTaov/ZornCoMix/wiki/Page-Index-and-Alignment)
+- [Chapters](https://github.com/ZornTaov/ZornCoMix/wiki/Chapters)
+- [Settings and Metadata](https://github.com/ZornTaov/ZornCoMix/wiki/Settings-and-Metadata)
+- [Element Paths](https://github.com/ZornTaov/ZornCoMix/wiki/Element-Paths)
+- [Notes and Limits](https://github.com/ZornTaov/ZornCoMix/wiki/Notes-and-Limits)
+- [Contributing](https://github.com/ZornTaov/ZornCoMix/wiki/Contributing) - running the tests
 
 ## Credits and license
 

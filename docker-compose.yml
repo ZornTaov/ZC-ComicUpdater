@@ -7,12 +7,12 @@
 # one, from a context they do not have, and end up with a second image that holds nothing useful. To run
 # an image of your own instead, build it from the repo root and put its tag below:
 #
-#     docker build -t comics-updater:local .
+#     docker build -t zcm-updater:local .
 services:
   comics:
     # :latest is the newest release; :1.2.0 pins one, :nightly is main as of last night
-    image: ghcr.io/zorntaov/comics-updater:latest
-    container_name: comics-updater
+    image: ghcr.io/zorntaov/zcm-updater:latest
+    container_name: zcm-updater
     restart: unless-stopped
 
     # CHANGE ME: must match the owner of the library folder, which `ls -n` will tell you. Without it

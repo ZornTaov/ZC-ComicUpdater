@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "Comic Reader",
-  "short_name": "Comics",
+  "name": "ZornCoMix Reader",
+  "short_name": "ZCM Reader",
   "description": "Read your comic library and keep your place across devices.",
   "lang": "en",
   "start_url": "/",

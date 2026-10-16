@@ -148,6 +148,8 @@ def about_comic(folder, metadata=None):
     if metadata is None:
         metadata = read_metadata(folder)
     series = os.path.basename(os.path.abspath(folder))
+    #the project's name from before ZornCoMix, kept: a ComicInfo saying anything new is appended to every
+    #archive on the next update, and a library's worth of those is no price for a name in a note
     about = {"title": series, "series": series, "web": site((metadata.get("settings") or {}).get("url")),
              "notes": "Mirrored by ZC-ComicUpdater."}
     about = with_kept(about, metadata.get("comicinfo"))

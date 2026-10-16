@@ -1,8 +1,11 @@
 # Builds both images and publishes them to the GitHub container registry, so running either needs only
 # `docker compose pull` on whatever host it runs on - no clone, no build, nothing but docker there.
 #
-#   ghcr.io/zorntaov/comics-updater   the updater (Dockerfile)
-#   ghcr.io/zorntaov/comic-reader     the reader (reader/Dockerfile, built from the root for comiclib)
+#   ghcr.io/zorntaov/zcm-updater   ZornCoMix Updater (Dockerfile)
+#   ghcr.io/zorntaov/zcm-reader    ZornCoMix Reader (reader/Dockerfile, built from the root for comiclib)
+#
+# Each is pushed under its name from before the rename too (comics-updater, comic-reader), so a compose
+# file nobody has touched since still gets every release. Those go in a later release, once said so.
 #
 # Main is not published per commit. The two share one version, and a release is a tag:
 #
@@ -90,17 +93,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: comics-updater
+          - name: zcm-updater
             dockerfile: Dockerfile
             cache-inputs: |
               Dockerfile
               requirements.txt
-          - name: comic-reader
+            legacy: comics-updater
+          - name: zcm-reader
             dockerfile: reader/Dockerfile
             cache-inputs: |
               reader/Dockerfile
               reader/requirements.txt
               reader/web/package-lock.json
+            legacy: comic-reader
     env:
       PUBLISH: ${{ (github.event_name != 'push' || startsWith(github.ref, 'refs/tags/')) && !inputs.cache-only }}
     steps:
@@ -140,7 +145,9 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}
+          images: |
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.legacy }}
           flavor: latest=false
           tags: |
             type=semver,pattern={{version}}

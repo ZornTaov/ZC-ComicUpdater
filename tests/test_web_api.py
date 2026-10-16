@@ -43,7 +43,7 @@ def page(web):
 
 def test_the_api_wants_the_password_and_json(page):
     assert page.call("/api/state", auth=False)[0] == 401
-    assert b"Comic Updater" in page.call("/")[1]
+    assert b"ZornCoMix Updater" in page.call("/")[1]
     #a form post is what a page on another site could make a browser send, so only json is taken
     assert page.call("/api/update", {}, ctype="application/x-www-form-urlencoded")[0] == 415
 

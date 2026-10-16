@@ -1,6 +1,6 @@
 const { execFileSync } = require("node:child_process");
 
-const images = ["comics-updater", "comic-reader"];
+const images = ["zcm-updater", "zcm-reader"];
 
 function number(context) {
   const value = context.payload.pull_request.number;

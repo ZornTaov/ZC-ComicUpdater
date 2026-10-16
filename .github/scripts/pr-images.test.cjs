@@ -3,13 +3,13 @@ const { test } = require("node:test");
 const { current, publish, cleanup } = require("./pr-images.cjs");
 
 const digest = `sha256:${"a".repeat(64)}`;
-const image = "ghcr.io/zorntaov/comic-reader";
+const image = "ghcr.io/zorntaov/zcm-reader";
 
-function fixture({ state = "open", sha = "head", repository = "ZornTaov/ZC-ComicUpdater", type = "User" } = {}) {
+function fixture({ state = "open", sha = "head", repository = "ZornTaov/ZornCoMix", type = "User" } = {}) {
   const calls = [], failures = [], commands = [];
-  const versions = { "comics-updater": [], "comic-reader": [] };
+  const versions = { "zcm-updater": [], "zcm-reader": [] };
   const context = {
-    repo: { owner: "ZornTaov", repo: "ZC-ComicUpdater" },
+    repo: { owner: "ZornTaov", repo: "ZornCoMix" },
     payload: { repository: { owner: { type } }, pull_request: { number: 17, head: { sha: "head" } } },
   };
   const pull = { state, head: { sha, repo: repository === null ? null : { full_name: repository } } };
@@ -77,11 +77,11 @@ test("unexpected registry images, digests, and PR numbers are refused before any
 
 test("closing or merging removes only that PR tag from both images, including late API pages", async () => {
   const f = fixture({ state: "closed" });
-  f.versions["comics-updater"] = [version(1, ["nightly", "sha-head"]), version(2, ["pr-17"]), version(3, ["pr-18"])];
-  f.versions["comic-reader"] = [...Array.from({ length: 105 }, (_, n) => version(100 + n, [])),
+  f.versions["zcm-updater"] = [version(1, ["nightly", "sha-head"]), version(2, ["pr-17"]), version(3, ["pr-18"])];
+  f.versions["zcm-reader"] = [...Array.from({ length: 105 }, (_, n) => version(100 + n, [])),
                                version(250, ["pr-17"]), version(251, ["latest", "1.0.0"])];
   await cleanup(f);
-  assert.deepEqual(deleted(f), [["comics-updater", 2], ["comic-reader", 250]]);
+  assert.deepEqual(deleted(f), [["zcm-updater", 2], ["zcm-reader", 250]]);
   assert.deepEqual(f.failures, []);
   const lists = f.calls.filter(call => call[0] === "list");
   assert.equal(lists.length, 2);
@@ -91,7 +91,7 @@ test("closing or merging removes only that PR tag from both images, including la
 
 test("cleanup is safe to repeat when no matching tags remain", async () => {
   const f = fixture({ state: "closed" });
-  f.versions["comics-updater"] = [version(1, ["pr-170"]), version(2, [])];
+  f.versions["zcm-updater"] = [version(1, ["pr-170"]), version(2, [])];
   await cleanup(f);
   await cleanup(f);
   assert.deepEqual(deleted(f), []);
@@ -100,24 +100,24 @@ test("cleanup is safe to repeat when no matching tags remain", async () => {
 
 test("a PR reopened while cleanup was queued keeps its images", async () => {
   const f = fixture();
-  f.versions["comics-updater"] = [version(1, ["pr-17"])];
+  f.versions["zcm-updater"] = [version(1, ["pr-17"])];
   await cleanup(f);
   assert.deepEqual(f.calls, [["pull"]]);
 });
 
 test("GHCR versions shared with another tag are never deleted", async () => {
   const f = fixture({ state: "closed" });
-  f.versions["comics-updater"] = [version(1, ["pr-17", "latest"]), version(2, ["pr-17", "pr-18"])];
-  f.versions["comic-reader"] = [version(3, ["pr-17"])];
+  f.versions["zcm-updater"] = [version(1, ["pr-17", "latest"]), version(2, ["pr-17", "pr-18"])];
+  f.versions["zcm-reader"] = [version(3, ["pr-17"])];
   await cleanup(f);
-  assert.deepEqual(deleted(f), [["comic-reader", 3]]);
+  assert.deepEqual(deleted(f), [["zcm-reader", 3]]);
   assert.equal(f.failures.length, 2);
   assert.ok(f.failures.every(text => text.startsWith("Refusing to delete")));
 });
 
 test("organization packages use the organization API route", async () => {
   const f = fixture({ state: "closed", type: "Organization" });
-  f.versions["comics-updater"] = [version(1, ["pr-17"])];
+  f.versions["zcm-updater"] = [version(1, ["pr-17"])];
   await cleanup(f);
   assert.equal(f.calls[1][1], "GET /orgs/{owner}/packages/container/{package_name}/versions");
   assert.equal(f.calls[2][1], "DELETE /orgs/{owner}/packages/container/{package_name}/versions/{package_version_id}");
@@ -125,10 +125,10 @@ test("organization packages use the organization API route", async () => {
 
 test("a package or version already gone is harmless, but permission errors are not hidden", async () => {
   const f = fixture({ state: "closed" });
-  f.versions["comics-updater"] = Object.assign(new Error("not found"), { status: 404 });
-  f.versions["comic-reader"] = [version(1, ["pr-17"])];
+  f.versions["zcm-updater"] = Object.assign(new Error("not found"), { status: 404 });
+  f.versions["zcm-reader"] = [version(1, ["pr-17"])];
   f.github.request = async () => { throw Object.assign(new Error("not found"), { status: 404 }); };
   await cleanup(f);
-  f.versions["comics-updater"] = Object.assign(new Error("forbidden"), { status: 403 });
+  f.versions["zcm-updater"] = Object.assign(new Error("forbidden"), { status: 403 });
   await assert.rejects(cleanup(f), /forbidden/);
 });

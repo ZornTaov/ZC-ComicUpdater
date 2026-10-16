@@ -98,8 +98,8 @@ test("release and PR package-cache inputs hash the same files despite different 
   }
   const main = inputs(workflows[0]);
   assert.deepEqual(main, [
-    { name: "comics-updater", files: ["Dockerfile", "requirements.txt"] },
-    { name: "comic-reader", files: ["reader/Dockerfile", "reader/requirements.txt", "reader/web/package-lock.json"] },
+    { name: "zcm-updater", files: ["Dockerfile", "requirements.txt"] },
+    { name: "zcm-reader", files: ["reader/Dockerfile", "reader/requirements.txt", "reader/web/package-lock.json"] },
   ]);
   assert.deepEqual(inputs(workflows[1]), main);
   for (const image of main) for (const file of image.files) assert.ok(read(file).length > 0);

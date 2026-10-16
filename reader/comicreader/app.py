@@ -48,7 +48,7 @@ def create_app(config=None, scan_in_background=True):
     config = config or Config.from_env()
     store = Store(os.path.join(config.data, "reader.db"))
     library = Library(config, store)
-    app = FastAPI(title="Comic reader", docs_url=None, redoc_url=None)
+    app = FastAPI(title="ZornCoMix Reader", docs_url=None, redoc_url=None)
     app.state.library = library
     app.state.store = store
     app.state.config = config

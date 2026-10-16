@@ -52,7 +52,7 @@ def public_asset(client, path, media):
 
 def test_the_manifest_meets_the_install_requirements(installed):
     manifest = public_asset(installed, "/manifest.webmanifest", "application/manifest+json").json()
-    assert manifest["name"] == "Comic Reader" and manifest["short_name"] == "Comics"
+    assert manifest["name"] == "ZornCoMix Reader" and manifest["short_name"] == "ZCM Reader"
     assert manifest["id"] == manifest["start_url"] == manifest["scope"] == "/"
     assert manifest["display"] == "fullscreen"
     assert manifest["background_color"] == manifest["theme_color"] == "#111111"
@@ -93,7 +93,10 @@ def test_apple_and_desktop_install_metadata_points_to_real_assets(installed):
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-cache"
     head = Head(response.text)
-    assert head.meta["application-name"] == head.meta["apple-mobile-web-app-title"] == "Comic Reader"
+    #the full name where there is room for it, and under an iOS home-screen icon the manifest's short name,
+    #which is all that fits there
+    assert head.meta["application-name"] == "ZornCoMix Reader"
+    assert head.meta["apple-mobile-web-app-title"] == "ZCM Reader"
     assert head.meta["mobile-web-app-capable"] == head.meta["apple-mobile-web-app-capable"] == "yes"
     assert head.meta["apple-mobile-web-app-status-bar-style"] == "black"
     assert "viewport-fit=cover" in head.meta["viewport"]

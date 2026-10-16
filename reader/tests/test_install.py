@@ -77,6 +77,17 @@ def test_the_manifest_meets_the_install_requirements(installed):
                                 assert pixels[x, y] == (17, 17, 17)
 
 
+def test_android_install_icons_are_raster_with_explicit_sizes(installed):
+    manifest = installed.get("/manifest.webmanifest").json()
+    #android's WebAPK installer can fail on a scalable SVG even with PNG alternatives; a desktop manifest
+    #check accepts it, so the install manifest uses raster icons and leaves the SVG as a browser favicon
+    for icon in manifest["icons"]:
+        assert icon["type"] == "image/png", "Android install icons must not select the SVG favicon"
+        response = public_asset(installed, icon["src"], "image/png")
+        with Image.open(BytesIO(response.content)) as image:
+            assert icon["sizes"] == f"{image.width}x{image.height}"
+
+
 def test_apple_and_desktop_install_metadata_points_to_real_assets(installed):
     response = installed.get("/", auth=("reader", "test-password"))
     assert response.status_code == 200

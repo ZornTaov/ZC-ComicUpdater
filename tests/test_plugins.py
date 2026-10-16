@@ -207,14 +207,56 @@ def test_a_run_that_takes_nothing_new_still_marks_a_comic_now_complete(library, 
     assert read_meta(comic(library))["settings"]["ended"] is True
 
 
-def test_a_comic_unticked_after_the_plugin_marked_it_is_not_marked_again(library, config):
-    with_ended(install(config), "return True")
-    add(library, "chapters=2")
+def untick(library):
     meta = read_meta(comic(library))
     meta["settings"]["ended"] = False
     write_meta(comic(library), meta)
+
+
+def test_a_comic_unticked_while_the_plugin_still_says_complete_stays_unticked(library, config):
+    with_ended(install(config), "return True")
+    add(library, "chapters=2")
+    untick(library)
+    assert again(library).returncode == 0
     assert again(library).returncode == 0
     #the person's last word stands, though the plugin says the same thing every run
+    assert read_meta(comic(library))["settings"]["ended"] is False
+
+
+def test_a_series_that_comes_back_and_ends_again_is_marked_again(library, config):
+    with_ended(install(config), "return bool(settings['plugin'].get('finished'))")
+    add(library, "chapters=2")
+    set_plugin(library, finished=True)
+    again(library)
+    assert read_meta(comic(library))["settings"]["ended"] is True
+    #the person unticks it as the series picks up again: the plugin says it is not complete, which is noted
+    untick(library)
+    set_plugin(library, finished=False)
+    done = again(library)
+    assert "will be marked ended again when it does" in done.stdout
+    meta = read_meta(comic(library))
+    assert meta["settings"]["ended"] is False and "plugin_ended" not in meta["history"]
+    assert meta["history"]["runs"][-1]["ended_rearmed"] is True, "recorded though nothing new was taken"
+    #and when it is finished once more, it is marked once more
+    set_plugin(library, finished=True)
+    again(library)
+    assert read_meta(comic(library))["settings"]["ended"] is True
+
+
+def test_no_answer_neither_marks_nor_rearms(library, config):
+    #a plugin whose check fails, or that answers with something other than True or False, has not said the
+    #series came back - so a comic unticked by hand is not marked again just because the check broke once
+    folder = with_ended(install(config), "return settings['plugin'].get('answer')")
+    add(library, "chapters=2")
+    set_plugin(library, answer=True)
+    again(library)
+    untick(library)
+    for answer in (None, "no", 0):
+        set_plugin(library, answer=answer)
+        again(library)
+        assert "plugin_ended" in read_meta(comic(library))["history"], answer
+    set_plugin(library, answer=True)
+    again(library)
     assert read_meta(comic(library))["settings"]["ended"] is False
 
 

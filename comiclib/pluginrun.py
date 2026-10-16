@@ -67,10 +67,21 @@ def run_program(command, staging, deadline, setup=None):
         return process.returncode, True
 
 
-def may_mark_ended(metadata):
-    #ended is the reader's judgement, which a plugin can only offer: it is marked once, and a comic that
-    #has been unticked since - or was ended already - is never marked again, so the person's last word stands
-    return not (metadata.get("settings") or {}).get("ended") and "plugin_ended" not in (metadata.get("history") or {})
+def ended_change(metadata, said):
+    #what the plugin's answer to ended() does to a comic: "mark" it ended, "rearm" it to be marked again,
+    #or nothing. ended is the reader's judgement, which a plugin can only offer. history.plugin_ended says
+    #the plugin has said complete and has not since said otherwise: while it stands, a comic the person
+    #unticked stays unticked, however often the plugin says the same thing. once the plugin says it is not
+    #complete - a series that came back - that is forgotten, and when it says complete again, the comic is
+    #marked again. no answer (None) changes nothing, so a check that failed neither marks nor rearms
+    if (metadata.get("settings") or {}).get("ended"):
+        return None
+    marked = "plugin_ended" in (metadata.get("history") or {})
+    if said is True and not marked:
+        return "mark"
+    if said is False and marked:
+        return "rearm"
+    return None
 
 
 def page_count(folder):
@@ -78,10 +89,10 @@ def page_count(folder):
                 if name != METADATA_FILE and os.path.isfile(os.path.join(folder, name))])
 
 
-def record_run(folder, metadata, plugin, state, run, ended=False):
+def record_run(folder, metadata, plugin, state, run, ended=None):
     #the metadata as it is on disk now, so a change made while the program ran is kept, with what this run
     #learned laid over it: where the program got to, the chapters it added, and the run itself. ended is the
-    #plugin saying the comic is complete, which marks it ended once (see may_mark_ended)
+    #plugin's answer to whether the comic is complete, True, False or None (see ended_change)
     fresh = read_metadata(folder) or metadata
     fresh["generator"] = "plugin:" + plugin.name
     fresh["generator_version"] = plugin.version
@@ -91,12 +102,19 @@ def record_run(folder, metadata, plugin, state, run, ended=False):
     if metadata.get("chapters") is not None:
         fresh["chapters"] = metadata["chapters"]
     history = fresh.setdefault("history", {})
-    if ended and may_mark_ended(fresh):
+    #asked of the file as it is now, so an untick made while the program ran is the one that counts
+    change = ended_change(fresh, ended)
+    if change == "mark":
         fresh.setdefault("settings", {})["ended"] = True
         history["plugin_ended"] = now_stamp()
         run["marked_ended"] = True
-        print("The plugin says this comic is complete, so it is marked ended and left alone from "
-              "now on. Untick \"ended\" in its settings to keep checking; it will not be marked again.",
+        print("The plugin says this comic is complete, so it is marked ended and left alone from now on. Untick "
+              "\"ended\" in its settings to keep checking; it is marked again only once the plugin has said it "
+              "is not complete and then that it is.", flush=True)
+    elif change == "rearm":
+        del history["plugin_ended"]
+        run["ended_rearmed"] = True
+        print("The plugin no longer says this comic is complete, so it will be marked ended again when it does.",
               flush=True)
     runs = list(history.get("runs") or [])
     #the same failure day after day is one fault that has gone on a while, as a scrape counts it, so twenty
@@ -191,9 +209,10 @@ def run_comic(folder, deadline):
     began = time.time()
     said, out_of_time = run_program(command, staging, deadline, pluginsetup.environment(plugin))
     take(cut_short=out_of_time)
-    #asked only of a run whose program finished: one that failed or ran out of time cannot know it has it all
-    ended = (said == 0 and not out_of_time and may_mark_ended(metadata)
-             and intake.ended(plugin, settings, state, last))
+    #asked only of a run whose program finished, since one that failed or ran out of time cannot know it has
+    #it all, and only of a comic not ended already - which every run of one unticked by hand is
+    ended = (intake.ended(plugin, settings, state, last)
+             if said == 0 and not out_of_time and not settings.get("ended") else None)
 
     if out_of_time:
         code, why = exits.TOOL_OUT_OF_TIME, "stopped after {0:.0f}s".format(time.time() - began)
@@ -211,7 +230,7 @@ def run_comic(folder, deadline):
     #and rewriting the file every day would carry it into the archive every day for nothing
     runs = (metadata.get("history") or {}).get("runs") or []
     was_well = runs and runs[-1].get("exit_code") in (None, exits.OK)
-    if not pages and code == exits.OK and was_well and state == was_state and not ended:
+    if not pages and code == exits.OK and was_well and state == was_state and not ended_change(metadata, ended):
         return code
     record_run(folder, metadata, plugin, state, {
         "run_id": started,

@@ -301,17 +301,20 @@ def record_chapters(folder, metadata, new):
 
 
 def ended(plugin, settings, state, taken):
-    #whether the plugin says the comic is complete, nothing more ever to be added to it. there is no default:
-    #only a plugin that knows says so. its own fault is said and taken as no, so a broken check never ends a comic
+    #whether the plugin says the comic is complete, nothing more ever to be added to it: True, False, or None
+    #for no answer. there is no default: only a plugin that knows says so. anything but True or False is no
+    #answer, and so is its own fault, said here - a broken check must neither end a comic nor, by seeming to
+    #say it came back, have one marked again
     own = plugin.hook("ended")
     if own is None:
-        return False
+        return None
     try:
-        return own(dict(settings or {}), dict(state or {}), taken.view()) is True
+        said = own(dict(settings or {}), dict(state or {}), taken.view())
     except Exception as error:  # noqa: BLE001 - whatever a plugin's own code raises, it is the plugin's fault
-        print("WARNING: {0}'s ended() failed, so the comic is not marked ended: {1}: {2}".format(
+        print("WARNING: {0}'s ended() failed, so whether the comic is complete is left as it was: {1}: {2}".format(
             plugin.name, type(error).__name__, error), flush=True)
-        return False
+        return None
+    return said if said is True or said is False else None
 
 
 def remember(plugin, state, taken):

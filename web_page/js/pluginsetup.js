@@ -136,7 +136,24 @@ $("pl-list").addEventListener("click", (event) => {
   }
   const update = event.target.dataset.pluginUpdate, remove = event.target.dataset.pluginRemove;
   if (update) pluginJob("/api/plugins/update", { name: update }, "Queueing…");
-  if (remove && confirm(`Remove the plugin ${remove}, its program and its packages? A plugin a comic still uses is not removed.`)) {
-    pluginJob("/api/plugins/remove", { name: remove }, "Queueing…");
+  if (remove) {
+    const btn = event.target;
+    if (btn.dataset.pluginConfirm) {
+      delete btn.dataset.pluginConfirm;
+      btn.textContent = "Remove";
+      btn.classList.remove("confirming");
+      pluginJob("/api/plugins/remove", { name: remove }, "Queueing…");
+    } else {
+      btn.dataset.pluginConfirm = "1";
+      btn.textContent = "Really Remove?";
+      btn.classList.add("confirming");
+      setTimeout(() => {
+        if (btn.dataset.pluginConfirm) {
+          delete btn.dataset.pluginConfirm;
+          btn.textContent = "Remove";
+          btn.classList.remove("confirming");
+        }
+      }, 5000);
+    }
   }
 });

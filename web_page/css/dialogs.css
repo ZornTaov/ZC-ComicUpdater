@@ -76,3 +76,4 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .plugin-setup .secret-in input { flex: 1; min-width: 0; }
 .plugin-setup .secret-in button { flex: none; white-space: nowrap; }
 .plugin-setup .setup-foot { display: flex; justify-content: flex-end; }
+.plugin-row button.confirming { background: transparent; border-color: transparent; }

@@ -4,23 +4,49 @@
 #   ghcr.io/zorntaov/comics-updater   the updater (Dockerfile)
 #   ghcr.io/zorntaov/comic-reader     the reader (reader/Dockerfile, built from the root for comiclib)
 #
-# Main is not built per commit. The two share one version, and a release is a tag:
+# Main is not published per commit. The two share one version, and a release is a tag:
 #
 #   git tag v1.2.0 && git push origin v1.2.0   ->  :1.2.0, :1.2, :1 and :latest, for both images
 #
 # Between releases, main is built once a night as :nightly (and :sha-<commit>, to pin one), but only on a
 # night something was committed since the last one. Run workflow on the Actions tab builds a nightly now.
 # PR branches are built separately by pr-images.yml as moving :pr-<number> tags, removed on close/merge.
+# Relevant main pushes warm the shared Actions caches without publishing any image tags.
 # amd64 and arm64 both, since a NAS can be either.
 name: images
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
+    paths:
+      - .github/workflows/images.yml
+      - .github/workflows/pr-images.yml
+      - .github/scripts/*.cjs
+      - .dockerignore
+      - Dockerfile
+      - requirements.txt
+      - mirror_base.py
+      - chapters.py
+      - update_comics.py
+      - adopt_comic.py
+      - web_ui.py
+      - run_plugin.py
+      - comiclib/**
+      - web_page/**
+      - reader/Dockerfile
+      - reader/requirements.txt
+      - reader/comicreader/**
+      - reader/web/**
   schedule:
     # 09:00 UTC, the small hours across the americas, well clear of a 03:30 local update anywhere there
     - cron: "0 9 * * *"
   workflow_dispatch:
+    inputs:
+      cache-only:
+        description: Warm and benchmark the build caches without publishing images
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -34,6 +60,11 @@ jobs:
     outputs:
       build: ${{ steps.check.outputs.build }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test image CI contracts
+        run: node --test .github/scripts/*.test.cjs
       - id: check
         env:
           GH_TOKEN: ${{ github.token }}
@@ -61,15 +92,44 @@ jobs:
         include:
           - name: comics-updater
             dockerfile: Dockerfile
+            cache-inputs: |
+              Dockerfile
+              requirements.txt
           - name: comic-reader
             dockerfile: reader/Dockerfile
+            cache-inputs: |
+              reader/Dockerfile
+              reader/requirements.txt
+              reader/web/package-lock.json
+    env:
+      PUBLISH: ${{ (github.event_name != 'push' || startsWith(github.ref, 'refs/tags/')) && !inputs.cache-only }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
+        id: buildx
+
+      # gha layer exports do not include RUN cache mounts; save those separately between runners
+      - name: Cache package downloads
+        uses: actions/cache@v4
+        id: packages
+        with:
+          path: ${{ runner.temp }}/buildkit-mounts
+          key: buildkit-mounts-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.name }}-${{ hashFiles(matrix.cache-inputs) }}
+          restore-keys: buildkit-mounts-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.name }}-
+      - name: Restore BuildKit package caches
+        uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723 # v3
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          cache-dir: ${{ runner.temp }}/buildkit-mounts
+          dockerfile: ${{ matrix.dockerfile }}
+          skip-extraction: ${{ steps.packages.outputs.cache-hit == 'true' }}
 
       - uses: docker/login-action@v3
+        if: env.PUBLISH == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -95,9 +155,10 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
-          push: true
+          # main pushes and cache-only manual runs warm caches without moving any registry tags
+          push: ${{ env.PUBLISH == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # each image keeps its own cache, so one's layers never push out the other's
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          # both workflows share one scope per image, including intermediate dependency and web stages
+          cache-from: type=gha,version=2,scope=${{ matrix.name }}
+          cache-to: type=gha,version=2,mode=max,scope=${{ matrix.name }}

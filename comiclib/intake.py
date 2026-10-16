@@ -8,6 +8,7 @@ import zipfile
 import zlib
 
 from comiclib import comicinfo
+from comiclib.standin import flash_types, video_types
 from comiclib.chapters.chapterlist import chapters_block, settle_chapters
 from comiclib.chapters.index import numbered_pages
 from comiclib.metadata import METADATA_FILE
@@ -49,6 +50,13 @@ def files_under(staging):
         for name in files:
             found.append(os.path.relpath(os.path.join(current, name), staging).replace(os.sep, '/'))
     return sorted(found, key=sort_key)
+
+
+def is_page(path):
+    #what a program can leave that is a page: a picture, or a video or flash file, which the folder keeps as
+    #the page and an archive holds a stand-in for. a note (.txt and the like) is not taken: a program's own
+    #text files are logs and readmes far more often than pages
+    return bool(PAGE_TYPES.search(path) or video_types.search(path) or flash_types.search(path))
 
 
 def is_comicinfo(path):
@@ -125,7 +133,7 @@ def take_pages(staging, folder, files, cut_short, taken, namer):
     if infos:
         with open(os.path.join(staging, infos[0]), 'rb') as f:
             taken.comicinfo = comicinfo.kept_tags(f.read()) or None
-    pictures = [path for path in files if PAGE_TYPES.search(path)]
+    pictures = [path for path in files if is_page(path)]
     if cut_short and pictures:
         last = newest(staging, pictures)
         pictures.remove(last)
@@ -145,12 +153,12 @@ def chapter_folders(staging, files, cut_short, taken):
     #by the folder. pictures loose in staging itself are in no chapter, and are left out saying so
     chapters = {}
     for path in files:
-        if PAGE_TYPES.search(path) or is_comicinfo(path):
+        if is_page(path) or is_comicinfo(path):
             chapters.setdefault(os.path.dirname(path), []).append(path)
     loose = chapters.pop("", [])
     for path in loose:
         taken.dropped.append((path, "is in no chapter's folder"))
-    chapters = {where: held for where, held in chapters.items() if any(PAGE_TYPES.search(p) for p in held)}
+    chapters = {where: held for where, held in chapters.items() if any(is_page(p) for p in held)}
     if cut_short and chapters:
         last = max(chapters, key=lambda where: max(os.path.getmtime(os.path.join(staging, p))
                                                    for p in chapters[where]))
@@ -166,7 +174,7 @@ def chapter_folders(staging, files, cut_short, taken):
 
         def pages(held=held):
             for path in held:
-                if PAGE_TYPES.search(path):
+                if is_page(path):
                     yield os.path.basename(path), os.path.join(staging, path.replace('/', os.sep)), None
         found.append((os.path.basename(where), where, kept, pages))
     return found
@@ -186,7 +194,7 @@ def chapter_archives(staging, files, taken):
                 entries = [entry for entry in zf.infolist() if not entry.is_dir() and not mac_leftover(entry.filename)]
                 info = next((entry for entry in entries if is_comicinfo(entry.filename)), None)
                 kept = comicinfo.kept_tags(zf.read(info)) if info else {}
-                pictures = sorted((entry for entry in entries if PAGE_TYPES.search(entry.filename)),
+                pictures = sorted((entry for entry in entries if is_page(entry.filename)),
                                   key=lambda entry: sort_key(entry.filename))
                 #read whole here, so an archive cut off part way is found out before any of it is taken
                 bodies = [(os.path.basename(entry.filename), zf.read(entry)) for entry in pictures]

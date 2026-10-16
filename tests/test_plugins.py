@@ -165,6 +165,18 @@ def test_the_same_page_fetched_again_is_not_taken_twice(tmp_path):
     assert (taken.pages, taken.held) == (["0002_002.png"], 1)
 
 
+def test_videos_and_flash_are_taken_in_as_pages_and_text_is_not(tmp_path):
+    #a program for a site whose posts can be animations: they are pages, kept as they are in the folder, and
+    #drawn as stand-ins in an archive. its own notes are not pages
+    folder = staged(tmp_path, {}, {"01_a.png": b"still", "02_b.webm": b"moving", "03_c.mp4": b"also moving",
+                                   "04_d.swf": b"flash", "05_e.gif": b"looping", "notes.txt": b"a log"})
+    plugin = plugins.Plugin("p", str(tmp_path), {"output": "pages", "command": ["x"]})
+    taken = intake.take_in(plugin, str(folder), {})
+    assert taken.pages == ["0001_01_a.png", "0002_02_b.webm", "0003_03_c.mp4", "0004_04_d.swf", "0005_05_e.gif"]
+    assert (folder / "0002_02_b.webm").read_bytes() == b"moving"
+    assert not (folder / "notes.txt").exists()
+
+
 # ---------------- the plugin saying the comic is complete ----------------
 def with_ended(folder, body):
     #the example plugin with an ended() of a test's own: what a plugin for a site that says a series is

@@ -1,0 +1,132 @@
+# the workflow and registry helper come from the base branch, never from a PR's edited workflow.
+# only branches in this repository may publish: a fork's code never runs with registry write access.
+name: PR images
+run-name: "PR #${{ github.event.pull_request.number }} images: ${{ github.event.action }}"
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  contents: read
+
+# closing cancels builds before cleanup; commits cancel older builds before they can move the same tag
+concurrency:
+  group: pr-images-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  current:
+    if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      build: ${{ steps.check.outputs.result }}
+      owner: ${{ steps.check.outputs.owner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Test image lifecycle helpers
+        run: node --test .github/scripts/pr-images.test.cjs
+      - id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.setOutput("owner", context.repo.owner.toLowerCase());
+            const { current } = require("./.github/scripts/pr-images.cjs");
+            return await current({ github, context, core });
+
+  image:
+    needs: current
+    if: needs.current.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: comics-updater
+            dockerfile: Dockerfile
+          - name: comic-reader
+            dockerfile: reader/Dockerfile
+    env:
+      IMAGE: ghcr.io/${{ needs.current.outputs.owner }}/${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: ci
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: source
+          persist-credentials: false
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: type=raw,value=pr-${{ github.event.pull_request.number }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.event.pull_request.head.sha }}
+            org.opencontainers.image.url=${{ github.event.pull_request.html_url }}
+
+      # publish by digest first: the moving tag is only attached after checking the PR again below
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: source
+          file: source/${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.meta.outputs.labels }}
+          # PRs can read the main cache but never write into it, or into another PR's cache
+          cache-from: |
+            type=gha,scope=${{ matrix.name }}
+            type=gha,scope=pr-${{ github.event.pull_request.number }}-${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=pr-${{ github.event.pull_request.number }}-${{ matrix.name }}
+
+      - name: Move the PR tag to this build
+        uses: actions/github-script@v7
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        with:
+          script: |
+            const { publish } = require("./ci/.github/scripts/pr-images.cjs");
+            await publish({ github, context, core, image: process.env.IMAGE, digest: process.env.DIGEST });
+
+  cleanup:
+    if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { cleanup } = require("./.github/scripts/pr-images.cjs");
+            await cleanup({ github, context, core });

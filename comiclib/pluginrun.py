@@ -66,14 +66,21 @@ def run_program(command, staging, deadline):
         return process.returncode, True
 
 
+def may_mark_ended(metadata):
+    #ended is the reader's judgement, which a plugin can only offer: it is marked once, and a comic that
+    #has been unticked since - or was ended already - is never marked again, so the person's last word stands
+    return not (metadata.get("settings") or {}).get("ended") and "plugin_ended" not in (metadata.get("history") or {})
+
+
 def page_count(folder):
     return len([name for name in os.listdir(folder)
                 if name != METADATA_FILE and os.path.isfile(os.path.join(folder, name))])
 
 
-def record_run(folder, metadata, plugin, state, run):
+def record_run(folder, metadata, plugin, state, run, ended=False):
     #the metadata as it is on disk now, so a change made while the program ran is kept, with what this run
-    #learned laid over it: where the program got to, the chapters it added, and the run itself
+    #learned laid over it: where the program got to, the chapters it added, and the run itself. ended is the
+    #plugin saying the comic is complete, which marks it ended once (see may_mark_ended)
     fresh = read_metadata(folder) or metadata
     fresh["generator"] = "plugin:" + plugin.name
     fresh["generator_version"] = plugin.version
@@ -83,6 +90,13 @@ def record_run(folder, metadata, plugin, state, run):
     if metadata.get("chapters") is not None:
         fresh["chapters"] = metadata["chapters"]
     history = fresh.setdefault("history", {})
+    if ended and may_mark_ended(fresh):
+        fresh.setdefault("settings", {})["ended"] = True
+        history["plugin_ended"] = now_stamp()
+        run["marked_ended"] = True
+        print("The plugin says this comic is complete, so it is marked ended and left alone from "
+              "now on. Untick \"ended\" in its settings to keep checking; it will not be marked again.",
+              flush=True)
     runs = list(history.get("runs") or [])
     #the same failure day after day is one fault that has gone on a while, as a scrape counts it, so twenty
     #copies of it do not push every run that worked out of the record
@@ -138,13 +152,14 @@ def run_comic(folder, deadline):
     state = dict((metadata.get("state") or {}).get("plugin") or {})
     was_state = dict(state)
     pages, chapters = [], []
+    last = None
     #in full, since the program is run inside it: told a relative path, a program resolves it against
     #staging itself and writes into a copy of the comic's path nested within
     staging = os.path.abspath(intake.staging_folder(folder))
 
     def take(cut_short):
-        nonlocal state
-        taken = intake.take_in(plugin, folder, metadata, cut_short)
+        nonlocal state, last
+        taken = last = intake.take_in(plugin, folder, metadata, cut_short)
         intake.record_chapters(folder, metadata, taken.chapters)
         if taken.comicinfo and not metadata.get("comicinfo"):
             #what the program said of the whole comic, the first time it says anything
@@ -172,6 +187,9 @@ def run_comic(folder, deadline):
     began = time.time()
     said, out_of_time = run_program(command, staging, deadline)
     take(cut_short=out_of_time)
+    #asked only of a run whose program finished: one that failed or ran out of time cannot know it has it all
+    ended = (said == 0 and not out_of_time and may_mark_ended(metadata)
+             and intake.ended(plugin, settings, state, last))
 
     if out_of_time:
         code, why = exits.TOOL_OUT_OF_TIME, "stopped after {0:.0f}s".format(time.time() - began)
@@ -189,7 +207,7 @@ def run_comic(folder, deadline):
     #and rewriting the file every day would carry it into the archive every day for nothing
     runs = (metadata.get("history") or {}).get("runs") or []
     was_well = runs and runs[-1].get("exit_code") in (None, exits.OK)
-    if not pages and code == exits.OK and was_well and state == was_state:
+    if not pages and code == exits.OK and was_well and state == was_state and not ended:
         return code
     record_run(folder, metadata, plugin, state, {
         "run_id": started,
@@ -201,7 +219,7 @@ def run_comic(folder, deadline):
         "completed": code == exits.OK,
         "stop_reason": why,
         "exit_code": code,
-    })
+    }, ended)
 
     #a comic in chapters is packed one archive per chapter by the batch once this is done; one that is not
     #keeps a single archive, kept up here the way a scrape keeps its own

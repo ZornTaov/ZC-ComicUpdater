@@ -168,9 +168,11 @@ where it is cheap to (`standin.py` draws PNGs and `comicinfo.py` reads image siz
   the only thing anyone edits; the scrape command is rebuilt from it every run (`settings_to_argv` in
   `update_comics.py`). Schema 2. `state` and `history` are what the tools have learned and done.
 - **`ended` is the reader's judgement, never the scraper's.** A scrape can only know it has caught up
-  with the latest page. Nothing in the code sets it; it comes from the report column, the web page's
-  tick box, or a hand edit, and is carried through untouched. `state.completed` is a different thing:
-  that *run* reached the latest page.
+  with the latest page. It comes from the report column, the web page's tick box, or a hand edit, and is
+  carried through untouched. The one exception is a plugin whose site says a series is finished: its
+  `plugin.py` `ended()` returning `True`, after a run whose program finished, marks the comic ended
+  **once** (`history.plugin_ended` records it, in `pluginrun.may_mark_ended`), so a comic the person
+  unticks is never marked again. `state.completed` is a different thing: that *run* reached the latest page.
 - **The index (`config/index/<comic>.<tag>.jsonl`) is one line per page, in reading order**, recording
   the address and the image. Position is meaning: line 1 is page 1. It can only be appended to from a
   context that knows its own offset — a scrape resuming mid-comic must not start one.

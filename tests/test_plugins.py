@@ -165,6 +165,78 @@ def test_the_same_page_fetched_again_is_not_taken_twice(tmp_path):
     assert (taken.pages, taken.held) == (["0002_002.png"], 1)
 
 
+# ---------------- the plugin saying the comic is complete ----------------
+def with_ended(folder, body):
+    #the example plugin with an ended() of a test's own: what a plugin for a site that says a series is
+    #finished would ask it, here answered by the body given
+    with open(os.path.join(folder, "plugin.py"), "a", encoding="utf-8") as f:
+        f.write("\n\ndef ended(settings, state, taken):\n    " + body + "\n")
+    return folder
+
+
+def test_a_plugin_that_says_the_comic_is_complete_marks_it_ended(library, config):
+    with_ended(install(config), "return state.get('last_chapter') == 'Chapter 2'")
+    done = add(library, "chapters=2")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "says this comic is complete" in done.stdout
+    meta = read_meta(comic(library))
+    assert meta["settings"]["ended"] is True
+    assert "plugin_ended" in meta["history"]
+    assert meta["history"]["runs"][-1]["marked_ended"] is True
+
+
+def test_a_run_that_takes_nothing_new_still_marks_a_comic_now_complete(library, config):
+    with_ended(install(config), "return bool(settings['plugin'].get('finished'))")
+    add(library, "chapters=2")
+    assert not read_meta(comic(library))["settings"].get("ended")
+    #the series finished since: nothing new to take in, but the plugin says so now
+    set_plugin(library, finished=True)
+    assert again(library).returncode == 0
+    assert read_meta(comic(library))["settings"]["ended"] is True
+
+
+def test_a_comic_unticked_after_the_plugin_marked_it_is_not_marked_again(library, config):
+    with_ended(install(config), "return True")
+    add(library, "chapters=2")
+    meta = read_meta(comic(library))
+    meta["settings"]["ended"] = False
+    write_meta(comic(library), meta)
+    assert again(library).returncode == 0
+    #the person's last word stands, though the plugin says the same thing every run
+    assert read_meta(comic(library))["settings"]["ended"] is False
+
+
+def test_a_plugin_with_no_ended_leaves_ended_alone(library, config):
+    install(config)
+    add(library, "chapters=2")
+    meta = read_meta(comic(library))
+    assert not meta["settings"].get("ended")
+    assert "plugin_ended" not in meta["history"]
+
+
+def test_only_a_plain_true_marks_a_comic_ended(library, config):
+    #a plugin answering with something that happens to be truthy - a status string, a count - has not said yes
+    with_ended(install(config), "return 'finished'")
+    add(library, "chapters=2")
+    assert not read_meta(comic(library))["settings"].get("ended")
+
+
+def test_a_program_that_fails_is_never_taken_as_complete(library, config):
+    with_ended(install(config, extra=["--fail-after", "1"]), "return True")
+    done = add(library, "chapters=3")
+    assert done.returncode == exits.TOOL_FAILED, done.stdout + done.stderr
+    #the plugin would say so, but a run whose program failed cannot know it has it all, so it is not asked
+    assert not read_meta(comic(library))["settings"].get("ended")
+
+
+def test_an_ended_that_fails_is_said_and_taken_as_no(library, config):
+    with_ended(install(config), "raise RuntimeError('the site said no')")
+    done = add(library, "chapters=2")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "ended() failed" in done.stdout and "the site said no" in done.stdout
+    assert not read_meta(comic(library))["settings"].get("ended")
+
+
 # ---------------- going wrong ----------------
 def test_a_program_that_fails_keeps_what_it_got_and_says_so(library, config):
     install(config, extra=["--fail-after", "1"])

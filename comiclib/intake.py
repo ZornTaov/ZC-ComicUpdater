@@ -292,6 +292,20 @@ def record_chapters(folder, metadata, new):
     return True
 
 
+def ended(plugin, settings, state, taken):
+    #whether the plugin says the comic is complete, nothing more ever to be added to it. there is no default:
+    #only a plugin that knows says so. its own fault is said and taken as no, so a broken check never ends a comic
+    own = plugin.hook("ended")
+    if own is None:
+        return False
+    try:
+        return own(dict(settings or {}), dict(state or {}), taken.view()) is True
+    except Exception as error:  # noqa: BLE001 - whatever a plugin's own code raises, it is the plugin's fault
+        print("WARNING: {0}'s ended() failed, so the comic is not marked ended: {1}: {2}".format(
+            plugin.name, type(error).__name__, error), flush=True)
+        return False
+
+
 def remember(plugin, state, taken):
     #where the program got to, for building its next command: by default the last chapter and the last
     #page taken in, which a plugin.json command can name as {last_chapter} and {last_page}

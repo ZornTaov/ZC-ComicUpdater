@@ -58,7 +58,7 @@
 !Dockerfile
 !docker-compose.yml
 
-# the workflows that build both images and publish them to ghcr.io, and their registry helper and tests
+# the image workflows, registry lifecycle helper, and lifecycle/build-cache contract tests
 !.github/
 !.github/workflows/
 !.github/workflows/*.yml

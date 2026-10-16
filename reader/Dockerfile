@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 # The comic reader, as an image of its own beside the scraper's. Built from the repo root, so it can take
 # comiclib - the scraper's own rules for what a page is and the order pages read in - rather than a copy.
 # Published as ghcr.io/zorntaov/comic-reader by .github/workflows/images.yml; to build it yourself:
@@ -6,12 +8,19 @@
 #
 # The web page is built here too, so nothing but docker is needed on the machine doing the building.
 
-FROM node:22-slim AS web
+# the output is static files, identical for both image architectures; do not compile them under qemu
+FROM --platform=$BUILDPLATFORM node:22-slim AS web
 WORKDIR /web
-COPY reader/web/package.json reader/web/package-lock.json ./
-RUN npm ci --no-audit --no-fund
-COPY reader/web/ ./
+COPY --link reader/web/package.json reader/web/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm ci --no-audit --no-fund
+COPY --link reader/web/ ./
 RUN npm run build
+
+FROM python:3.12-slim AS python-deps
+COPY reader/requirements.txt /build/requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    pip install --prefix=/install -r /build/requirements.txt
 
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
@@ -20,17 +29,16 @@ ENV PYTHONUNBUFFERED=1 \
     READER_WEB=/app/web \
     READER_PORT=8082
 
-# copied on its own so changing the code does not throw away the cached pip layer
-COPY reader/requirements.txt /app/
-RUN pip install --no-cache-dir -r /app/requirements.txt
-
-COPY comiclib/ /app/comiclib/
-COPY reader/comicreader/ /app/comicreader/
-COPY --from=web /web/dist /app/web
-
 # what the reader keeps: progress, its record of the library, covers. writable by anyone, since the
 # container runs as the library's owner rather than root
 RUN mkdir -p /data && chmod 0777 /data
+
+COPY --link --from=python-deps /install/ /usr/local/
+COPY --link reader/requirements.txt /app/
+# the large static player stays reusable when only the python server or shared package changes
+COPY --link --from=web /web/dist /app/web
+COPY --link comiclib/ /app/comiclib/
+COPY --link reader/comicreader/ /app/comicreader/
 
 WORKDIR /app
 EXPOSE 8082

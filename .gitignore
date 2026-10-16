@@ -85,7 +85,11 @@
 !reader/web/vite.config.ts
 !reader/web/copy-ruffle.mjs
 !reader/web/public/
-!reader/web/public/*
+!reader/web/public/*.webmanifest
+!reader/web/public/*.svg
+!reader/web/public/*.png
+!reader/web/public/*.ico
+!reader/web/public/*.xml
 !reader/web/src/
 !reader/web/src/*.ts
 !reader/web/src/*.css

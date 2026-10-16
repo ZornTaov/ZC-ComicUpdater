@@ -25,6 +25,16 @@ from comicreader.store import Store
 #Ruffle's WebAssembly, which a browser compiles as it arrives only when it is sent as what it is - windows
 #does not always know the type
 mimetypes.add_type("application/wasm", ".wasm")
+mimetypes.add_type("application/manifest+json", ".webmanifest")
+mimetypes.add_type("application/xml", ".xml")
+
+#only these bundled assets are public, never a prefix that could include a comic or a future upload
+INSTALL_ASSETS = frozenset({
+    "/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png",
+    "/icon-maskable-192.png", "/icon-maskable-512.png", "/apple-touch-icon.png",
+    "/apple-touch-icon-152.png", "/apple-touch-icon-167.png", "/favicon.ico",
+    "/favicon-16.png", "/favicon-32.png", "/safari-pinned-tab.svg", "/browserconfig.xml", "/mstile-150.png",
+})
 
 #a page asked for with the version of the archive it came from never changes, so the browser keeps it as
 #long as it likes: turning back to a page is then instant, with no request at all
@@ -45,9 +55,9 @@ def create_app(config=None, scan_in_background=True):
 
     @app.middleware("http")
     async def password(request: Request, call_next):
-        #the same as the scraper's web page: basic auth, any user name, one password. the manifest and icon
-        #stay open, since a phone fetches them for the home screen without asking first
-        if config.password and request.url.path not in ("/manifest.webmanifest", "/icon.svg"):
+        #the same as the scraper's web page: basic auth, any user name, one password. install metadata and
+        #icons stay open, since a phone fetches them for the home screen without asking first
+        if config.password and request.url.path not in INSTALL_ASSETS:
             given = request.headers.get("authorization", "")
             ok = False
             if given.startswith("Basic "):
@@ -58,7 +68,11 @@ def create_app(config=None, scan_in_background=True):
                     ok = False
             if not ok:
                 return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="reader"'})
-        return await call_next(request)
+        response = await call_next(request)
+        if request.url.path in INSTALL_ASSETS or request.url.path in ("/", "/index.html"):
+            #these names stay the same across releases, unlike the built page's hashed scripts
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
     def comic_or_404(comic_id):
         comic = library.comics.get(comic_id)

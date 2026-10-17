@@ -1,0 +1,1516 @@
+openapi: "3.1.0"
+info:
+  title: ZornCoMix Updater API
+  version: "1.0.0"
+  description: >
+    The JSON API served by the ZornCoMix Updater web page (`comiclib/web/server.py`).
+    Every endpoint is under `/api/` and returns JSON unless noted otherwise.
+    Static file serving (`/`, `/css/*`, `/js/*`, `/plugins/*`) is the web UI and
+    is not documented here.
+
+servers:
+  - url: /
+
+security:
+  - basicAuth: []
+
+tags:
+  - name: Library
+    description: Comics in the library and their details
+  - name: Running
+    description: Updates, the job queue, and stopping jobs
+  - name: Chapters
+    description: Chapter detection, correction, page insertion, and walk data
+  - name: Elements
+    description: XPath element paths used to find images and links
+  - name: Config
+    description: Library-wide settings
+  - name: Plugins
+    description: Scraper plugins — listing, installing, updating, removing, and setup
+  - name: Uploads
+    description: Uploading and placing comic archives into the library
+
+paths:
+  /api/openapi.yaml:
+    get:
+      tags: [Config]
+      summary: This OpenAPI specification
+      responses:
+        "200":
+          description: The YAML specification file
+          content:
+            text/yaml:
+              schema:
+                type: string
+
+  /api/state:
+    get:
+      tags: [Running]
+      summary: Poll for current state — running jobs, queue, recent history, and log
+      description: >
+        The page's main polling endpoint. Call with `since` set to the last `seq` you
+        received to get only new log lines.
+      parameters:
+        - name: since
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Sequence number; only log lines after this are returned
+      responses:
+        "200":
+          description: Current state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  now:
+                    type: number
+                    description: Server time (Unix seconds)
+                  root:
+                    type: string
+                    description: Library root path
+                  jobs_at_once:
+                    type: integer
+                    description: How many comics may scrape at once
+                  next_run:
+                    type: ["number", "null"]
+                    description: Scheduled next update (Unix timestamp), or null
+                  current:
+                    description: The running job, or null
+                    oneOf:
+                      - $ref: "#/components/schemas/JobView"
+                      - type: "null"
+                  waiting:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/JobView"
+                    description: Queued jobs
+                  history:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/JobView"
+                    description: Recently finished jobs
+                  log:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        seq:
+                          type: integer
+                        at:
+                          type: number
+                        text:
+                          type: string
+                    description: Stdout lines since `since`
+                  seq:
+                    type: integer
+                    description: Latest sequence number
+
+  /api/log:
+    get:
+      tags: [Running]
+      summary: A single comic's run log
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Log filename (as returned in job views)
+      responses:
+        "200":
+          description: The log as plain text
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: No log by that name
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/comics:
+    get:
+      tags: [Library]
+      summary: List every comic in the library
+      responses:
+        "200":
+          description: Array of comic summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ComicSummary"
+
+  /api/comic:
+    get:
+      tags: [Library]
+      summary: One comic in full detail
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The comic's folder name
+      responses:
+        "200":
+          description: Comic detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComicDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/places:
+    get:
+      tags: [Library]
+      summary: Folders a comic can be moved into
+      responses:
+        "200":
+          description: Available destination folders
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  places:
+                    type: array
+                    items:
+                      type: string
+
+  /api/uploads:
+    get:
+      tags: [Uploads]
+      summary: Pending uploads not yet placed
+      responses:
+        "200":
+          description: List of uploads waiting to be placed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uploads:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UploadInfo"
+
+  /api/plugins:
+    get:
+      tags: [Plugins]
+      summary: Installed plugins and installation capability
+      responses:
+        "200":
+          description: Plugin list and status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plugins:
+                    type: array
+                    items:
+                      type: object
+                      description: A plugin's view
+                  problems:
+                    type: array
+                    items:
+                      type: string
+                    description: Plugins that failed to load
+                  folder:
+                    type: string
+                    description: Path to the plugins folder
+                  may_install:
+                    type: boolean
+                    description: Whether the page may install plugins
+                  why_not:
+                    type: string
+                    description: Why installation is not allowed (when may_install is false)
+                  git:
+                    type: boolean
+                    description: Whether git is available
+
+  /api/config:
+    get:
+      tags: [Config]
+      summary: Library configuration
+      responses:
+        "200":
+          description: Current settings and their defaults
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                    description: Config file path
+                  saved:
+                    type: boolean
+                    description: Whether a config file exists
+                  settings:
+                    type: object
+                    description: Current settings
+                  defaults:
+                    type: object
+                    description: Default values for each setting
+                  restart_needed:
+                    type: array
+                    items:
+                      type: string
+                    description: Settings that need a restart to take effect
+                  root:
+                    type: string
+                    description: Library root path
+                  from_command_line:
+                    type: array
+                    items:
+                      type: string
+                    description: Settings overridden on the command line
+    post:
+      tags: [Config]
+      summary: Save library configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                settings:
+                  type: object
+                  description: Settings to save (only known keys are accepted)
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  saved:
+                    type: boolean
+                  path:
+                    type: string
+                  settings:
+                    type: object
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/elements:
+    get:
+      tags: [Elements]
+      summary: Element XPath lists (image, next, first-page)
+      responses:
+        "200":
+          description: Element paths per kind with source and state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  image:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ElementPath"
+                  next:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ElementPath"
+                  first_page:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ElementPath"
+                  path:
+                    type: string
+                    description: Path to the element paths file
+                  saved:
+                    type: boolean
+                    description: Whether a saved file exists
+                  problem:
+                    type: ["string", "null"]
+                    description: Error reading the saved file, if any
+    post:
+      tags: [Elements]
+      summary: Save element XPath lists
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/ElementPathInput"
+                next:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/ElementPathInput"
+                first_page:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/ElementPathInput"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  saved:
+                    type: boolean
+                  path:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/update:
+    post:
+      tags: [Running]
+      summary: Queue an update of named comics, or the whole library
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                names:
+                  type: array
+                  items:
+                    type: string
+                  description: Comic names to update; empty or absent updates all
+      responses:
+        "200":
+          $ref: "#/components/responses/JobQueued"
+
+  /api/add:
+    post:
+      tags: [Library]
+      summary: Add new comics to the library
+      description: >
+        When `scraper` is present, adds comics through that plugin. Otherwise adds
+        comics for the built-in scraper.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/AddBuiltin"
+                - $ref: "#/components/schemas/AddPlugin"
+      responses:
+        "200":
+          $ref: "#/components/responses/JobQueued"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/settings:
+    post:
+      tags: [Library]
+      summary: Save a comic's settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: The comic's folder name
+                settings:
+                  type: object
+                  description: Settings to change (url, increment, cbz_path, prefix, javascript, firefox, waittime, cbz, direction_check, multi_page, ended)
+                updated:
+                  type: ["string", "null"]
+                  description: Expected updated timestamp (optimistic concurrency)
+                update_after:
+                  type: boolean
+                  description: Queue an update of this comic after saving
+      responses:
+        "200":
+          description: Saved (or nothing changed)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  saved:
+                    type: boolean
+                  changed:
+                    type: object
+                    description: "Each changed key maps to [old, new]"
+                  updated:
+                    type: string
+                    description: New updated timestamp
+                  message:
+                    type: string
+                    description: Present when nothing changed
+                  queued:
+                    type: string
+                    description: Job label, when update_after was set
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/check:
+    post:
+      tags: [Elements]
+      summary: Queue an element-path check on a URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  description: Full http(s) address to check
+      responses:
+        "200":
+          $ref: "#/components/responses/JobQueued"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/chapterize:
+    post:
+      tags: [Chapters]
+      summary: Queue chapter detection for a comic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                url:
+                  type: string
+                  description: Archive page URL (source of chapter list)
+                every:
+                  type: ["string", "integer"]
+                  description: Cut into parts of this many pages
+                set_aside:
+                  type: array
+                  items:
+                    type: string
+                  description: Filenames in the comic's folder to set aside
+                discard_walk:
+                  type: boolean
+                walk:
+                  type: boolean
+      responses:
+        "200":
+          description: Queued
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/JobQueued"
+                  - type: object
+                    properties:
+                      walking:
+                        type: boolean
+                      carrying_on:
+                        type: boolean
+                      numbers_first:
+                        type: boolean
+                      from:
+                        type: string
+                        enum: [every, archive, addresses]
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/trylist:
+    post:
+      tags: [Chapters]
+      summary: Try reading an archive page (dry run)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Comic name (optional if `like` is given)
+                url:
+                  type: string
+                  description: Archive page URL
+                like:
+                  type: string
+                  description: A page address of the comic, to tell its links from others
+                browser:
+                  type: boolean
+                  description: Use a browser to read the page
+      responses:
+        "200":
+          description: Result of reading the page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  output:
+                    type: string
+                  seconds:
+                    type: integer
+                  exit_code:
+                    type: integer
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/pages:
+    post:
+      tags: [Chapters]
+      summary: Get walked page list for a comic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        "200":
+          description: Walked pages, or why the comic has not been walked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pages:
+                    type: array
+                    items:
+                      type: object
+                  walked:
+                    type: boolean
+                  settled:
+                    type: boolean
+                    description: Present when walked is true
+                  why:
+                    type: string
+                    description: Present when walked is false
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/insert:
+    post:
+      tags: [Chapters]
+      summary: Insert a skipped page into a comic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, url, after]
+              properties:
+                name:
+                  type: string
+                url:
+                  type: string
+                  description: Address of the page to insert
+                after:
+                  type: string
+                  description: The page it follows
+                dry_run:
+                  type: boolean
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  output:
+                    type: string
+        "400":
+          description: Error (may include output)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  output:
+                    type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/chapterfix:
+    post:
+      tags: [Chapters]
+      summary: Correct a chapter boundary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                at:
+                  type: string
+                  description: Page the correction is about
+                label:
+                  type: string
+                  description: What the chapter starting there is called
+                forget:
+                  type: boolean
+                  description: Remove a fix at this page
+                drop:
+                  type: boolean
+                  description: Drop the chapter starting at this page
+                clear:
+                  type: boolean
+                  description: Clear all corrections
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  output:
+                    type: string
+        "400":
+          description: Error (may include output)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  output:
+                    type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/discardwalk:
+    post:
+      tags: [Chapters]
+      summary: Discard a failed walk record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        "200":
+          description: Walk records moved aside
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  moved:
+                    type: array
+                    items:
+                      type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/move:
+    post:
+      tags: [Library]
+      summary: Preview or execute moving a comic to another folder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, into]
+              properties:
+                name:
+                  type: string
+                into:
+                  type: string
+                  description: Destination folder
+                dry_run:
+                  type: boolean
+                  description: Preview only, do not queue the move
+      responses:
+        "200":
+          description: Preview or queued move
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  to:
+                    type: string
+                    description: Full destination path
+                  lines:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        text:
+                          type: string
+                        stays:
+                          type: boolean
+                    description: What will be renamed
+                  queued:
+                    type: integer
+                    description: Job ID (when not dry_run)
+                  label:
+                    type: string
+                    description: Job label (when not dry_run)
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/stop:
+    post:
+      tags: [Running]
+      summary: Stop the currently running job
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Whether a job was stopped
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stopping:
+                    type: boolean
+
+  /api/drop:
+    post:
+      tags: [Running]
+      summary: Remove a queued job by ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id:
+                  type: integer
+      responses:
+        "200":
+          description: Whether the job was found and removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dropped:
+                    type: boolean
+
+  /api/upload:
+    post:
+      tags: [Uploads]
+      summary: Upload a comic archive
+      description: >
+        The only endpoint whose body is not JSON. Send the `.zip` or `.cbz` file
+        as the raw request body with the appropriate Content-Type and an
+        `X-Filename` header carrying the original filename.
+      parameters:
+        - name: X-Filename
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Original filename of the archive
+        - name: Content-Length
+          in: header
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/zip:
+            schema:
+              type: string
+              format: binary
+          application/x-zip-compressed:
+            schema:
+              type: string
+              format: binary
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+          application/x-cbz:
+            schema:
+              type: string
+              format: binary
+          application/vnd.comicbook+zip:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Upload received and inspected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadInfo"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "411":
+          description: No Content-Length
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "415":
+          description: Not a zip or cbz
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "507":
+          description: Not enough disk space
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/upload/place:
+    post:
+      tags: [Uploads]
+      summary: Place an upload into the library
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, folder]
+              properties:
+                id:
+                  type: string
+                  description: Upload ID from the receive response
+                folder:
+                  type: string
+                  description: Destination folder in the library
+                cbz:
+                  type: string
+                  description: Archive path override
+                as:
+                  type: string
+                  enum: [archive]
+                  description: Keep the archive whole on the shelf
+                replace:
+                  type: boolean
+                  description: Replace what is already in that folder
+                last_url:
+                  type: string
+                  description: Last page address the comic has (for adopting)
+                next_url:
+                  type: string
+                  description: First page address the comic does not have (for adopting)
+                ended:
+                  type: boolean
+                  description: The comic has ended (for adopting)
+                increment:
+                  type: integer
+                  description: Page number to carry on from
+                prefix:
+                  type: boolean
+                  description: Page filenames are prefixed with their number
+                every:
+                  type: integer
+                  description: Cut into parts of this many pages
+      responses:
+        "200":
+          $ref: "#/components/responses/JobQueued"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Already in the library (includes `exists` array)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  exists:
+                    type: array
+                    items:
+                      type: string
+
+  /api/upload/discard:
+    post:
+      tags: [Uploads]
+      summary: Discard a pending upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id:
+                  type: string
+      responses:
+        "200":
+          description: Discarded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  discarded:
+                    type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/plugins/setup:
+    post:
+      tags: [Plugins]
+      summary: Save a plugin's own settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: Plugin folder name
+                values:
+                  type: object
+                  description: Settings to save
+      responses:
+        "200":
+          description: Saved settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  setup:
+                    type: object
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/plugins/install:
+    post:
+      tags: [Plugins]
+      summary: Queue installing a plugin from a git repository
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  description: Git repository address (https:// or git@)
+                ref:
+                  type: string
+                  description: Branch or tag to clone
+      responses:
+        "200":
+          $ref: "#/components/responses/JobQueued"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: Plugin installation not allowed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/plugins/update:
+    post:
+      tags: [Plugins]
+      summary: Queue updating an installed plugin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: Plugin folder name
+      responses:
+        "200":
+          $ref: "#/components/responses/JobQueued"
+        "403":
+          description: Plugin management not allowed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/plugins/remove:
+    post:
+      tags: [Plugins]
+      summary: Queue removing an installed plugin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: Plugin folder name
+      responses:
+        "200":
+          $ref: "#/components/responses/JobQueued"
+        "403":
+          description: Plugin management not allowed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: >
+        Optional. Required only when `MIRROR_WEB_PASSWORD` is set. Any username
+        is accepted; only the password is checked.
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    JobQueued:
+      type: object
+      properties:
+        queued:
+          type: integer
+          description: Job ID
+        label:
+          type: string
+          description: Human-readable job label
+
+    JobView:
+      type: object
+      description: A job as returned in state polling
+      properties:
+        id:
+          type: integer
+        kind:
+          type: string
+          enum: [update, check, add, chapters, move, place, plugin]
+        label:
+          type: string
+        created:
+          type: number
+        started:
+          type: ["number", "null"]
+        finished:
+          type: ["number", "null"]
+        error:
+          type: ["string", "null"]
+        stopping:
+          type: boolean
+        doing:
+          type: ["string", "null"]
+          description: What the job is working on right now
+        check:
+          type: object
+          description: Present for check jobs
+        outcome:
+          type: string
+          description: Present for finished jobs with an outcome
+        decide:
+          type: object
+          description: Present when the job stopped to ask a question
+        counts:
+          type: object
+          description: Comic state counts (present once started)
+        gained:
+          type: integer
+          description: Pages gained across all comics (present once started)
+        comics:
+          type: array
+          items:
+            $ref: "#/components/schemas/ComicJobView"
+          description: Per-comic status (present once started)
+
+    ComicJobView:
+      type: object
+      properties:
+        name:
+          type: string
+        state:
+          type: string
+          enum: [waiting, running, ok, failed, stopped]
+        gained:
+          type: integer
+        elapsed:
+          type: integer
+        detail:
+          type: string
+          description: Present when finished
+        last_line:
+          type: string
+          description: Present when running
+        tail:
+          type: array
+          items:
+            type: string
+          description: Last lines of output (present on failure)
+        log:
+          type: string
+          description: Log filename
+
+    ComicSummary:
+      type: object
+      properties:
+        name:
+          type: string
+        pages:
+          type: integer
+        ended:
+          type: boolean
+        url:
+          type: ["string", "null"]
+        updated:
+          type: ["string", "null"]
+        exit_code:
+          type: ["integer", "null"]
+        stop_reason:
+          type: ["string", "null"]
+        completed:
+          type: ["boolean", "null"]
+        problem:
+          type: ["string", "null"]
+          description: Why this comic was skipped, if it was
+        scraper:
+          type: ["string", "null"]
+          description: Plugin name, for a comic another program scrapes
+
+    ComicDetail:
+      type: object
+      properties:
+        name:
+          type: string
+        updated:
+          type: ["string", "null"]
+        settings:
+          type: object
+          description: The comic's settings block
+        plugin:
+          description: Plugin view, for a plugin comic
+          oneOf:
+            - type: object
+            - type: "null"
+        chapters:
+          type: object
+          properties:
+            source_url:
+              type: ["string", "null"]
+            count:
+              type: integer
+            packed:
+              type: ["boolean", "null"]
+            folder:
+              type: ["string", "null"]
+            source:
+              type: ["string", "null"]
+            every:
+              type: ["integer", "null"]
+            list:
+              type: array
+              items:
+                type: object
+            fixes:
+              type: array
+              items:
+                type: object
+        indexed:
+          type: boolean
+          description: Whether a walk record exists
+        indexed_pages:
+          type: integer
+          description: Pages in the walk record
+        stale_walk:
+          type: boolean
+          description: Walk record exists but is useless
+        decide:
+          description: A question the last chapters job left
+          oneOf:
+            - type: object
+            - type: "null"
+        state:
+          type: object
+          description: Scrape state
+        first_page_url:
+          type: ["string", "null"]
+        runs:
+          type: array
+          items:
+            type: object
+          description: Recent runs (newest first, up to 8)
+        edits:
+          type: array
+          items:
+            type: object
+          description: Recent edits (newest first, up to 8)
+        logs:
+          type: array
+          items:
+            type: object
+          description: Run logs from the past week
+        pages_in_folder:
+          type: integer
+        running:
+          type: boolean
+        moving:
+          type: boolean
+
+    ElementPath:
+      type: object
+      properties:
+        xpath:
+          type: string
+        note:
+          type: string
+        enabled:
+          type: boolean
+        shipped:
+          type: boolean
+          description: Whether this is a built-in path
+
+    ElementPathInput:
+      type: object
+      required: [xpath]
+      properties:
+        xpath:
+          type: string
+        note:
+          type: string
+        enabled:
+          type: boolean
+
+    UploadInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Upload identifier
+        file:
+          type: string
+          description: Original filename
+        kind:
+          type: string
+          enum: [zip, cbz]
+        bytes:
+          type: integer
+        received:
+          type: string
+        pages:
+          type: integer
+        numbering:
+          type: string
+          description: How the pages are numbered
+        last_number:
+          type: ["integer", "null"]
+        inner:
+          type: string
+          description: Subfolder inside the archive holding the pages
+        suggested:
+          type: string
+          description: Suggested folder name
+        left_out:
+          type: integer
+          description: Files that are not pages
+        left_out_sample:
+          type: array
+          items:
+            type: string
+        adopted:
+          type: boolean
+          description: Whether the archive carries its own settings
+        settings:
+          description: Summary of the archive's settings (when adopted)
+          oneOf:
+            - type: object
+            - type: "null"
+
+    AddBuiltin:
+      type: object
+      description: Add comics for the built-in scraper
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              folder:
+                type: string
+              url:
+                type: string
+              cbz:
+                type: string
+              chapters:
+                type: string
+        prime:
+          type: boolean
+        prefix:
+          type: boolean
+        javascript:
+          type: boolean
+        cbz:
+          type: boolean
+        direction_check:
+          type: boolean
+        increment:
+          type: integer
+        waittime:
+          type: integer
+        every:
+          type: ["string", "integer"]
+
+    AddPlugin:
+      type: object
+      description: Add comics through a scraper plugin
+      required: [scraper, rows]
+      properties:
+        scraper:
+          type: string
+          description: Plugin folder name
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              folder:
+                type: string
+              url:
+                type: string
+              cbz:
+                type: string
+        plugin:
+          type: object
+          description: Plugin-specific settings shared by all rows
+        cbz:
+          type: boolean
+
+  responses:
+    JobQueued:
+      description: Job queued
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/JobQueued"
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: The comic is being scraped, moved, or the metadata changed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ServerError:
+      description: Internal error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

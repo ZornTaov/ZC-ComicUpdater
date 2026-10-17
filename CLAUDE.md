@@ -74,7 +74,10 @@ paths dialog and the check result). `js/` holds one file per part of the page: `
 `post`, `esc`, the time formats), `library`, `running` (the `/api/state` poll: Running now, queue, Recent,
 log), `editor`, `elements`, `listcheck`, `bounds`, `comicinfo` (a comic's ComicInfo, saved to its metadata
 and written into its archives by a queued `chapters.py comicinfo`), `adding`, `uploads`, `settings`,
-`plugins` (a plugin's settings as a form), and `main`, which starts it all.
+`plugins` (a plugin's settings as a form), and `main`, which starts it all. As it serves `index.html`, the
+server puts `?v=<hash of the file>` on each `href="css/…"`/`src="js/…"` there (`stamped`, using
+`paths.content_stamp`), and a plugin's dialog is asked for with the `stamp` in its listing, so a proxy told to
+keep everything cannot serve a changed file stale. A file the page names some other way gets no stamp.
 
 They are **plain scripts sharing one global scope, not modules**, on purpose: the dialogs hand each other
 state (`editing`, `checkJob`, `paths`), and an imported `let` cannot be assigned to. So a top-level name

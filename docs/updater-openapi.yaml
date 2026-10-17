@@ -219,6 +219,13 @@ paths:
                     items:
                       type: object
                       description: A plugin's view
+                      properties:
+                        stamp:
+                          type: string
+                          description: >
+                            A short hash of the plugin's dialog.js and dialog.css, which the page puts on
+                            their addresses as `?v=` so a cache in front of the page fetches them again
+                            once they change
                   problems:
                     type: array
                     items:

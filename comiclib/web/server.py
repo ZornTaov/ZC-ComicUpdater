@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from comiclib import moving, pluginfetch, plugins, pluginsetup, runlogs
-from comiclib.paths import PROJECT
+from comiclib.paths import PROJECT, content_stamp
 from comiclib.web.adding import add_with_plugin, parse_entries
 from comiclib.web.edits import discard_walk, fix_chapter, insert_page, preview_move, save_config, save_settings
 from comiclib.web.edits import comicinfo_view, save_comicinfo, try_chapter_list
@@ -53,6 +53,24 @@ def inside(folder, name, kinds):
 def page_part(address):
     #the file in the page's folder an address names, or None
     return inside(page_folder, unquote(address).lstrip("/") or "index.html", page_kinds)
+
+
+#a stylesheet or script the page names by its own folder's address, css/page.css or js/main.js
+page_link = re.compile(rb'((?:href|src)=")((?:css|js)/[^"?#]+)(")')
+
+
+def stamped(html):
+    #the page with ?v=<its contents' hash> on each of its css and js addresses. every answer here already
+    #says not to keep it, but a proxy in front of the page can be told to keep everything regardless, and
+    #then a changed script is served stale beside a new index.html that expects it. a new address on every
+    #change is the one thing such a cache cannot answer from what it kept. read on every request, like the
+    #files themselves, so an edited script is a new address without a restart
+    def stamp(found):
+        part = page_part(found.group(2).decode("utf-8", "replace"))
+        if part is None:
+            return found.group(0)
+        return found.group(1) + found.group(2) + b"?v=" + content_stamp(part).encode() + found.group(3)
+    return page_link.sub(stamp, html)
 
 
 #what a plugin may add to the page: a script that draws its own form, and the look of it. its markup is
@@ -131,9 +149,12 @@ def make_handler(runner, args, uc, tee):
                     return
                 try:
                     with open(part, "rb") as f:
-                        self.reply(f.read(), kind=page_kinds[os.path.splitext(part)[1]])
+                        body = f.read()
                 except OSError as error:
                     self.reply("could not read {0}: {1}".format(part, error).encode(), 500, "text/plain")
+                    return
+                kind = os.path.splitext(part)[1]
+                self.reply(stamped(body) if kind == ".html" else body, kind=page_kinds[kind])
             elif where.path == "/api/log":
                 #one comic's run in full, as plain text: only a .log inside the logs folder, so a name
                 #reaching out of it reads nothing

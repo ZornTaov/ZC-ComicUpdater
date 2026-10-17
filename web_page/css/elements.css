@@ -16,6 +16,12 @@
 .ep.off input[type=text] { opacity: .45; text-decoration: line-through; }
 .ep .moves { display: flex; gap: 2px; }
 .ep .moves button { padding: 1px 6px; font-size: 11px; line-height: 1.4; }
+/*the export tick is a different thing from the on/off box at the row's start, so it sits with the row's
+  buttons and says what it is*/
+.ep .pick { display: flex; align-items: center; gap: 2px; margin-left: 4px; font-size: 11px; color: var(--muted);
+  cursor: pointer; white-space: nowrap; }
+/*a row brought in by Import and not yet saved, so what came from the file can be looked over*/
+.ep.imported { box-shadow: inset 3px 0 0 var(--accent); }
 @media (max-width: 620px) { .ep { grid-template-columns: auto auto minmax(0, 1fr) auto; }
   .ep .note-in { grid-column: 3 / 5; }
   /*on a narrow screen the note drops to a second line; what the check found rides beside it rather than

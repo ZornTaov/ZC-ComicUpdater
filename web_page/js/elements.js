@@ -40,10 +40,11 @@ function renderPaths(fromCheck) {
   $("ep-lists").innerHTML = pathKinds.map((kind) => `
     <div class="ep-head"><h4>${pathLabels[kind]} paths</h4>
       <span class="muted">${paths[kind].filter((p) => p.enabled).length} on, ${paths[kind].length} listed${
+        paths[kind].some((p) => p.picked) ? `, ${paths[kind].filter((p) => p.picked).length} ticked for export` : ""}${
         lastCheck && lastCheck.url ? `, counts from the check of ${esc(lastCheck.url)}` : ""}</span>
       <button type="button" class="link" data-add="${kind}">add one</button></div>
     <div class="ep-list" data-list="${kind}">${paths[kind].map((p, at) => `
-      <div class="ep ${p.enabled ? "" : "off"} ${hits[kind][p.xpath] ? (hits[kind][p.xpath].first ? "hit-used" : "hit-some") : ""}" draggable="true" data-kind="${kind}" data-at="${at}">
+      <div class="ep ${p.enabled ? "" : "off"} ${p.imported ? "imported" : ""} ${hits[kind][p.xpath] ? (hits[kind][p.xpath].first ? "hit-used" : "hit-some") : ""}" draggable="true" data-kind="${kind}" data-at="${at}">
         <span class="grip" title="drag to move">⠿</span>
         <input type="checkbox" ${p.enabled ? "checked" : ""} data-kind="${kind}" data-at="${at}" data-field="enabled"
           title="${p.enabled ? "in use" : "turned off"}">
@@ -56,6 +57,8 @@ function renderPaths(fromCheck) {
           <button type="button" data-move="down" data-kind="${kind}" data-at="${at}" ${at === paths[kind].length - 1 ? "disabled" : ""} title="later">↓</button>
           ${p.shipped ? `<button type="button" disabled title="came with the script">✕</button>`
             : `<button type="button" data-drop-path="1" data-kind="${kind}" data-at="${at}" title="remove">✕</button>`}
+          <label class="pick" title="tick to export only the ticked rows">
+            <input type="checkbox" ${p.picked ? "checked" : ""} data-kind="${kind}" data-at="${at}" data-field="picked">export</label>
         </span>
       </div>`).join("")}</div>`).join("");
   $("ep-lists").querySelectorAll(".ep-list").forEach((list) => {
@@ -65,6 +68,7 @@ function renderPaths(fromCheck) {
     const used = fromCheck && list.querySelector(".ep.hit-used");
     if (used) list.scrollTop = Math.max(used.offsetTop - list.clientHeight / 2, 0);
   });
+  exportLabel();
 }
 
 // dragging a row by its grip, within its own list
@@ -115,8 +119,8 @@ async function openElements() {
 $("ep-lists").addEventListener("input", (event) => {
   const { kind, at, field } = event.target.dataset;
   if (!field) return;
-  paths[kind][at][field] = field === "enabled" ? event.target.checked : event.target.value;
-  if (field === "enabled") renderPaths();
+  paths[kind][at][field] = event.target.type === "checkbox" ? event.target.checked : event.target.value;
+  if (event.target.type === "checkbox") renderPaths();
 });
 $("ep-lists").addEventListener("click", (event) => {
   const d = event.target.dataset;
@@ -141,11 +145,109 @@ $("ep-save").addEventListener("click", async () => {
     await post("/api/elements", paths);
     msg.className = "msg good";
     msg.textContent = "Saved. The next comic to run uses these.";
+    //an imported row is marked only until it is kept, so the next import's rows are the only ones marked
+    pathKinds.forEach((kind) => paths[kind].forEach((p) => { delete p.imported; }));
+    renderPaths();
   } catch (error) {
     msg.className = "msg bad";
     msg.textContent = error.message;
   }
 });
+
+//what Export writes: the rows ticked for it, or with none ticked, every path that did not come with the
+//script - the ones someone else running this would not have. shipped paths are left out unless ticked,
+//since the other copy has them already and may have reordered or turned them off on purpose
+function exportedPaths() {
+  const ticked = pathKinds.some((kind) => paths[kind].some((p) => p.picked));
+  const lists = Object.fromEntries(pathKinds.map((kind) => [kind, paths[kind]
+    .filter((p) => p.xpath.trim() && (ticked ? p.picked : !p.shipped))
+    .map((p) => ({ xpath: p.xpath.trim(), note: p.note || "", enabled: p.enabled }))]));
+  //the same shape as element_paths.json, so either one can be imported, and a file can be read by eye
+  return Object.assign({ note: "Element paths exported from ZornCoMix, to import in its Element paths dialog.",
+    exported: new Date().toISOString().replace(/\.\d+Z$/, "Z") }, lists);
+}
+
+function exportLabel() {
+  const ticked = pathKinds.some((kind) => paths[kind].some((p) => p.picked));
+  $("ep-export").textContent = ticked ? "Export ticked" : "Export";
+}
+
+$("ep-export").addEventListener("click", () => {
+  const msg = $("ep-msg");
+  const data = exportedPaths();
+  const count = pathKinds.reduce((sum, kind) => sum + data[kind].length, 0);
+  if (!count) {
+    msg.className = "msg bad";
+    msg.textContent = "There are no paths of your own to export. Tick a row's export box to export it anyway.";
+    return;
+  }
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2) + "\n"], { type: "application/json" }));
+  link.download = `element-paths-${data.exported.slice(0, 10)}.json`;
+  link.click();
+  //not at once: a browser can still be starting the download when click() returns, and one whose address
+  //has gone saves nothing
+  setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+  msg.className = "msg good";
+  msg.textContent = `Exported ${count} path${count === 1 ? "" : "s"} (${pathKinds.map((kind) =>
+    `${data[kind].length} ${pathLabels[kind].toLowerCase()}`).join(", ")}).`;
+});
+
+//a file's paths merged into the lists being edited. they go to the top, in the file's order, since a path
+//someone passes on is nearly always one written for a comic, and the general ones below would otherwise
+//match its pages first. a path already listed is left where it is, as it is: the file does not get to
+//turn one of yours off or reword its note
+function importPaths(text) {
+  let given;
+  try {
+    given = JSON.parse(text);
+  } catch (error) {
+    return { error: "That file is not JSON: " + error.message };
+  }
+  if (!given || typeof given !== "object" || !pathKinds.some((kind) => Array.isArray(given[kind]))) {
+    return { error: "That file has no element paths in it. It should be one made by Export, or an element_paths.json." };
+  }
+  const counts = { added: 0, already: 0, unusable: 0 };
+  pathKinds.forEach((kind) => {
+    const listed = new Set(paths[kind].map((p) => p.xpath.trim()));
+    const fresh = [];
+    (Array.isArray(given[kind]) ? given[kind] : []).forEach((entry) => {
+      const xpath = String((entry && entry.xpath) || "").trim();
+      //the same test a save makes, so a file cannot put in a row that would only be refused at Save
+      if (!/^[/(.]/.test(xpath)) { counts.unusable += 1; return; }
+      if (listed.has(xpath)) { counts.already += 1; return; }
+      listed.add(xpath);
+      fresh.push({ xpath, note: String(entry.note || ""), enabled: entry.enabled !== false, shipped: false, imported: true });
+    });
+    paths[kind].unshift(...fresh);
+    counts.added += fresh.length;
+  });
+  renderPaths();
+  return counts;
+}
+
+$("ep-import").addEventListener("click", () => $("ep-import-file").click());
+$("ep-import-file").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  //cleared at once, so choosing the same file again is still a change
+  event.target.value = "";
+  if (!file) return;
+  const msg = $("ep-msg");
+  const result = importPaths(await file.text());
+  if (result.error) {
+    msg.className = "msg bad";
+    msg.textContent = result.error;
+    return;
+  }
+  const skipped = [result.already && `${result.already} already listed`,
+    result.unusable && `${result.unusable} not an xpath`].filter(Boolean).join(", ");
+  msg.className = result.added ? "msg good" : "msg";
+  msg.textContent = result.added
+    ? `Imported ${result.added} path${result.added === 1 ? "" : "s"} to the top of their lists, marked` +
+      `${skipped ? ` (skipped ${skipped})` : ""}. Look them over, then Save to keep them.`
+    : `Nothing new in ${file.name}${skipped ? `: ${skipped}` : ""}.`;
+});
+
 $("ep-cancel").addEventListener("click", () => $("elements").close());
 $("open-elements").addEventListener("click", openElements);
 

@@ -29,6 +29,23 @@ async function post(path, body) {
   return data;
 }
 
+//a dialog closed by a click beside it, but only one pressed and let go both outside its box: a drag that
+//selects a field's text and is let go past the dialog's edge ends in a click on the dialog too, and must
+//not throw away what was being edited
+function closeOnBackdrop(dialog) {
+  let pressedOutside = false;
+  const outside = (event) => {
+    const box = dialog.getBoundingClientRect();
+    return event.target === dialog && (event.clientX < box.left || event.clientX > box.right
+      || event.clientY < box.top || event.clientY > box.bottom);
+  };
+  dialog.addEventListener("pointerdown", (event) => { pressedOutside = outside(event); });
+  dialog.addEventListener("click", (event) => {
+    if (pressedOutside && outside(event)) dialog.close();
+    pressedOutside = false;
+  });
+}
+
 function link(url) {
   return url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(url)}</a>` : `<span class="muted">none</span>`;
 }

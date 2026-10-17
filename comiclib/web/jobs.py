@@ -4,6 +4,7 @@ import collections
 import itertools
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -19,7 +20,7 @@ from comiclib.exits import USAGE
 from comiclib.metadata import METADATA_FILE, write_json
 from comiclib.paths import config_folder
 from comiclib.web.uploads import Refused, mark_queued, place
-from comiclib.web.views import chapters_label, find_comic, job_view, move_label
+from comiclib.web.views import chapters_label, comicinfo_label, find_comic, job_view, move_label
 
 #how far back the page's Recent list reaches. it is kept in the config folder, so a restart - which a
 #restart file makes routine - does not empty it; and capped by count too, against a week of something
@@ -559,6 +560,42 @@ class Runner:
             return 0
 
         return self.submit(Job("move", move_label(name), work))
+
+    def submit_comicinfo(self, name):
+        #every archive of a comic brought up to what its metadata says it is: its one archive, or each chapter's,
+        #a ComicInfo put on the end of each that says anything new. through chapters.py, so the page and the
+        #command line write the same; in the queue, so no scrape is appending to an archive while it does
+        def work(job):
+            args = self.uc.with_config(self.args)
+            comic = find_comic(args, self.uc, name)
+            if comic is None:
+                job.error = "there is no comic named {0} any more".format(name)
+                print("ERROR: {0}: {1}".format(job.label, job.error), flush=True)
+                return 1
+            script = os.path.join(os.path.dirname(os.path.abspath(args.script)), "chapters.py")
+            job.process = subprocess.Popen(
+                [sys.executable, script, "comicinfo", comic.folder, "--root", args.root],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
+                env=dict(os.environ, PYTHONUNBUFFERED="1"), **own_group())
+            told = 0
+            for line in job.process.stdout:
+                print("  " + line.rstrip(), flush=True)
+                if line.strip():
+                    job.doing = line.strip()
+                #what the single archive and the chapter archives each say once written
+                found = re.search(r"ComicInfo written\.$|ComicInfo of (\d+) chapter archive", line)
+                if found:
+                    told += int(found.group(1) or 1)
+            code = job.process.wait()
+            if job.cancel.is_set():
+                return self.uc.stopped_code
+            job.outcome = ("{0} archive(s) brought up to date".format(told) if told
+                           else "every archive already said it") if code == 0 else None
+            if code != 0:
+                job.error = "chapters.py comicinfo stopped with exit code {0}; its output is in the log".format(code)
+            return code
+
+        return self.submit(Job("comicinfo", comicinfo_label(name), work))
 
 
 def remember_chapters(comic, listing, every=None, make_folder=False):

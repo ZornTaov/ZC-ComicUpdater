@@ -1,4 +1,5 @@
 // the server's answers, typed, and the few calls the page makes
+import type { InfoForm, Said } from "./comicinfoform";
 import type { Settings } from "./settings";
 
 export interface ComicSummary {
@@ -14,6 +15,8 @@ export interface ComicSummary {
   // the folder it is shown in, relative to the library; "" for the top
   place: string;
   kind: "archive" | "chapters" | "folder";
+  // the comic a chapter archive is one chapter of: every chapter of it says the same
+  parent: string | null;
   pages: number;
   position: number | null;
   unread: number;
@@ -122,6 +125,11 @@ export interface ComicInfo {
   about: Partial<Record<"title" | "series" | "number" | "count" | "volume" | "summary" | "year" | "writer"
     | "penciller" | "genre" | "tags" | "web", string>>;
   said: Record<string, string | number>;
+  // everything its archive's ComicInfo says that could be said by hand; and, for a comic the scraper keeps,
+  // what it would say with nothing said by hand
+  says: Said;
+  worked: Said;
+  form: InfoForm;
   scraped: boolean;
   links: { label: string; url: string }[];
   folder: string | null;
@@ -134,9 +142,16 @@ export interface ComicInfo {
   editable: boolean;
 }
 
-// what can be said about a comic on its info page, as its metadata's info block and ComicInfo call it
-export const SAYABLE = ["title", "series", "summary", "year", "writer", "penciller", "genre", "tags", "web"] as const;
-export type Said = Partial<Record<(typeof SAYABLE)[number], string>>;
+// what a folder or series says, field by field: what every comic in it says, or null where they differ
+export interface ManyInfo {
+  comics: number;
+  scraped: number;
+  archives: number;
+  fields: Record<string, { value: string | null; mixed: boolean }>;
+  // what each comic was when this was read, so a change made over another is refused
+  stamps: Record<string, string | null>;
+  form: InfoForm;
+}
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
@@ -162,6 +177,11 @@ export const api = {
   // checked against what the page was showing, so a change made over one it never saw is refused
   saveInfo: (info: ComicInfo, said: Said) =>
     put<ComicInfo & { told: number }>(`/api/comics/${info.id}/info`, { info: said, updated: info.updated, version: info.version }),
+  manyInfo: (ids: string[]) => call<ManyInfo>("/api/comicinfo",
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) }),
+  // only what was changed, "" taking a tag out of every one
+  saveManyInfo: (ids: string[], stamps: ManyInfo["stamps"], changes: Said) =>
+    put<ManyInfo & { told: number }>("/api/comicinfo", { ids, stamps, changes }),
   pageUrl: (id: string, n: number, v: string) => `/api/comics/${id}/pages/${n}?v=${v}`,
   coverUrl: (id: string, v: string | null) => `/api/comics/${id}/cover${v ? `?v=${v}` : ""}`,
   groupCoverUrl: (target: string, v: string) => `/api/covers?target=${encodeURIComponent(target)}&v=${v}`,

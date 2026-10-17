@@ -125,3 +125,125 @@ def test_an_archive_from_elsewhere_has_its_own_comicinfo_changed_and_the_rest_ke
     assert [child.tag for child in root] == ["Title", "Writer", "Web", "LanguageISO", "Manga"]
     assert root.findtext("Writer") == "Them" and root.findtext("Manga") == "No"
     assert saved.json()["about"]["writer"] == "Them"
+
+
+def their_archive(library, name, said):
+    archive = library / "CBZs" / name
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(str(archive), "w") as zf:
+        zf.writestr("01.png", png(4, 4))
+        zf.writestr("ComicInfo.xml", "<ComicInfo>{0}</ComicInfo>".format(said))
+    return archive
+
+
+def test_the_rest_of_the_schema_is_shown_and_changed_where_it_is_named(library, client):
+    archive = their_archive(library, "TheirComic.cbz", "<Title>Their Comic</Title><Notes>Theirs.</Notes>"
+                                                       "<LanguageISO>en</LanguageISO><Manga>No</Manga>")
+    settle(library)
+    api, _ = client()
+    comic = find(api, "TheirComic")
+    info = api.get("/api/comics/{0}/info".format(comic["id"])).json()
+    assert info["says"] == {"title": "Their Comic", "LanguageISO": "en", "Manga": "No"}
+    assert ["Publisher", "Publisher", False] in info["form"]["extra"]
+    saved = api.put("/api/comics/{0}/info".format(comic["id"]),
+                    json={"info": {"title": "Their Comic", "Publisher": "SomePublisher", "Manga": ""},
+                          "version": info["version"]})
+    assert saved.status_code == 200, saved.text
+    _, root = comicinfo_of(archive)
+    #the publisher goes where the schema puts it, the reading direction taken out was, and the language, not
+    #named at all, is left as it was - as are the notes, which are no form's to change
+    assert [child.tag for child in root] == ["Title", "Notes", "Publisher", "LanguageISO"]
+    assert saved.json()["says"]["Publisher"] == "SomePublisher"
+
+
+def test_what_cannot_be_written_is_said_rather_than_dropped(library, client):
+    single_comic(library)
+    api, _ = client()
+    comic = find(api, "MyComic")
+    wrong = api.put("/api/comics/{0}/info".format(comic["id"]), json={"info": {"year": "soon", "Manga": "Sideways"}})
+    assert wrong.status_code == 400
+    assert "Year has to be a whole number" in wrong.json()["detail"] and "YesAndRightToLeft" in wrong.json()["detail"]
+
+
+def test_a_scraped_comic_says_the_rest_of_the_schema_by_hand_too(library, client):
+    folder, archive = single_comic(library)
+    api, _ = client()
+    comic = find(api, "MyComic")
+    info = api.get("/api/comics/{0}/info".format(comic["id"])).json()
+    #an empty box keeps what is worked out, which the form shows greyed: the folder's name, the site, the format
+    assert info["worked"]["series"] == "MyComic" and info["worked"]["Format"] == "Web Comic"
+    saved = api.put("/api/comics/{0}/info".format(comic["id"]),
+                    json={"info": {"writer": "SomeAuthor", "Publisher": "SomePublisher", "Format": "Webtoon"},
+                          "updated": info["updated"]})
+    assert saved.status_code == 200, saved.text
+    metadata = json.loads((folder / "mirror_metadata.json").read_text())
+    assert metadata["info"] == {"writer": "SomeAuthor", "Publisher": "SomePublisher", "Format": "Webtoon"}
+    _, root = comicinfo_of(archive)
+    assert (root.findtext("Publisher"), root.findtext("Format")) == ("SomePublisher", "Webtoon")
+    #a page from before the rest could be said sends only the nine, and the publisher stays
+    again = api.put("/api/comics/{0}/info".format(comic["id"]),
+                    json={"info": {"writer": "SomeoneElse"}, "updated": saved.json()["updated"]})
+    assert again.status_code == 200, again.text
+    assert json.loads((folder / "mirror_metadata.json").read_text())["info"]["Publisher"] == "SomePublisher"
+
+
+def a_mixed_folder(library):
+    #two archives from elsewhere by different writers, a comic the scraper keeps in one archive, and one it
+    #keeps in chapters, all shelved together
+    their_archive(library, "Shelf/TheirOne.cbz", "<Title>One</Title><Writer>Them</Writer><Genre>Comedy</Genre>")
+    their_archive(library, "Shelf/TheirTwo.cbz", "<Title>Two</Title><Writer>Others</Writer><Genre>Comedy</Genre>"
+                                                 "<LanguageISO>en</LanguageISO>")
+    single_comic(library)
+    chaptered(library, "MyChapters", [2, 4])
+    settle(library)
+
+
+def test_a_folder_says_what_every_comic_in_it_says_or_that_they_differ(library, client):
+    a_mixed_folder(library)
+    api, _ = client()
+    ids = [comic["id"] for comic in api.get("/api/library").json()["comics"]]
+    said = api.post("/api/comicinfo", json={"ids": ids}).json()
+    #the two chapters of one comic are one comic to change
+    assert (said["comics"], said["scraped"], said["archives"]) == (4, 2, 5)
+    assert said["fields"]["writer"] == {"value": None, "mixed": True}
+    assert said["fields"]["LanguageISO"]["mixed"] and "title" not in said["fields"]
+    assert said["fields"]["Format"]["mixed"]
+
+
+def test_a_folder_changes_only_what_was_changed_in_every_archive(library, client):
+    a_mixed_folder(library)
+    api, _ = client()
+    ids = [comic["id"] for comic in api.get("/api/library").json()["comics"]]
+    said = api.post("/api/comicinfo", json={"ids": ids}).json()
+    saved = api.put("/api/comicinfo", json={"ids": ids, "stamps": said["stamps"],
+                                            "changes": {"Publisher": "SomePublisher", "genre": ""}})
+    assert saved.status_code == 200, saved.text
+    assert (saved.json()["comics"], saved.json()["told"]) == (4, 5)
+    assert saved.json()["fields"]["Publisher"] == {"value": "SomePublisher", "mixed": False}
+    archives = [library / "CBZs" / "Shelf" / "TheirOne.cbz", library / "CBZs" / "Shelf" / "TheirTwo.cbz",
+                library / "CBZs" / "MyComic.cbz"] + [
+        library / "CBZs" / "MyChapters" / "MyChapters - c{0:03d} - Part {0}.cbz".format(n) for n in (1, 2)]
+    for archive in archives:
+        _, root = comicinfo_of(archive)
+        assert root.findtext("Publisher") == "SomePublisher" and root.find("Genre") is None, archive
+    #what was not changed is each one's own still: the writers, and each chapter's title
+    assert comicinfo_of(archives[0])[1].findtext("Writer") == "Them"
+    assert comicinfo_of(archives[1])[1].findtext("Writer") == "Others"
+    assert comicinfo_of(archives[4])[1].findtext("Title") == "Part 2"
+    assert json.loads((library / "Uncompressed" / "MyChapters" / "mirror_metadata.json").read_text())["info"] == {
+        "Publisher": "SomePublisher"}
+
+
+def test_a_folder_is_changed_whole_or_not_at_all(library, client):
+    a_mixed_folder(library)
+    api, _ = client()
+    ids = [comic["id"] for comic in api.get("/api/library").json()["comics"]]
+    said = api.post("/api/comicinfo", json={"ids": ids}).json()
+    title = api.put("/api/comicinfo", json={"ids": ids, "changes": {"title": "All the same"}})
+    assert title.status_code == 400 and "Title cannot be said" in title.json()["detail"]
+    #one comic the scraper wrote moments ago refuses the lot, before any other is written
+    os.utime(str(library / "CBZs" / "MyComic.cbz"), None)
+    busy = api.put("/api/comicinfo", json={"ids": ids, "stamps": said["stamps"], "changes": {"Publisher": "P"}})
+    assert busy.status_code == 409, busy.text
+    for archive in (library / "CBZs" / "Shelf").iterdir():
+        assert comicinfo_of(archive)[1].find("Publisher") is None

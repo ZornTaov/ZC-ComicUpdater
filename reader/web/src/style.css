@@ -232,11 +232,18 @@ button {
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field span { color: var(--muted); font-size: 13px; }
 .field.long { grid-column: 1 / -1; }
-.field input, .field textarea {
+.field input, .field textarea, .field select {
   font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line);
   border-radius: 8px; padding: 7px 9px; width: 100%;
 }
 .field textarea { resize: vertical; }
+/* the boxes are drawn again as tags are added, inside the form's own grid */
+.edit-boxes { display: contents; }
+.field span { display: flex; align-items: center; gap: 6px; }
+.field-remove { margin-left: auto; padding: 0 7px; line-height: 1.4; border-radius: 6px; }
+.field.changed input, .field.changed textarea, .field.changed select { border-color: var(--accent); }
+.dialog.wide { width: min(760px, 100%); }
+.dialog .edit-form { margin: 12px 0 0; }
 .field ::placeholder { color: var(--muted); opacity: .7; }
 .form-actions { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .form-message { color: var(--muted); flex: 1 1 200px; }

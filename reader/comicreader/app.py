@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from comicreader import covers
 from comicreader.config import Config
-from comicreader.editing import Refused, edit
+from comicreader.editing import Refused, describe_many, edit, edit_many
 from comicreader.info import describe
 from comicreader.library import Library
 from comicreader.sources import VIDEO_MEDIA, Busy, original
@@ -129,6 +129,23 @@ def create_app(config=None, scan_in_background=True):
         except Refused as refused:
             raise HTTPException(refused.status, str(refused))
         return dict(describe(library, comic), told=told)
+
+    #a whole folder or series, named by its comics: asked with a body, since a folder can hold hundreds
+    @app.post("/api/comicinfo", summary="What a folder or series of comics says, field by field, or that they differ")
+    async def many_info(request: Request):
+        try:
+            return describe_many(library, (await request.json()).get("ids"))
+        except Refused as refused:
+            raise HTTPException(refused.status, str(refused))
+
+    @app.put("/api/comicinfo", summary="Write only the fields changed into every comic of a folder or series")
+    async def save_many_info(request: Request):
+        body = await request.json()
+        try:
+            told = edit_many(library, body)
+            return dict(describe_many(library, body.get("ids")), **told)
+        except Refused as refused:
+            raise HTTPException(refused.status, str(refused))
 
     def page_of(comic_id, n):
         comic = comic_or_404(comic_id)

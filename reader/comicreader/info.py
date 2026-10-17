@@ -3,8 +3,11 @@
 #the copy packed into its archive where it has only that - an archive the scraper made carries one
 import os
 
+from comiclib import comicinfo
 from comiclib.chapters.numbering import numbered, same
 from comiclib.metadata import migrate, read as read_metadata
+
+from comicreader.editing import comicinfo_in
 
 #what a ComicInfo can say that the page shows, in the order it shows it
 SHOWN = ("title", "series", "number", "count", "volume", "summary", "year", "writer", "penciller", "genre",
@@ -58,11 +61,22 @@ def last_run(metadata):
     return {key: run.get(key) for key in ("updated", "pages_saved", "completed", "stop_reason", "exit_code")}
 
 
+def worked_out(comic, metadata):
+    #what a comic the scraper keeps would say with nothing said by hand: what an empty box on its form means
+    bare = dict(metadata, info=None)
+    chapter = chapter_of(comic, metadata)
+    if chapter:
+        count = len((metadata.get("chapters") or {}).get("list") or [])
+        return comicinfo.said_by(comicinfo.about_chapter(comic["folder"], bare, chapter, count))
+    return comicinfo.said_by(comicinfo.about_comic(comic["folder"], bare))
+
+
 def describe(library, comic):
     stream = library.stream(comic, fresh=True)
     metadata = metadata_of(comic, stream)
     about = stream["about"]
     root = library.config.library
+    archive = comic["sources"][0] if comic["kind"] == "archive" and len(comic["sources"]) == 1 else None
 
     def shown(path):
         return os.path.relpath(path, root).replace(os.sep, "/") if path else None
@@ -76,6 +90,12 @@ def describe(library, comic):
         "about": {key: about[key] for key in SHOWN if about.get(key)},
         #what was said about it by hand, as its metadata keeps it: what an edit starts from
         "said": metadata.get("info") or {},
+        #everything its archive's ComicInfo says that could be said by hand, the rest of the schema too
+        "says": comicinfo.said_in(comicinfo_in(archive)) if archive else {},
+        #what it would say with nothing said by hand, for a comic the scraper keeps
+        "worked": worked_out(comic, metadata) if comic.get("folder") else {},
+        #what the form offers, the same lists the scraper's page has
+        "form": comicinfo.form(),
         #a comic the scraper keeps up to date, rather than an archive from somewhere else
         "scraped": bool(comic.get("folder")),
         "links": links(comic, metadata, about),

@@ -196,6 +196,10 @@ def chapters_label(name):
     return "Work out chapters for {0}".format(name)
 
 
+def comicinfo_label(name):
+    return "Write ComicInfo for {0}".format(name)
+
+
 def comic_detail(args, uc, runner, name):
     comic = find_comic(args, uc, name)
     if comic is None:

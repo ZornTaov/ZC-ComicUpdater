@@ -1,6 +1,7 @@
 // three screens, chosen by the address: #/browse/<how>/<where> is the library, #/read/<comic>[/<page>][/try] a
 // comic open for reading - /try one picked at random, whose place is kept only once it is really read - and
-// #/info/<comic> what a comic is and where it came from, so the back button and a bookmark all do what they should
+// #/info/<comic>[/edit] what a comic is and where it came from, /edit with its form open, so the back button and
+// a bookmark all do what they should
 import "./style.css";
 import { esc } from "./dom";
 import { openInfo } from "./info";
@@ -21,7 +22,7 @@ async function route() {
   close = () => undefined;
   const reading = location.hash.match(/^#\/read\/([0-9a-f]+)(?:\/(\d+))?(\/try)?/);
   const browsing = location.hash.match(/^#\/browse\/(folder|series|author|all)(?:\/(.*))?$/);
-  const about = location.hash.match(/^#\/info\/([0-9a-f]+)/);
+  const about = location.hash.match(/^#\/info\/([0-9a-f]+)(\/edit)?/);
   const cameFrom = shownBefore;
   shownBefore = true;
   try {
@@ -30,7 +31,9 @@ async function route() {
       close = await openInfo(root, about[1], () => {
         if (cameFrom) history.back();
         else location.hash = lastBrowse || browseHash(rememberedBrowse());
-      });
+      }, about[2] !== undefined);
+      // the form is opened once: coming back to the page, or reloading it, shows the comic as it is
+      if (about[2] !== undefined) history.replaceState(null, "", `#/info/${about[1]}`);
     } else if (reading) {
       document.body.classList.add("reading");
       close = await openReader(root, reading[1], reading[2] !== undefined ? Number(reading[2]) - 1 : null,

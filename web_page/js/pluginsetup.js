@@ -74,9 +74,20 @@ function drawPluginsDialog() {
   $("pl-folder").textContent = pluginSetup.folder || "";
   const problems = (pluginSetup.problems || []).map((problem) =>
     `<div class="plugin-row bad">Cannot be used: ${esc(problem)}</div>`).join("");
+  //an open settings form is carried over as it is, not drawn afresh: the list is read again as the dialog
+  //opens and whenever a job finishes, and either landing while one was open threw away what was typed in it.
+  //only while the plugin still asks for the same settings - one updated to ask for others is drawn anew
+  const kept = new Map([...$("pl-list").querySelectorAll("[data-setup-for]:not([hidden])")]
+    .map((form) => [form.dataset.setupFor, form]));
   $("pl-list").innerHTML = (pluginList.length || problems)
     ? pluginList.map(pluginRow).join("") + problems
     : `<div class="empty">No plugins yet.</div>`;
+  kept.forEach((form, name) => {
+    const fresh = $("pl-list").querySelector(`[data-setup-for="${CSS.escape(name)}"]`), plugin = pluginNamed(name);
+    const asked = plugin && (plugin.setup || []).map((field) => field.key).join("\n");
+    const has = [...form.querySelectorAll("[data-plugin-field]")].map((input) => input.dataset.pluginField).join("\n");
+    if (fresh && asked === has) fresh.replaceWith(form);
+  });
   //why not, said where the install would be: no password and no opt-in, or an image without git
   const whyNot = !pluginSetup.may_install ? pluginSetup.why_not
     : pluginSetup.git === false ? "This image has no git, so plugins cannot be installed or updated from here. Pull a newer image, or put a plugin's folder in by hand." : "";

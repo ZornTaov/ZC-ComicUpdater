@@ -165,6 +165,57 @@ def test_only_what_is_known_and_said_is_kept():
     assert comicinfo.clean_info({"year": " 2014"}) == {"year": 2014}
 
 
+def test_the_rest_of_the_schema_said_by_hand_beats_another_programs_and_goes_in_its_place(tmp_path):
+    metadata = {"settings": {"url": "https://example.com/comic/1"},
+                "comicinfo": {"Publisher": "TheirPublisher", "Manga": "No", "LanguageISO": "en"},
+                "info": {"writer": "SomeAuthor", "Publisher": "SomePublisher", "Format": "Webtoon", "Volume": "2"}}
+    root = parsed(comicinfo.build(comicinfo.about_comic(str(tmp_path / "MyComic"), metadata), []))
+    tags = [child.tag for child in root]
+    assert tags == sorted(tags, key=SCHEMA_ORDER.index), tags
+    assert {tag: root.findtext(tag) for tag in ("Volume", "Writer", "Publisher", "LanguageISO", "Format", "Manga")} \
+        == {"Volume": "2", "Writer": "SomeAuthor", "Publisher": "SomePublisher", "LanguageISO": "en",
+            "Format": "Webtoon", "Manga": "No"}
+    #and every chapter says it too, its own title and number still its own
+    chapter = {"number": 3, "label": "Three", "start_page": 20, "end_page": 29}
+    about = comicinfo.about_chapter(str(tmp_path / "MyComic"), metadata, chapter, 7)
+    assert (about["title"], about["kept"]["Publisher"]) == ("Three", "SomePublisher")
+
+
+def test_what_cannot_be_written_is_not_kept_and_is_said():
+    said = {"Volume": "two", "Manga": "yesandrighttoleft", "AgeRating": "Spicy", "CommunityRating": "4.5",
+            "Month": "3", "Count": "9", "Pages": "x", "Publisher": " SomePublisher "}
+    #a choice is spelled as the schema spells it; what is worked out is never taken from a form
+    assert comicinfo.clean_info(said) == {"Manga": "YesAndRightToLeft", "CommunityRating": "4.5", "Month": 3,
+                                          "Publisher": "SomePublisher"}
+    problems = comicinfo.unsayable(said)
+    assert len(problems) == 2 and "Volume has to be a whole number" in problems[0], problems
+    assert "Age rating has to be one of Unknown" in problems[1], problems
+
+
+def test_another_programs_comicinfo_changes_only_where_it_is_changed():
+    theirs = (b"<ComicInfo><Title>One</Title><Notes>Theirs.</Notes><LanguageISO>en</LanguageISO>"
+              b"<Manga>No</Manga><Mystery>kept</Mystery></ComicInfo>")
+    root = parsed(comicinfo.retold(theirs, {"writer": "SomeAuthor", "Manga": None, "Publisher": "SomePublisher"}))
+    assert [child.tag for child in root] == ["Title", "Notes", "Writer", "Publisher", "LanguageISO", "Mystery"]
+    assert comicinfo.retold(b"not xml", {"writer": "x"}) is None
+    #read back as the info block names it, which is what an editor starts from
+    assert comicinfo.said_in(theirs) == {"title": "One", "LanguageISO": "en", "Manga": "No"}
+
+
+def test_what_a_comic_says_with_nothing_said_is_what_its_archive_would(tmp_path):
+    said = comicinfo.said_by(comicinfo.about_comic(str(tmp_path / "MyComic"),
+                                                   {"settings": {"url": "https://example.com/comic/9"}}))
+    assert said == {"title": "MyComic", "series": "MyComic", "web": "https://example.com/", "Format": "Web Comic"}
+
+
+def test_the_form_offers_the_nine_then_the_rest_of_the_schema_never_what_is_worked_out():
+    form = comicinfo.form()
+    assert [key for key, _, _ in form["fields"]] == list(comicinfo.SHOWN)
+    extra = [key for key, _, _ in form["extra"]]
+    assert extra[0] == "Volume" and "Publisher" in extra and ["CoverArtist", "Cover artist", False] in form["extra"]
+    assert not {"Number", "Count", "Notes", "PageCount", "Pages", "Title"} & set(extra)
+
+
 def test_said_by_hand_is_written_into_the_archive_at_its_next_append(comic, tmp_path):
     archive = tmp_path / "MyComic.cbz"
     cbz.write(str(archive), str(comic), page_files(comic) + [METADATA_FILE])

@@ -14,7 +14,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from comicreader.app import create_app
 from comicreader.config import Config
 
-with tempfile.TemporaryDirectory() as tmp:
+# the app keeps its sqlite file open, which Windows will not let the cleanup delete
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
     config = Config(library=tmp, data=tmp, web=tmp)
     app = create_app(config, scan_in_background=False)
     spec = app.openapi()

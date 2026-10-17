@@ -117,6 +117,40 @@ def test_the_page_lists_them_and_saves_them(library, config, web):
 
 
 @pytest.mark.browser
+def test_an_open_settings_form_survives_the_list_being_read_again(library, config, web, browser):
+    #the dialog reads the list again as it opens, and again whenever a job finishes: landing after a plugin's
+    #settings were opened and typed in, it drew them afresh and threw the typing away. here the dialog's own
+    #read is held back until then, which the test of the dialog below raced against by chance
+    install(config, setup=SETUP)
+    pluginsetup.save(plugins.load("example"), {"token": "old"})
+    page = web()
+    open_page(browser, page.base + "/")
+    wait_until(lambda: browser.execute_script("return pluginList.length > 0"), why="the plugins were never listed")
+    browser.execute_script("""
+      const real = window.fetch;
+      window.release = null;
+      window.fetch = (url, init) => String(url).endsWith('/api/plugins') && !window.release
+        ? new Promise((resolve) => { window.release = () => real(url, init).then(resolve); })
+        : real(url, init);
+      document.getElementById('open-plugins').click();""")
+    wait_until(lambda: browser.execute_script("return !!window.release"), why="the dialog never read the list")
+    browser.execute_script("document.querySelector('[data-plugin-settings=\"example\"]').click()")
+    token = wait_until(lambda: browser.execute_script(
+        "return document.querySelector('[data-setup-for=\"example\"] [data-plugin-field=\"token\"]')"))
+    browser.execute_script("""
+      const form = document.querySelector('[data-setup-for="example"]');
+      form.querySelector('[data-plugin-field="account"]').value = 'half typed';
+      form.querySelector('[data-show-secret]').click();
+      //gone once the list is drawn again, which is how the test knows it has been
+      document.getElementById('pl-list').insertAdjacentHTML('beforeend', '<i id="not-yet-drawn"></i>');
+      window.release();""")
+    wait_until(lambda: browser.execute_script("return !document.getElementById('not-yet-drawn')"),
+               why="the list was never drawn again")
+    assert token.get_attribute("type") == "text", "the secret was hidden again"
+    assert browser.execute_script("return document.querySelector('[data-setup-for=\"example\"] "
+                                  "[data-plugin-field=\"account\"]').value") == "half typed"
+
+
 def test_the_plugins_dialog_edits_them_showing_a_secret_only_when_asked(library, config, web, browser):
     install(config, setup=SETUP)
     pluginsetup.save(plugins.load("example"), {"token": "old"})

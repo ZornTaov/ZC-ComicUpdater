@@ -171,15 +171,25 @@ def archives_of(library, comic, metadata):
     return []
 
 
+def read_kept(folder):
+    #a comic's metadata as the reader works with it, and the stamp it was written with. a file from before
+    #schema 2 is brought up to it every time it is read, and that stamps it with the moment it was read:
+    #checked against that, an edit of a comic adopted back then was always refused as changed since the page
+    #was opened, and with it every folder holding one. the stamp in the file is what says it was changed
+    found = read_metadata(folder)
+    if not found:
+        return found, None
+    return migrate(found) or found, found.get("updated")
+
+
 def scraped_plan(library, comic, updated):
     #what changing a comic the scraper keeps will write, read and checked before anything is
     folder = comic["folder"]
-    metadata = read_metadata(folder)
+    metadata, written = read_kept(folder)
     if not metadata:
         raise Refused(409, "{0}'s metadata could not be read, so nothing was changed.".format(
             os.path.basename(folder)))
-    metadata = migrate(metadata) or metadata
-    if updated is not None and metadata.get("updated") != updated:
+    if updated is not None and written != updated:
         raise Refused(409, "{0} was changed since the page was opened. Reload it and make the change again.".format(
             os.path.basename(folder)))
     runs = (metadata.get("history") or {}).get("runs") or []
@@ -354,10 +364,10 @@ def describe_many(library, ids):
     each = []
     for comic in gather(library, ids):
         if comic.get("folder"):
-            found = read_metadata(comic["folder"]) or {}
-            metadata = migrate(found) or found
+            metadata, written = read_kept(comic["folder"])
+            metadata = metadata or {}
             said = comicinfo.said_by(comicinfo.about_comic(comic["folder"], metadata))
-            each.append({"id": comic["id"], "said": said, "stamp": metadata.get("updated"), "scraped": True,
+            each.append({"id": comic["id"], "said": said, "stamp": written, "scraped": True,
                          "archives": len(archives_of(library, comic, metadata))})
         else:
             path = comic["sources"][0]

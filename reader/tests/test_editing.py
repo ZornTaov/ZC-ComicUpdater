@@ -252,6 +252,44 @@ def test_a_folder_is_changed_whole_or_not_at_all(library, client):
         assert comicinfo_of(archive)[1].find("Publisher") is None
 
 
+def test_a_comic_adopted_before_schema_2_can_be_changed_alone_and_in_its_folder(library, client, monkeypatch):
+    #its metadata is brought up to the current schema each time it is read, which stamped it with the time
+    #of reading: the stamp the page was given never matched the one the save read moments later, so the comic
+    #- and every folder holding it - was refused as changed since the page was opened
+    folder = comic_folder(library, "Shelf/Adopted", 3)
+    archive = library / "CBZs" / "Shelf" / "Adopted.cbz"
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    cbz.write(str(archive), str(folder), page_names(folder))
+    (folder / "mirror_metadata.json").write_text(json.dumps({
+        "generator": "adopt_comic.py", "created": "2026-09-08T13:10:34Z", "updated": "2026-09-08T13:10:34Z",
+        "adopted": True, "runs": [], "output_folder": "Uncompressed/Shelf/Adopted",
+        "archive_path": "CBZs/Shelf/Adopted.cbz", "page_count": 3, "completed": True, "ended": True}))
+    their_archive(library, "Shelf/TheirOne.cbz", "<Title>One</Title>")
+    settle(library)
+    #every read a second after the last, as reads moments apart on a real page are
+    ticks = iter(range(10 ** 6))
+    monkeypatch.setattr(editing, "now_stamp", lambda: "2026-10-17T04:00:{0:02d}Z".format(next(ticks) % 60))
+    monkeypatch.setattr("comiclib.metadata.now_stamp", lambda: "2026-10-17T04:00:{0:02d}Z".format(next(ticks) % 60))
+    api, _ = client()
+    comic = find(api, "Adopted")
+    info = api.get("/api/comics/{0}/info".format(comic["id"])).json()
+    assert info["updated"] == "2026-09-08T13:10:34Z", "the stamp the file was written with"
+    saved = api.put("/api/comics/{0}/info".format(comic["id"]),
+                    json={"info": {"writer": "SomeAuthor"}, "updated": info["updated"]})
+    assert saved.status_code == 200, saved.text
+    assert json.loads((folder / "mirror_metadata.json").read_text())["schema"] == 2
+    #and in a folder: a second schema 1 comic, so one is still old when the folder is read and saved
+    (folder / "mirror_metadata.json").write_text(json.dumps({
+        "generator": "adopt_comic.py", "updated": "2026-09-08T13:10:34Z", "runs": [],
+        "output_folder": "Uncompressed/Shelf/Adopted", "archive_path": "CBZs/Shelf/Adopted.cbz", "ended": True}))
+    settle(library)
+    ids = [each["id"] for each in api.get("/api/library").json()["comics"] if each["place"].startswith("CBZs/Shelf")
+           or each["name"] in ("Adopted", "TheirOne")]
+    said = api.post("/api/comicinfo", json={"ids": ids}).json()
+    many = api.put("/api/comicinfo", json={"ids": ids, "stamps": said["stamps"], "changes": {"genre": "Comedy"}})
+    assert many.status_code == 200 and many.json()["told"] == 2, many.text
+
+
 def test_a_long_edit_is_shown_going_while_the_reader_answers_everything_else(library, make_app, monkeypatch, capsys):
     #a comic of a hundred chapters takes minutes to write, and while it did the reader answered nothing - not
     #a page, not the library - and its log said nothing either. one request loop, as the server has

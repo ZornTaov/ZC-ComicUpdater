@@ -5,9 +5,8 @@ import os
 
 from comiclib import comicinfo
 from comiclib.chapters.numbering import numbered, same
-from comiclib.metadata import migrate, read as read_metadata
 
-from comicreader.editing import comicinfo_in
+from comicreader.editing import comicinfo_in, read_kept
 
 #what a ComicInfo can say that the page shows, in the order it shows it
 SHOWN = ("title", "series", "number", "count", "volume", "summary", "year", "writer", "penciller", "genre",
@@ -16,9 +15,9 @@ SHOWN = ("title", "series", "number", "count", "volume", "summary", "year", "wri
 
 def metadata_of(comic, stream):
     if comic.get("folder"):
-        found = read_metadata(comic["folder"])
+        found, _ = read_kept(comic["folder"])
         if found:
-            return migrate(found) or found
+            return found
     return stream.get("metadata") or {}
 
 
@@ -105,7 +104,7 @@ def describe(library, comic):
         "lastRun": last_run(metadata),
         #what an edit is checked against, so one made over a change it never saw is refused: the metadata's
         #stamp for a comic the scraper keeps, the archive's version for one from elsewhere
-        "updated": metadata.get("updated"),
+        "updated": read_kept(comic["folder"])[1] if comic.get("folder") else None,
         "version": stream["versions"][0] if stream["versions"] else None,
         #whether the page offers to change what it says
         "editable": bool(comic.get("folder")) or (comic["kind"] == "archive" and len(comic["sources"]) == 1),

@@ -8,7 +8,7 @@ import zipfile
 from comiclib import comicinfo
 from comiclib.metadata import METADATA_FILE
 from comiclib.pages import PAGE_TYPES, mac_leftover, reading_order
-from comiclib.standin import archive_entry, held_otherwise
+from comiclib.standin import archive_entry, entry_name, held_otherwise
 
 #the Compress-Archive name for the tree beside a library's loose pages
 PAGES_TREE = "uncompressed"
@@ -90,7 +90,7 @@ def page_order(entries, prefix):
 
 def standins(folder, names, prefix=''):
     #the entries that are a stand-in for a page no reader can show, so ComicInfo can say they are not story
-    return {prefix + archive_entry(folder, name)[0] for name in names if held_otherwise(folder, name)}
+    return {prefix + entry_name(folder, name) for name in names if held_otherwise(folder, name)}
 
 
 def head_of(zf, info):
@@ -220,7 +220,7 @@ def planned(cbz, folder, pages, superseded, about, adding=True):
         existing = set(zf.namelist())
         #a page held otherwise counts as present when its stand-in is there, not when the file is. not
         #adding, the archive is described as it is, whatever the folder holds that it does not
-        added = [name for name in pages if prefix + archive_entry(folder, name)[0] not in existing] if adding else []
+        added = [name for name in pages if prefix + entry_name(folder, name) not in existing] if adding else []
         #a page whose filename was replaced has to leave the archive under its old name too, or the comic
         #shows that page twice for good
         stale = [prefix + name for name in superseded if prefix + name in existing]

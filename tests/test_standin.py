@@ -67,3 +67,30 @@ def test_the_stand_in_is_a_png_named_for_its_page_and_packs_into_a_cbz(chapters,
         zf.writestr(entry2, made2)
     with zipfile.ZipFile(str(cbz)) as zf:
         assert zf.testzip() is None
+
+
+def test_a_stand_in_is_drawn_once_and_never_just_to_be_named(folder, tmp_path, monkeypatch):
+    #a third of a second a drawing: writing a comic's ComicInfo into each of its 94 chapter archives drew
+    #every stand-in in the comic once per chapter, only to know what they are called in an archive
+    from comiclib import cbz, standin
+    standin.drawn.cache_clear()
+    drawings = []
+    draw = standin.grey_png
+    monkeypatch.setattr(standin, "grey_png", lambda *args: drawings.append(1) or draw(*args))
+    names = sorted(os.listdir(folder))
+    assert standin.entry_name(folder, '0015.mp4') == '0015.png' and standin.entry_name(folder, '0003.png') == '0003.png'
+    assert cbz.standins(folder, names) == {'0007.png', '0009.png', '0012.png', '0015.png', '0021.png'}
+    assert drawings == [], "naming them draws nothing"
+    archive = str(tmp_path / "standins.cbz")
+    with zipfile.ZipFile(archive, 'w') as zf:
+        zf.writestr('0003.png', b"not really a png")
+        zf.writestr('0015.png', standin.archive_entry(folder, '0015.mp4')[1])
+    assert len(drawings) == 1
+    #one already in the archive is not drawn again to find it is there, and one being added is drawn once,
+    #though it is measured before it is written
+    change = cbz.planned(archive, folder, ['0003.png', '0012.swf', '0015.mp4'], (), {"title": "MyComic"})
+    assert change["added"] == ['0012.swf'] and len(drawings) == 2
+    cbz.apply(archive, folder, change, metadata=False)
+    assert len(drawings) == 2, "the drawing it was measured from is the one written"
+    with zipfile.ZipFile(archive) as zf:
+        assert zf.read('0012.png') == standin.archive_entry(folder, '0012.swf')[1]

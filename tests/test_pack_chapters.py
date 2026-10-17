@@ -117,6 +117,60 @@ def test_pages_scraped_since_join_the_last_chapter(tiny):
     assert "join chapter 3" in done.stdout, done.stdout[:300]
 
 
+def test_a_page_scraped_since_goes_on_the_end_of_its_chapter_rather_than_writing_it_again(tiny):
+    old = (tiny.out / THIRD).read_bytes()
+    with zipfile.ZipFile(str(tiny.out / THIRD)) as zf:
+        pages_end = zf.getinfo("ComicInfo.xml").header_offset
+    before = tiny.stamps()
+    done = add_a_new_page(tiny)
+    assert "0 to write, 1 to add pages to, 2 already" in done.stdout, done.stdout[:300]
+    assert "added 1 page(s) to " + THIRD in done.stdout, done.stdout[-500:]
+    #the pages it held stay where they were, so a sync carries the new page and not the chapter again
+    assert (tiny.out / THIRD).read_bytes()[:pages_end] == old[:pages_end]
+    with zipfile.ZipFile(str(tiny.out / THIRD)) as zf:
+        assert zf.namelist().count("ComicInfo.xml") == 1, zf.namelist()
+        assert ET.fromstring(zf.read("ComicInfo.xml")).findtext("PageCount") == "4"
+    assert {name: at for name, at in tiny.stamps().items() if name != THIRD} == \
+        {name: at for name, at in before.items() if name != THIRD}, "another chapter was touched"
+    assert "0 to write, 3 already" in tiny.pack().stdout
+
+
+def test_a_stand_ins_size_is_remembered_so_packing_need_not_draw_it(tiny, chapters):
+    from comiclib import cbz, standin
+    from comiclib.chapters.chapterlist import chapters_block
+    (tiny.comic / "0005.swf").write_bytes(b"FWS flash page")
+    alignment = chapters.index_path(str(tiny.comic)).replace(".jsonl", ".align.json")
+    with open(alignment) as f:
+        lined = json.load(f)
+    lined["pages"][4]["file"] = "0005.swf"
+    with open(alignment, "w") as f:
+        json.dump(lined, f)
+    done = tiny.pack()
+    assert done.returncode == 0, done.stdout[-400:]
+    lines = standin.held_otherwise(str(tiny.comic), "0005.swf")
+    with zipfile.ZipFile(str(tiny.out / SECOND)) as zf:
+        size = zf.getinfo("0005.png").file_size
+    remembered = read_meta(tiny.comic)["chapters"]["standins"]
+    assert remembered == {standin.fingerprint(lines): size}
+    #working the chapters out again keeps them, as a scrape keeps the whole block
+    meta = read_meta(tiny.comic)
+    assert chapters_block(meta["chapters"], CHAPTERS, "archive")["standins"] == remembered
+    #and told them, nothing is drawn to know what an archive should hold
+    standin.drawn.cache_clear()
+    drawings = []
+    real = standin.grey_png
+    standin.grey_png = lambda *args: drawings.append(1) or real(*args)
+    try:
+        wanted = cbz.expected(str(tiny.comic), ["0005.swf", "0006.png"], drawn=standin.Sizes(remembered))
+        assert wanted == {"0005.png": size, "0006.png": 600} and drawings == []
+        #nor is a size from another drawing believed
+        fresh = standin.Sizes({"0123456789abcdef": 1})
+        assert cbz.expected(str(tiny.comic), ["0005.swf"], drawn=fresh) == {"0005.png": size} and len(drawings) == 1
+    finally:
+        standin.grey_png = real
+    assert "0 to write, 3 already" in tiny.pack().stdout
+
+
 def test_a_comic_marked_ended_retells_each_chapters_comicinfo_without_writing_its_pages_again(tiny):
     meta = read_meta(tiny.comic)
     meta["settings"]["ended"] = True
@@ -134,6 +188,28 @@ def test_a_comic_marked_ended_retells_each_chapters_comicinfo_without_writing_it
         assert info.findtext("Count") == "3", ET.tostring(info)[:300]
     #and once said, it is not said again
     assert "with a ComicInfo" not in tiny.pack().stdout
+
+
+def test_the_comicinfo_command_only_retells_a_chaptered_comic_and_packs_nothing(tiny):
+    #what the web page's ComicInfo dialog queues. it packed the comic, which wrote again any chapter whose
+    #pages had moved on since
+    meta = read_meta(tiny.comic)
+    meta["settings"]["ended"] = True
+    meta["info"] = {"writer": "SomeAuthor"}
+    write_meta(tiny.comic, meta)
+    (tiny.comic / "0013.png").write_bytes(b"n" * 1300)
+    before = {name: (tiny.out / name).read_bytes() for name in tiny.made()}
+    done = run("chapters.py", "comicinfo", tiny.comic, "--root", tiny.library)
+    assert done.returncode == 0 and "ComicInfo written in 3 of 3 chapter archive(s)" in done.stdout, done.stdout[-400:]
+    assert "writing" not in done.stdout and "to write" not in done.stdout, done.stdout[-400:]
+    for name, old in before.items():
+        with zipfile.ZipFile(str(tiny.out / name)) as zf:
+            assert "0013.png" not in zf.namelist(), "a page was packed"
+            info = ET.fromstring(zf.read("ComicInfo.xml"))
+            pages_end = zf.getinfo("ComicInfo.xml").header_offset
+        assert (tiny.out / name).read_bytes()[:pages_end] == old[:pages_end], name
+        assert (info.findtext("Writer"), info.findtext("Count")) == ("SomeAuthor", "3")
+    assert "ComicInfo written in 0 of 3" in run("chapters.py", "comicinfo", tiny.comic, "--root", tiny.library).stdout
 
 
 def test_a_damaged_chapter_archive_is_written_again(tiny):

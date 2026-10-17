@@ -13,6 +13,8 @@ Every archive is written through comiclib.cbz, which asks here about each file, 
 in a comic's single archive, in its chapter archives, and in one written afresh by repack or adopt.
 """
 import functools
+import hashlib
+import json
 import os
 import re
 import struct
@@ -211,6 +213,37 @@ def archive_entry(folder, name):
     if not lines:
         return name, None
     return os.path.splitext(name)[0] + ".png", stand_in(lines)
+
+
+#how stand-ins are drawn. a change to the drawing - the letters, the page's size, its shades - changes the
+#bytes of every stand-in, so this goes up with it, and no size remembered from the old drawing is believed
+DRAWING = 1
+
+
+def fingerprint(lines):
+    #what a stand-in is drawn from, and with which drawing, short enough to keep beside its size
+    return hashlib.sha1(json.dumps([DRAWING, list(lines)]).encode("utf-8")).hexdigest()[:16]
+
+
+class Sizes:
+    #how big each stand-in of a comic comes to, remembered in its metadata. packing checks every chapter
+    #archive holds its stand-ins at the size they draw to, which drew every one in the comic on every pack -
+    #a third of a second each - to learn a size that only changes when what the stand-in says does
+    def __init__(self, remembered=None):
+        self.remembered = dict(remembered) if isinstance(remembered, dict) else {}
+        #only those asked about this time, so a stand-in the comic no longer has is not kept for ever
+        self.used = {}
+
+    def of(self, lines):
+        key = fingerprint(lines)
+        size = self.remembered.get(key)
+        if not isinstance(size, int):
+            size = len(stand_in(lines))
+        self.used[key] = size
+        return size
+
+    def changed(self):
+        return self.used != self.remembered
 
 
 def entry_name(folder, name):

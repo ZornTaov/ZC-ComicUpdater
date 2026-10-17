@@ -8,7 +8,7 @@ import zipfile
 from comiclib import comicinfo
 from comiclib.metadata import METADATA_FILE
 from comiclib.pages import PAGE_TYPES, mac_leftover, reading_order
-from comiclib.standin import archive_entry, entry_name, held_otherwise
+from comiclib.standin import archive_entry, entry_name, held_otherwise, stand_in
 
 #the Compress-Archive name for the tree beside a library's loose pages
 PAGES_TREE = "uncompressed"
@@ -57,17 +57,18 @@ def default_path(folder):
     return beside
 
 
-def expected(folder, names, sizes=None):
+def expected(folder, names, sizes=None, drawn=None):
     #what an archive of these files should hold, as entry name to size: the file itself, or its stand-in,
     #which is drawn the same way every time, so its size is what says it is already there. sizes, when given,
-    #is every file's size from one listing of the folder, so a comic of thousands is not asked file by file
+    #is every file's size from one listing of the folder, so a comic of thousands is not asked file by file.
+    #drawn, a standin.Sizes, knows the stand-ins' sizes without drawing them
     wanted = {}
     for name in names:
-        entry, made = archive_entry(folder, name)
-        if made is not None:
-            wanted[entry] = len(made)
+        lines = held_otherwise(folder, name)
+        if lines:
+            wanted[entry_name(folder, name)] = drawn.of(lines) if drawn is not None else len(stand_in(lines))
         else:
-            wanted[entry] = sizes[name] if sizes and name in sizes else os.path.getsize(os.path.join(folder, name))
+            wanted[name] = sizes[name] if sizes and name in sizes else os.path.getsize(os.path.join(folder, name))
     return wanted
 
 

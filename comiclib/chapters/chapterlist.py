@@ -147,8 +147,9 @@ def chapters_block(was, chapters, source, source_url=None, every=None, outer=Fal
         #and so is cutting a nested archive by its books rather than by every chapter inside them
         block["outer"] = True
     #a correction is about this comic, not about one run of one rule, and where the archives are and when
-    #they were written describes what is on disk, not this reading. neither is the reading's to throw away
-    for kept in ("fixes", "packed", "folder"):
+    #they were written describes what is on disk, not this reading. neither is the reading's to throw away,
+    #nor how big each stand-in in those archives comes to, which packing would otherwise draw them all to learn
+    for kept in ("fixes", "packed", "folder", "standins"):
         if was.get(kept):
             block[kept] = was[kept]
     return block

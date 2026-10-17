@@ -583,7 +583,7 @@ class Runner:
                 if line.strip():
                     job.doing = line.strip()
                 #what the single archive and the chapter archives each say once written
-                found = re.search(r"ComicInfo written\.$|ComicInfo of (\d+) chapter archive", line)
+                found = re.search(r"ComicInfo written\.$|ComicInfo written in (\d+) of", line)
                 if found:
                     told += int(found.group(1) or 1)
             code = job.process.wait()

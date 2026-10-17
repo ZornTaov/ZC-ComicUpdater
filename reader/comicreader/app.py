@@ -13,10 +13,11 @@ import time
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from comicreader import covers
 from comicreader.config import Config
-from comicreader.editing import Refused, describe_many, edit, edit_many
+from comicreader.editing import Refused, Underway, describe_many, edit, edit_many
 from comicreader.info import describe
 from comicreader.library import Library
 from comicreader.sources import VIDEO_MEDIA, Busy, original
@@ -121,31 +122,46 @@ def create_app(config=None, scan_in_background=True):
     def comic_info(comic_id: str):
         return describe(library, comic_or_404(comic_id))
 
+    #an edit is written in a thread of its own: a comic in a hundred chapter archives takes minutes, and
+    #written where the requests are answered, it stopped the reader answering anything else until it was done
+    underway = Underway()
+
     @app.put("/api/comics/{comic_id}/info")
     async def save_comic_info(comic_id: str, request: Request):
         comic = comic_or_404(comic_id)
+        body = await request.json()
         try:
-            told = edit(library, comic, await request.json())
+            told = await run_in_threadpool(edit, library, comic, body, underway)
         except Refused as refused:
             raise HTTPException(refused.status, str(refused))
-        return dict(describe(library, comic), told=told)
+        return dict(await run_in_threadpool(describe, library, comic), told=told)
 
     #a whole folder or series, named by its comics: asked with a body, since a folder can hold hundreds
     @app.post("/api/comicinfo", summary="What a folder or series of comics says, field by field, or that they differ")
     async def many_info(request: Request):
+        ids = (await request.json()).get("ids")
         try:
-            return describe_many(library, (await request.json()).get("ids"))
+            return await run_in_threadpool(describe_many, library, ids)
         except Refused as refused:
             raise HTTPException(refused.status, str(refused))
 
     @app.put("/api/comicinfo", summary="Write only the fields changed into every comic of a folder or series")
     async def save_many_info(request: Request):
         body = await request.json()
-        try:
-            told = edit_many(library, body)
+
+        def save():
+            told = edit_many(library, body, underway)
             return dict(describe_many(library, body.get("ids")), **told)
+        try:
+            return await run_in_threadpool(save)
         except Refused as refused:
             raise HTTPException(refused.status, str(refused))
+
+    @app.get("/api/comicinfo/underway", summary="The ComicInfo edit being written now, and how far it has got",
+             description="null when nothing is being written. total is 0 while the edit is still being checked; "
+                         "done counts the archives finished, and at names the one being written.")
+    def comicinfo_underway():
+        return {"underway": underway.state()}
 
     def page_of(comic_id, n):
         comic = comic_or_404(comic_id)

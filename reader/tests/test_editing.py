@@ -3,13 +3,16 @@
 #with everything the page does not change left as it was. and nothing written while the scraper may be at work.
 import json
 import os
+import threading
 import time
 import xml.etree.ElementTree as ET
 import zipfile
 
 from conftest import comic_folder, page_names, png
+from fastapi.testclient import TestClient
 
 from comiclib import cbz
+from comicreader import editing
 from test_library import chaptered
 
 HOUR_AGO = time.time() - 3600
@@ -247,3 +250,43 @@ def test_a_folder_is_changed_whole_or_not_at_all(library, client):
     assert busy.status_code == 409, busy.text
     for archive in (library / "CBZs" / "Shelf").iterdir():
         assert comicinfo_of(archive)[1].find("Publisher") is None
+
+
+def test_a_long_edit_is_shown_going_while_the_reader_answers_everything_else(library, make_app, monkeypatch, capsys):
+    #a comic of a hundred chapters takes minutes to write, and while it did the reader answered nothing - not
+    #a page, not the library - and its log said nothing either. one request loop, as the server has
+    chaptered(library, "MyChapters", [2, 4])
+    settle(library)
+    held, release = threading.Event(), threading.Event()
+    retell = editing.retell
+
+    def slow_retell(*args, **kwargs):
+        held.set()
+        release.wait(10)
+        return retell(*args, **kwargs)
+    monkeypatch.setattr(editing, "retell", slow_retell)
+    with TestClient(make_app()) as api:
+        ids = [comic["id"] for comic in api.get("/api/library").json()["comics"]]
+        assert api.get("/api/comicinfo/underway").json() == {"underway": None}
+        answer = {}
+        saving = threading.Thread(target=lambda: answer.update(saved=api.put(
+            "/api/comicinfo", json={"ids": ids, "changes": {"writer": "SomeAuthor"}})))
+        saving.start()
+        try:
+            assert held.wait(10)
+            #the library is still answered, and what is being written is said, archive by archive
+            assert api.get("/api/library").status_code == 200
+            now = api.get("/api/comicinfo/underway").json()["underway"]
+            assert (now["what"], now["done"], now["total"]) == ("MyChapters", 0, 2)
+            assert now["at"] == "MyChapters - c001 - Part 1.cbz"
+            #a second edit waits its turn rather than writing the same archives beside the first
+            second = api.put("/api/comicinfo", json={"ids": ids, "changes": {"genre": "Comedy"}})
+            assert second.status_code == 409 and "still being written (0 of 2" in second.json()["detail"]
+        finally:
+            release.set()
+            saving.join(10)
+        assert answer["saved"].status_code == 200 and answer["saved"].json()["told"] == 2
+        assert api.get("/api/comicinfo/underway").json() == {"underway": None}
+    log = capsys.readouterr().out
+    assert "ComicInfo of MyChapters: writing writer into 2 archives" in log
+    assert "ComicInfo of MyChapters written (writer): 2 of 2 archives in" in log

@@ -4,6 +4,7 @@
 import { api, type ManyInfo } from "./api";
 import { adderHtml, boxHtml, fieldOf, type Said } from "./comicinfoform";
 import { el, esc, refusal } from "./dom";
+import { watchUnderway } from "./underway";
 
 export interface ManyTarget {
   label: string;
@@ -144,7 +145,9 @@ export function openComicInfoDialog(target: ManyTarget, changed: () => void): vo
     dialog.classList.add("busy");
     message.textContent = "Writing…";
     try {
-      const saved = await api.saveManyInfo(target.ids, many.stamps, dirty);
+      const saving = api.saveManyInfo(target.ids, many.stamps, dirty);
+      watchUnderway(saving);
+      const saved = await saving;
       touched = true;
       show(saved);
       message.textContent = `Written into ${saved.told} archive${saved.told === 1 ? "" : "s"}${

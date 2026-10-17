@@ -240,15 +240,15 @@ describe("which tiles offer the ComicInfo of everything in them", () => {
   const tile = (browse: "folder" | "series" | "author", path: string, key: string) =>
     shelf(library, browse, path).groups.find((group) => group.key === key)!;
 
-  it("not the library's own two trees, which hold every comic in it", () => {
+  it("not a folder at the top of the library, which is a whole tree of it", () => {
     expect(editableTogether("folder", tile("folder", "", "CBZs"))).toBe(false);
     expect(editableTogether("folder", tile("folder", "", "Uncompressed"))).toBe(false);
+    expect(editableTogether("folder", tile("folder", "", "Manga"))).toBe(false);
   });
 
-  it("but any folder inside them, and any other folder", () => {
+  it("but any folder inside one", () => {
     expect(editableTogether("folder", tile("folder", "CBZs", "CBZs/SomeAuthor"))).toBe(true);
     expect(editableTogether("folder", tile("folder", "Uncompressed", "Uncompressed/SomeAuthor"))).toBe(true);
-    expect(editableTogether("folder", tile("folder", "", "Manga"))).toBe(true);
   });
 
   it("a series, never an author's comics", () => {

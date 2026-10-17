@@ -147,15 +147,13 @@ export function shelf(comics: ComicSummary[], browse: Browse, path: string): She
   return { within: comics, groups: byName(groups), comics: loose.sort(compareComics) };
 }
 
-// the library's own two trees, as the scraper names them: every comic it keeps, loose or packed. saying one
-// thing of either says it of the whole library, which no one means to do from a tile's menu. a cover is fine
-const TREES = new Set(["uncompressed", "cbzs"]);
-
 // whether a folder or series tile offers to change the ComicInfo of every comic in it. an author's comics are
-// any number of unrelated ones, and the two trees at the top of the library are all of them
+// any number of unrelated ones. a folder at the top of the library is one of its trees - the scraper's
+// Uncompressed and CBZs, or any other kept beside them - and saying one thing of it says it of a whole tree,
+// which no one means to do from a tile's menu. its cover is another matter, and stays on offer
 export function editableTogether(browse: Browse, group: Group): boolean {
   if (browse === "series") return true;
-  return browse === "folder" && !TREES.has(group.key.toLowerCase());
+  return browse === "folder" && group.key.includes("/");
 }
 
 // how far through a folder, series or author the reader is, as a percentage of its pages rather than an

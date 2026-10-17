@@ -27,6 +27,7 @@ from comiclib.web.views import library_view, walked_pages
 #the page, read afresh on every request so editing it needs no restart. it stays beside the scripts, where
 #it is edited, rather than in here
 page_folder = os.path.join(PROJECT, "web_page")
+spec_file = os.path.join(PROJECT, "docs", "updater-openapi.yaml")
 
 #named here rather than asked of mimetypes, which on windows reads the registry, where .js can be text/plain:
 #a browser will not run a script served as that. anything else in the folder is not served at all
@@ -193,6 +194,16 @@ def make_handler(runner, args, uc, tee):
                 name = (parse_qs(where.query).get("name") or [""])[0]
                 status, result = comicinfo_view(args, uc, runner, name)
                 self.reply(result, status)
+            elif where.path == "/api/openapi.yaml":
+                if not os.path.isfile(spec_file):
+                    self.reply({"error": "the spec file is missing"}, 404)
+                else:
+                    try:
+                        with open(spec_file, "rb") as f:
+                            self.reply(f.read(), kind="text/yaml; charset=utf-8")
+                    except OSError as error:
+                        self.reply("could not read {0}: {1}".format(spec_file, error).encode(),
+                                   500, "text/plain")
             else:
                 self.reply({"error": "not found"}, 404)
 

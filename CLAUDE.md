@@ -107,6 +107,22 @@ makes it its own root) and `npm test` in `reader/web`. `tests/test_contract.py` 
 relies on comiclib for, so **run it after any comiclib change**. Build with
 `docker build -f reader/Dockerfile -t zcm-reader:local .` from the repo root.
 
+### API specifications
+
+Both servers publish an OpenAPI specification, served live and committed in `docs/`:
+
+- **Updater** (`docs/updater-openapi.yaml`): hand-written. Served at `GET /api/openapi.yaml` by
+  `comiclib/web/server.py`. When an endpoint is added, removed or changed — its path, method, parameters
+  or response shape — update the spec in the same commit. The spec is the documentation a reader of the
+  API trusts, so it must match what the server does.
+
+- **Reader** (`docs/reader-openapi.json`): generated from the FastAPI app. Served at
+  `GET /api/openapi.json`. After changing routes in `reader/comicreader/app.py`, regenerate it with
+  `python docs/generate_reader_spec.py` and commit the result. Adding `summary`, `tags` and
+  `description` to a route decorator improves the generated spec.
+
+A change to either spec should note it in its commit message, so the history is searchable.
+
 ### Scraper plugins
 
 A comic another program scrapes has `settings.scraper` (the plugin's folder name in `config/plugins/`) and

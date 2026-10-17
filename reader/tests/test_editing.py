@@ -3,13 +3,16 @@
 #with everything the page does not change left as it was. and nothing written while the scraper may be at work.
 import json
 import os
+import threading
 import time
 import xml.etree.ElementTree as ET
 import zipfile
 
 from conftest import comic_folder, page_names, png
+from fastapi.testclient import TestClient
 
 from comiclib import cbz
+from comicreader import editing
 from test_library import chaptered
 
 HOUR_AGO = time.time() - 3600
@@ -247,3 +250,81 @@ def test_a_folder_is_changed_whole_or_not_at_all(library, client):
     assert busy.status_code == 409, busy.text
     for archive in (library / "CBZs" / "Shelf").iterdir():
         assert comicinfo_of(archive)[1].find("Publisher") is None
+
+
+def test_a_comic_adopted_before_schema_2_can_be_changed_alone_and_in_its_folder(library, client, monkeypatch):
+    #its metadata is brought up to the current schema each time it is read, which stamped it with the time
+    #of reading: the stamp the page was given never matched the one the save read moments later, so the comic
+    #- and every folder holding it - was refused as changed since the page was opened
+    folder = comic_folder(library, "Shelf/Adopted", 3)
+    archive = library / "CBZs" / "Shelf" / "Adopted.cbz"
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    cbz.write(str(archive), str(folder), page_names(folder))
+    (folder / "mirror_metadata.json").write_text(json.dumps({
+        "generator": "adopt_comic.py", "created": "2026-09-08T13:10:34Z", "updated": "2026-09-08T13:10:34Z",
+        "adopted": True, "runs": [], "output_folder": "Uncompressed/Shelf/Adopted",
+        "archive_path": "CBZs/Shelf/Adopted.cbz", "page_count": 3, "completed": True, "ended": True}))
+    their_archive(library, "Shelf/TheirOne.cbz", "<Title>One</Title>")
+    settle(library)
+    #every read a second after the last, as reads moments apart on a real page are
+    ticks = iter(range(10 ** 6))
+    monkeypatch.setattr(editing, "now_stamp", lambda: "2026-10-17T04:00:{0:02d}Z".format(next(ticks) % 60))
+    monkeypatch.setattr("comiclib.metadata.now_stamp", lambda: "2026-10-17T04:00:{0:02d}Z".format(next(ticks) % 60))
+    api, _ = client()
+    comic = find(api, "Adopted")
+    info = api.get("/api/comics/{0}/info".format(comic["id"])).json()
+    assert info["updated"] == "2026-09-08T13:10:34Z", "the stamp the file was written with"
+    saved = api.put("/api/comics/{0}/info".format(comic["id"]),
+                    json={"info": {"writer": "SomeAuthor"}, "updated": info["updated"]})
+    assert saved.status_code == 200, saved.text
+    assert json.loads((folder / "mirror_metadata.json").read_text())["schema"] == 2
+    #and in a folder: a second schema 1 comic, so one is still old when the folder is read and saved
+    (folder / "mirror_metadata.json").write_text(json.dumps({
+        "generator": "adopt_comic.py", "updated": "2026-09-08T13:10:34Z", "runs": [],
+        "output_folder": "Uncompressed/Shelf/Adopted", "archive_path": "CBZs/Shelf/Adopted.cbz", "ended": True}))
+    settle(library)
+    ids = [each["id"] for each in api.get("/api/library").json()["comics"] if each["place"].startswith("CBZs/Shelf")
+           or each["name"] in ("Adopted", "TheirOne")]
+    said = api.post("/api/comicinfo", json={"ids": ids}).json()
+    many = api.put("/api/comicinfo", json={"ids": ids, "stamps": said["stamps"], "changes": {"genre": "Comedy"}})
+    assert many.status_code == 200 and many.json()["told"] == 2, many.text
+
+
+def test_a_long_edit_is_shown_going_while_the_reader_answers_everything_else(library, make_app, monkeypatch, capsys):
+    #a comic of a hundred chapters takes minutes to write, and while it did the reader answered nothing - not
+    #a page, not the library - and its log said nothing either. one request loop, as the server has
+    chaptered(library, "MyChapters", [2, 4])
+    settle(library)
+    held, release = threading.Event(), threading.Event()
+    retell = editing.retell
+
+    def slow_retell(*args, **kwargs):
+        held.set()
+        release.wait(10)
+        return retell(*args, **kwargs)
+    monkeypatch.setattr(editing, "retell", slow_retell)
+    with TestClient(make_app()) as api:
+        ids = [comic["id"] for comic in api.get("/api/library").json()["comics"]]
+        assert api.get("/api/comicinfo/underway").json() == {"underway": None}
+        answer = {}
+        saving = threading.Thread(target=lambda: answer.update(saved=api.put(
+            "/api/comicinfo", json={"ids": ids, "changes": {"writer": "SomeAuthor"}})))
+        saving.start()
+        try:
+            assert held.wait(10)
+            #the library is still answered, and what is being written is said, archive by archive
+            assert api.get("/api/library").status_code == 200
+            now = api.get("/api/comicinfo/underway").json()["underway"]
+            assert (now["what"], now["done"], now["total"]) == ("MyChapters", 0, 2)
+            assert now["at"] == "MyChapters - c001 - Part 1.cbz"
+            #a second edit waits its turn rather than writing the same archives beside the first
+            second = api.put("/api/comicinfo", json={"ids": ids, "changes": {"genre": "Comedy"}})
+            assert second.status_code == 409 and "still being written (0 of 2" in second.json()["detail"]
+        finally:
+            release.set()
+            saving.join(10)
+        assert answer["saved"].status_code == 200 and answer["saved"].json()["told"] == 2
+        assert api.get("/api/comicinfo/underway").json() == {"underway": None}
+    log = capsys.readouterr().out
+    assert "ComicInfo of MyChapters: writing writer into 2 archives" in log
+    assert "ComicInfo of MyChapters written (writer): 2 of 2 archives in" in log

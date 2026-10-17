@@ -147,6 +147,15 @@ export function shelf(comics: ComicSummary[], browse: Browse, path: string): She
   return { within: comics, groups: byName(groups), comics: loose.sort(compareComics) };
 }
 
+// whether a folder or series tile offers to change the ComicInfo of every comic in it. an author's comics are
+// any number of unrelated ones. a folder at the top of the library is one of its trees - the scraper's
+// Uncompressed and CBZs, or any other kept beside them - and saying one thing of it says it of a whole tree,
+// which no one means to do from a tile's menu. its cover is another matter, and stays on offer
+export function editableTogether(browse: Browse, group: Group): boolean {
+  if (browse === "series") return true;
+  return browse === "folder" && group.key.includes("/");
+}
+
 // how far through a folder, series or author the reader is, as a percentage of its pages rather than an
 // average of its comics, so a one-page extra read through does not count for as much as a long comic
 // barely started. a comic never opened counts all its pages unread

@@ -166,6 +166,23 @@ def test_a_dry_run_renames_nothing_and_says_what_it_would(library, config):
     assert "moves" not in (read_meta(folder).get("history") or {})
 
 
+def test_the_comicinfo_command_renames_by_number_too_and_packs_nothing(library, config):
+    #it no longer packs a comic in chapters, but a rename writes nothing, and a library is looked over with
+    #comicinfo --dry-run to see what it would rename
+    folder = comic(library)
+    pack(library, folder)
+    before = by_place(library, folder)
+    looked = run("chapters.py", "comicinfo", library, "--dry-run")
+    assert "would rename 3 chapter archive(s)" in looked.stdout, looked.stdout[-500:]
+    assert sorted(before) == shelf(library)
+    done = run("chapters.py", "comicinfo", library)
+    assert done.returncode == 0, done.stdout[-500:]
+    assert "renamed MyComic - c002 - Intermission Catty Remarks.cbz to MyComic - c012.5" in done.stdout
+    assert "MyComic - c012.5 - Intermission Catty Remarks.cbz" in shelf(library)
+    assert "to write" not in done.stdout, done.stdout[-500:]
+    assert "chapter(s) have no archive yet" not in done.stdout, done.stdout[-500:]
+
+
 def test_a_new_name_already_taken_leaves_both_alone(library, config):
     folder = comic(library)
     pack(library, folder)

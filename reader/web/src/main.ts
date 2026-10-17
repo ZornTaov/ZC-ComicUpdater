@@ -8,6 +8,7 @@ import { openInfo } from "./info";
 import { browseHash, openLibrary, rememberedBrowse } from "./library";
 import { openReader } from "./reader";
 import type { Browse } from "./shelves";
+import { watchUnderway } from "./underway";
 
 const root = document.getElementById("app")!;
 let close: () => void = () => undefined;
@@ -59,3 +60,5 @@ async function route() {
 
 window.addEventListener("hashchange", route);
 route();
+// an edit begun before this page was opened, or before it was reloaded, is still shown going
+watchUnderway();

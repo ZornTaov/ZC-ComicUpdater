@@ -176,6 +176,23 @@
         }
       }
     },
+    "/api/comicinfo/underway": {
+      "get": {
+        "summary": "The ComicInfo edit being written now, and how far it has got",
+        "description": "null when nothing is being written. total is 0 while the edit is still being checked; done counts the archives finished, and at names the one being written.",
+        "operationId": "comicinfo_underway_api_comicinfo_underway_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/comics/{comic_id}/pages/{n}": {
       "get": {
         "summary": "Page",

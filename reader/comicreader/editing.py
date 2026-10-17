@@ -10,8 +10,10 @@
 #while the comic's last run or its archives changed only moments ago
 import calendar
 import os
+import threading
 import time
 import zipfile
+from contextlib import contextmanager
 
 from comiclib import cbz, comicinfo
 from comiclib.chapters.numbering import numbered, written
@@ -33,6 +35,49 @@ class Refused(Exception):
     def __init__(self, status, message):
         super().__init__(message)
         self.status = status
+
+
+def took(seconds):
+    return "{0:.1f}s".format(seconds) if seconds < 60 else "{0}m{1:02d}s".format(int(seconds // 60), int(seconds % 60))
+
+
+class Underway:
+    #the one edit being written, and how far it has got. a comic kept in chapters has every chapter archive
+    #written, and one of a hundred chapters takes minutes, so the page asks this to show it is still going.
+    #a second edit is refused until the first is done, rather than written into the same archives beside it
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.now = None
+
+    def state(self):
+        now = self.now
+        if now is None:
+            return None
+        return dict(now, seconds=round(time.time() - now["started"], 1))
+
+    @contextmanager
+    def doing(self, what):
+        if not self.lock.acquire(blocking=False):
+            now = self.now or {}
+            raise Refused(409, "{0} is still being written ({1} of {2} archives so far). Try again once it has "
+                               "finished.".format(now.get("what", "Another change"), now.get("done", 0),
+                                                  now.get("total", 0)))
+        #total is 0 while what is to be written is still being checked
+        self.now = {"what": what, "done": 0, "total": 0, "told": 0, "at": None, "started": time.time()}
+        try:
+            yield self.now
+        finally:
+            self.now = None
+            self.lock.release()
+
+    def step(self, path):
+        #an archive about to be written
+        if self.now is not None:
+            self.now["at"] = os.path.basename(path)
+
+    def stepped(self):
+        if self.now is not None:
+            self.now["done"] += 1
 
 
 def stamp(path):
@@ -126,15 +171,25 @@ def archives_of(library, comic, metadata):
     return []
 
 
+def read_kept(folder):
+    #a comic's metadata as the reader works with it, and the stamp it was written with. a file from before
+    #schema 2 is brought up to it every time it is read, and that stamps it with the moment it was read:
+    #checked against that, an edit of a comic adopted back then was always refused as changed since the page
+    #was opened, and with it every folder holding one. the stamp in the file is what says it was changed
+    found = read_metadata(folder)
+    if not found:
+        return found, None
+    return migrate(found) or found, found.get("updated")
+
+
 def scraped_plan(library, comic, updated):
     #what changing a comic the scraper keeps will write, read and checked before anything is
     folder = comic["folder"]
-    metadata = read_metadata(folder)
+    metadata, written = read_kept(folder)
     if not metadata:
         raise Refused(409, "{0}'s metadata could not be read, so nothing was changed.".format(
             os.path.basename(folder)))
-    metadata = migrate(metadata) or metadata
-    if updated is not None and metadata.get("updated") != updated:
+    if updated is not None and written != updated:
         raise Refused(409, "{0} was changed since the page was opened. Reload it and make the change again.".format(
             os.path.basename(folder)))
     runs = (metadata.get("history") or {}).get("runs") or []
@@ -144,7 +199,7 @@ def scraped_plan(library, comic, updated):
     return plan
 
 
-def scraped_write(library, plan, info):
+def scraped_write(library, plan, info, work):
     metadata = plan["metadata"]
     if info:
         metadata["info"] = info
@@ -152,8 +207,13 @@ def scraped_write(library, plan, info):
         metadata.pop("info", None)
     metadata["updated"] = now_stamp()
     writing(lambda: write_json(plan["path"], metadata))
-    return sum(1 for archive, about, whole in plan["archives"]
-               if os.path.isfile(archive) and retell(library, archive, plan["folder"], about(metadata), whole))
+    told = 0
+    for archive, about, whole in plan["archives"]:
+        work.step(archive)
+        if os.path.isfile(archive) and retell(library, archive, plan["folder"], about(metadata), whole):
+            told += 1
+        work.stepped()
+    return told
 
 
 def version_of(path):
@@ -170,7 +230,15 @@ def archive_plan(library, comic, version):
     return path
 
 
-def archive_write(library, path, changes):
+def archive_write(library, path, changes, work):
+    work.step(path)
+    try:
+        return archive_retold(library, path, changes)
+    finally:
+        work.stepped()
+
+
+def archive_retold(library, path, changes):
     #an archive from somewhere else: its own ComicInfo, changed where the page changed it and nowhere else
     before = stamp(path)
     with zipfile.ZipFile(path) as zf:
@@ -201,22 +269,63 @@ def sayable(said):
     return said
 
 
-def edit(library, comic, body):
+def called(comic):
+    #what the log calls a comic: a chapter archive's title is its chapter's, so a comic the scraper keeps
+    #goes by its folder
+    return os.path.basename(comic["folder"]) if comic.get("folder") else os.path.basename(comic["sources"][0])
+
+
+@contextmanager
+def logged(work, what, fields):
+    #the log says an edit began and how it ended: one of a comic in a hundred chapters runs for minutes, and
+    #said nothing at all while it did
+    began = time.time()
+    with work.doing(what) as now:
+        try:
+            yield now
+        except Refused as refused:
+            print("ComicInfo of {0} not written: {1}".format(what, refused), flush=True)
+            raise
+        except Exception as error:
+            print("ComicInfo of {0} failed after {1} of {2} archives: {3}".format(
+                what, now["done"], now["total"], error), flush=True)
+            raise
+    print("ComicInfo of {0} written ({1}): {2} of {3} archives in {4}".format(
+        what, ", ".join(fields), now["told"], now["total"], took(time.time() - began)), flush=True)
+
+
+def begun(now, what, fields):
+    #an edit of one archive is over too soon to need saying it began
+    if now["total"] > 1:
+        print("ComicInfo of {0}: writing {1} into {2} archives".format(what, ", ".join(fields), now["total"]),
+              flush=True)
+
+
+def edit(library, comic, body, work=None):
     #the nine are always on the form, so one left out is one emptied. the rest of the schema changes only
     #where it is named, "" taking it out: a page from before it could say them sends only the nine, and must
     #not take out a publisher it never showed
+    work = work or Underway()
     said = sayable(body.get("info") or {})
     info = comicinfo.clean_info(said)
     named = comicinfo.INFO + tuple(tag for tag in comicinfo.EXTRA if tag in said)
-    if comic.get("folder"):
-        plan = scraped_plan(library, comic, body.get("updated"))
-        kept = {key: value for key, value in (plan["metadata"].get("info") or {}).items() if key not in named}
-        return scraped_write(library, plan, comicinfo.clean_info(dict(kept, **info)))
-    if comic["kind"] == "archive" and len(comic["sources"]) == 1:
-        path = archive_plan(library, comic, body.get("version"))
-        return archive_write(library, path, {key: info.get(key) for key in named})
-    raise Refused(409, "This comic is kept as chapter archives from somewhere else; each can be changed from "
-                       "its own info page.")
+    if not comic.get("folder") and not (comic["kind"] == "archive" and len(comic["sources"]) == 1):
+        raise Refused(409, "This comic is kept as chapter archives from somewhere else; each can be changed from "
+                           "its own info page.")
+    what = called(comic)
+    fields = sorted(said) or ["nothing"]
+    with logged(work, what, fields) as now:
+        if comic.get("folder"):
+            plan = scraped_plan(library, comic, body.get("updated"))
+            now["total"] = len(plan["archives"])
+            begun(now, what, fields)
+            kept = {key: value for key, value in (plan["metadata"].get("info") or {}).items() if key not in named}
+            now["told"] = scraped_write(library, plan, comicinfo.clean_info(dict(kept, **info)), work)
+        else:
+            path = archive_plan(library, comic, body.get("version"))
+            now["total"] = 1
+            now["told"] = archive_write(library, path, {key: info.get(key) for key in named}, work)
+    return now["told"]
 
 
 def gather(library, ids):
@@ -255,10 +364,10 @@ def describe_many(library, ids):
     each = []
     for comic in gather(library, ids):
         if comic.get("folder"):
-            found = read_metadata(comic["folder"]) or {}
-            metadata = migrate(found) or found
+            metadata, written = read_kept(comic["folder"])
+            metadata = metadata or {}
             said = comicinfo.said_by(comicinfo.about_comic(comic["folder"], metadata))
-            each.append({"id": comic["id"], "said": said, "stamp": metadata.get("updated"), "scraped": True,
+            each.append({"id": comic["id"], "said": said, "stamp": written, "scraped": True,
                          "archives": len(archives_of(library, comic, metadata))})
         else:
             path = comic["sources"][0]
@@ -275,9 +384,10 @@ def describe_many(library, ids):
             "stamps": {one["id"]: one["stamp"] for one in each}, "form": comicinfo.form()}
 
 
-def edit_many(library, body):
+def edit_many(library, body, work=None):
     #only what was changed, in every comic: a value said of each, or "" taking it out of each. every comic is
     #checked before any is written, so one the scraper is busy with refuses the lot rather than half of it
+    work = work or Underway()
     changes = body.get("changes")
     if not isinstance(changes, dict) or not changes:
         raise Refused(400, "Nothing was changed, so nothing was written.")
@@ -288,22 +398,27 @@ def edit_many(library, body):
     sayable(changes)
     cleaned = {key: comicinfo.fit(key, value) if value is not None else None for key, value in changes.items()}
     stamps = body.get("stamps") if isinstance(body.get("stamps"), dict) else {}
-    planned = []
-    for comic in gather(library, body.get("ids")):
-        if comic.get("folder"):
-            planned.append((True, scraped_plan(library, comic, stamps.get(comic["id"]))))
-        else:
-            planned.append((False, archive_plan(library, comic, stamps.get(comic["id"]))))
-    told = 0
-    for scraped, plan in planned:
-        if scraped:
-            info = dict(plan["metadata"].get("info") or {})
-            for key, value in cleaned.items():
-                if value is None:
-                    info.pop(key, None)
-                else:
-                    info[key] = value
-            told += scraped_write(library, plan, comicinfo.clean_info(info))
-        else:
-            told += archive_write(library, plan, cleaned)
-    return {"comics": len(planned), "told": told}
+    comics = gather(library, body.get("ids"))
+    what = called(comics[0]) if len(comics) == 1 else "{0} comics".format(len(comics))
+    fields = sorted(changes)
+    with logged(work, what, fields) as now:
+        planned = []
+        for comic in comics:
+            if comic.get("folder"):
+                planned.append((True, scraped_plan(library, comic, stamps.get(comic["id"]))))
+            else:
+                planned.append((False, archive_plan(library, comic, stamps.get(comic["id"]))))
+        now["total"] = sum(len(plan["archives"]) if scraped else 1 for scraped, plan in planned)
+        begun(now, what, fields)
+        for scraped, plan in planned:
+            if scraped:
+                info = dict(plan["metadata"].get("info") or {})
+                for key, value in cleaned.items():
+                    if value is None:
+                        info.pop(key, None)
+                    else:
+                        info[key] = value
+                now["told"] += scraped_write(library, plan, comicinfo.clean_info(info), work)
+            else:
+                now["told"] += archive_write(library, plan, cleaned, work)
+    return {"comics": len(planned), "told": now["told"]}

@@ -4,7 +4,7 @@ import { api, type ComicSummary, type Fit, type GroupCovers } from "./api";
 import { openComicInfoDialog } from "./comicinfodialog";
 import { openCoverDialog, type CoverTarget } from "./coverdialog";
 import { el, esc, fitClass, refusal } from "./dom";
-import { BROWSE_LABELS, type Browse, type Group, grewBy, matches, nextIssues, openingPage, pathLabel, randomPick, readShare, reading, recentlyUpdated, shelf, upTo } from "./shelves";
+import { BROWSE_LABELS, type Browse, editableTogether, type Group, grewBy, matches, nextIssues, openingPage, pathLabel, randomPick, readShare, reading, recentlyUpdated, shelf, upTo } from "./shelves";
 
 // each name encoded alone and joined with real slashes, so a folder's address reads as its path. the whole
 // rest of the address is decoded as one, so this comes back the same - a series named with a slash in it
@@ -231,8 +231,7 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     if (group.comics.some((each) => each.position !== null)) {
       choices.push(["Mark all as unread", () => api.markMany(ids, false), true]);
     }
-    // a folder or a series is one thing to say things of; an author's comics are any number of unrelated ones
-    if (browse === "folder" || browse === "series") {
+    if (editableTogether(browse, group)) {
       choices.push(["Edit ComicInfo for all…", () => editInfo(group.label, ids), false]);
     }
     choices.push(["Edit cover…", () => editCover({ target: targetOf(group), label: group.label, fallback: tileCover(group).src }),

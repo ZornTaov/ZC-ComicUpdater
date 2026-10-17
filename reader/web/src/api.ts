@@ -153,6 +153,16 @@ export interface ManyInfo {
   form: InfoForm;
 }
 
+// the ComicInfo edit being written now: total is 0 while it is still being checked, at the archive it is on
+export interface Underway {
+  what: string;
+  done: number;
+  total: number;
+  told: number;
+  at: string | null;
+  seconds: number;
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
@@ -182,6 +192,7 @@ export const api = {
   // only what was changed, "" taking a tag out of every one
   saveManyInfo: (ids: string[], stamps: ManyInfo["stamps"], changes: Said) =>
     put<ManyInfo & { told: number }>("/api/comicinfo", { ids, stamps, changes }),
+  underway: () => call<{ underway: Underway | null }>("/api/comicinfo/underway"),
   pageUrl: (id: string, n: number, v: string) => `/api/comics/${id}/pages/${n}?v=${v}`,
   coverUrl: (id: string, v: string | null) => `/api/comics/${id}/cover${v ? `?v=${v}` : ""}`,
   groupCoverUrl: (target: string, v: string) => `/api/covers?target=${encodeURIComponent(target)}&v=${v}`,

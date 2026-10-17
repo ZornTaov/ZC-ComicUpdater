@@ -16,7 +16,7 @@ from comiclib.metadata import METADATA_FILE as metadata_file, now_stamp as time_
 from comiclib.metadata import record_moves
 from comiclib.metadata import write as write_metadata
 from comiclib.pages import SET_ASIDE, listing as folder_pages, mac_leftover, sizes as file_sizes
-from comiclib.standin import archive_entry, held_otherwise
+from comiclib.standin import Sizes, entry_name, held_otherwise
 
 
 def tidy_name(text):
@@ -106,6 +106,23 @@ def renames_to_numbers(folder, shelf, chapters):
         print("WARNING: {0} is still named by its place, and {1} is already there, so neither was touched. "
               "Move one of them aside and pack again.".format(os.path.basename(old), os.path.basename(new)))
     return planned
+
+
+def named_by_numbers(folder, shelf, chapters, args):
+    #the chapter archives still named by their place renamed to their number, or in a dry run said. where
+    #each chapter's archive is to be found now, by the name it should have - in a dry run nothing was
+    #renamed, so it is still under the old one - or None when a rename failed and every one was put back
+    renames = renames_to_numbers(folder, shelf, chapters)
+    if renames:
+        print("  {0} {1} chapter archive(s) to their chapter's own number".format(
+            "would rename" if args.dry_run else "renaming", sum(what == "chapter archive" for _, _, what in renames)))
+        if args.dry_run:
+            for source, target, what in renames:
+                if what == "chapter archive":
+                    print("    {0} -> {1}".format(os.path.basename(source), os.path.basename(target)))
+        elif not rename_to_numbers(folder, shelf, renames, args.root):
+            return None
+    return {target: source for source, target, _ in renames} if args.dry_run else {}
 
 
 def library_of(folder, metadata):
@@ -201,16 +218,31 @@ def chapter_contents(folder, chapters, pages):
     return parcels
 
 
-def already_packed(path, names, folder, sizes=None):
+def already_packed(path, names, folder, sizes=None, drawn=None):
     #an archive only needs writing again if what it holds is not what it should hold
     if not os.path.exists(path):
         return False
     try:
         held = cbz.held(path)
-        wanted = cbz.expected(folder, names, sizes)
+        wanted = cbz.expected(folder, names, sizes, drawn)
     except (OSError, zipfile.BadZipFile):
         return False
     return held == wanted
+
+
+def only_short(path, names, folder, sizes=None, drawn=None):
+    #whether all that is wrong with a chapter archive is pages it does not hold yet: everything it holds is
+    #one of its pages at the size it should be. those go on the end, as a single archive's new pages do,
+    #rather than the chapter being written again whole - which a sync would carry whole - for one new page.
+    #a page changed, or one moved to another chapter, still has the chapter written afresh
+    if not os.path.exists(path):
+        return False
+    try:
+        held = cbz.held(path)
+        wanted = cbz.expected(folder, names, sizes, drawn)
+    except (OSError, zipfile.BadZipFile):
+        return False
+    return all(wanted.get(entry) == size for entry, size in held.items()) and len(held) < len(wanted)
 
 
 def pack(folder, args):
@@ -242,25 +274,19 @@ def pack(folder, args):
     print("{0}: {1} chapter(s) into {2}".format(folder, len(parcels), shelf))
     #archives named by their place before chapters were named by their own number take their new names
     #first, so what they hold is compared and kept rather than every one written again
-    renames = renames_to_numbers(folder, shelf, chapters)
-    if renames:
-        print("  {0} {1} chapter archive(s) to their chapter's own number".format(
-            "would rename" if args.dry_run else "renaming", sum(what == "chapter archive" for _, _, what in renames)))
-        if args.dry_run:
-            for source, target, what in renames:
-                if what == "chapter archive":
-                    print("    {0} -> {1}".format(os.path.basename(source), os.path.basename(target)))
-        elif not rename_to_numbers(folder, shelf, renames, args.root):
-            return 1
-    #in a dry run nothing was renamed, so a chapter is looked for under the name it has now
-    still_at = {target: source for source, target, _ in renames} if args.dry_run else {}
+    still_at = named_by_numbers(folder, shelf, chapters, args)
+    if still_at is None:
+        return 1
     print("  looking at what the archives already hold ...", flush=True)
     sizes = file_sizes(folder)
-    todo, retold = [], {}
+    drawn = Sizes((metadata.get("chapters") or {}).get("standins"))
+    todo, short, retold = [], [], {}
     for at, (chapter, names) in enumerate(parcels, 1):
         path = os.path.join(shelf, chapter_file(folder, chapter))
         path = still_at.get(path, path)
-        if not already_packed(path, names, folder, sizes):
+        if only_short(path, names, folder, sizes, drawn):
+            short.append((chapter, names))
+        elif not already_packed(path, names, folder, sizes, drawn):
             todo.append((chapter, names))
         else:
             #the pages are right but the ComicInfo may not be - a label put right, the comic marked ended,
@@ -272,11 +298,12 @@ def pack(folder, args):
                 retold[chapter["number"]] = (path, change)
         if at % 10 == 0 and at < len(parcels):
             print("    looked at {0} of {1}".format(at, len(parcels)), flush=True)
-    print("  {0} to write, {1} already as they should be{2}".format(
-        len(todo), len(parcels) - len(todo),
+    print("  {0} to write, {1}{2} already as they should be{3}".format(
+        len(todo), "{0} to add pages to, ".format(len(short)) if short else "", len(parcels) - len(todo) - len(short),
         ", {0} of them with a ComicInfo to bring up to date".format(len(retold)) if retold else ""))
     for chapter, names in parcels[:100]:
-        mark = "write" if (chapter, names) in todo else "info " if chapter["number"] in retold else "keep "
+        mark = "write" if (chapter, names) in todo else "add  " if (chapter, names) in short else \
+            "info " if chapter["number"] in retold else "keep "
         print("  {0} c{1:<7} {2:<44} {3:>4} page(s)  {4}".format(
             mark, name_part(chapter.get("called") or chapter["number"]), tidy_name(chapter["label"])[:44],
             len(names), chapter_file(folder, chapter)[:60]))
@@ -294,18 +321,27 @@ def pack(folder, args):
         written += 1
         print("  wrote {0} ({1} page(s))".format(os.path.basename(path), len(names)), flush=True)
     print("Wrote {0} chapter archive(s).".format(written))
+    for chapter, names in short:
+        path = os.path.join(shelf, chapter_file(folder, chapter))
+        change = cbz.planned(path, folder, names, (), comicinfo.about_chapter(folder, metadata, chapter, len(parcels)))
+        cbz.apply(path, folder, change, metadata=False)
+        print("  added {0} page(s) to {1}".format(len(change["added"]), os.path.basename(path)), flush=True)
     for path, change in retold.values():
         cbz.apply(path, folder, change, metadata=False)
     if retold:
         print("Brought the ComicInfo of {0} chapter archive(s) up to date.".format(len(retold)))
 
-    kept = verify_chapters(folder, shelf, parcels)
+    kept = verify_chapters(folder, shelf, parcels, drawn)
     if kept is not True:
         return 1
     metadata = read_metadata(folder)
     block = metadata.setdefault("chapters", {})
     block["folder"] = os.path.relpath(shelf, args.root).replace(os.sep, '/') if args.root else shelf
     block["packed"] = time_stamp()
+    if drawn.used:
+        block["standins"] = drawn.used
+    else:
+        block.pop("standins", None)
     #nothing is turned off here: a comic that has chapters is one mirror_base leaves alone, and whether it
     #has archives at all is the one cbz setting, the same switch as for a comic with no chapters
     write_metadata(folder, metadata)
@@ -319,7 +355,7 @@ def pack(folder, args):
     return 0
 
 
-def verify_chapters(folder, shelf, parcels):
+def verify_chapters(folder, shelf, parcels, drawn=None):
     #every page has to be in exactly one chapter archive, at the size it is on disk, before the single
     #archive that holds them all can be given up
     seen, trouble = {}, []
@@ -333,7 +369,7 @@ def verify_chapters(folder, shelf, parcels):
         for name in names:
             #a page held as something no reader can show is in the archive as its stand-in, so that is
             #what has to be there and at the size the drawing comes to
-            (entry, size), = cbz.expected(folder, [name]).items()
+            (entry, size), = cbz.expected(folder, [name], drawn=drawn).items()
             if held.get(entry) != size:
                 trouble.append("c{0:03d}: {1} is {2} in the archive, {3} on disk".format(
                     chapter["number"], entry, held.get(entry), size))
@@ -365,7 +401,7 @@ def keep_extras(full, folder, keep_in):
     on_disk = {name for place in places for name in os.listdir(place)}
     #a page no reader can show - a video, a note of where a page lives - is held in an archive as the picture
     #standing in for it, under a name the folder does not have, and is as much the page as the file is
-    on_disk |= {archive_entry(folder, name)[0] for name in os.listdir(folder) if held_otherwise(folder, name)}
+    on_disk |= {entry_name(folder, name) for name in os.listdir(folder) if held_otherwise(folder, name)}
     #a page renamed since the archive was made - given back the site's own name - is in the folder under
     #another name, so a picture whose name is not here is only an extra if no page here has its bytes. the
     #size says which pages could be, and the bytes are compared only for those
@@ -492,10 +528,7 @@ def retell_one(folder, args):
     if settings.get("cbz") is False:
         return 0
     if (metadata.get("chapters") or {}).get("folder"):
-        #packing writes a chapter archive whose pages are out of date and retells the rest, which is
-        #exactly this for a comic in chapters
-        print("{0} is kept in chapters; packing it brings each chapter's ComicInfo up to date.".format(folder))
-        return pack(folder, args)
+        return retell_chapters(folder, metadata, args)
     archive = settings.get("cbz_path")
     if archive and not os.path.isabs(archive):
         archive = os.path.join(args.root or os.path.dirname(folder), archive.replace('/', os.sep))
@@ -511,3 +544,35 @@ def retell_one(folder, args):
     if told:
         print("{0}: ComicInfo {1}.".format(archive, "would be written" if args.dry_run else "written"))
     return 0
+
+
+def retell_chapters(folder, metadata, args):
+    #each chapter archive's ComicInfo brought up to what the comic says, on its end, and nothing else. this
+    #used to pack the comic, which also wrote again whole any chapter whose pages had moved on - a change
+    #of who drew the comic is no reason to. a chapter with pages still to add is the next pack's to do
+    chapters = numbered(metadata.get("chapters"))
+    shelf = chapter_folder(folder, metadata, args.root, args.cbz_folder)
+    #an archive still named by its place is renamed first, as packing would: a rename writes nothing
+    still_at = named_by_numbers(folder, shelf, chapters, args)
+    if still_at is None:
+        return 1
+    #only to say which entries are stand-ins: the pages the ComicInfo describes are what each archive holds
+    names = sorted(name for name in os.listdir(folder) if name != metadata_file)
+    told, absent, worst = 0, 0, 0
+    for chapter in chapters:
+        path = os.path.join(shelf, chapter_file(folder, chapter))
+        path = still_at.get(path, path)
+        if not os.path.exists(path):
+            absent += 1
+            continue
+        try:
+            if cbz.retag(path, folder, names, comicinfo.about_chapter(folder, metadata, chapter, len(chapters)),
+                         dry_run=args.dry_run):
+                told += 1
+        except (OSError, zipfile.BadZipFile) as error:
+            print("Could not look inside {0} ({1}), so it was left alone.".format(path, error))
+            worst = 1
+    print("{0}: ComicInfo {1} in {2} of {3} chapter archive(s){4}.".format(
+        folder, "would be written" if args.dry_run else "written", told, len(chapters) - absent,
+        "; {0} chapter(s) have no archive yet, which packing writes".format(absent) if absent else ""))
+    return worst

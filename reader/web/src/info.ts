@@ -4,6 +4,7 @@ import { api, type ComicInfo } from "./api";
 import { adderHtml, boxHtml, fieldOf, shownExtras, valueOf, type Said } from "./comicinfoform";
 import { openCoverDialog } from "./coverdialog";
 import { esc, fitClass, refusal } from "./dom";
+import { watchUnderway } from "./underway";
 
 // what the page shows of a ComicInfo, in this order, and what it calls each
 export const FIELDS: [key: keyof ComicInfo["about"], label: string][] = [
@@ -152,7 +153,9 @@ export async function openInfo(root: HTMLElement, id: string, back: () => void, 
       save.disabled = true;
       message.textContent = "Saving…";
       try {
-        const saved = await api.saveInfo(info, said);
+        const saving = api.saveInfo(info, said);
+        watchUnderway(saving);
+        const saved = await saving;
         draw(saved);
         notify(saved.told ? `Saved, and written into ${saved.told} archive${saved.told === 1 ? "" : "s"}` : "Saved");
       } catch (error) {

@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from conftest import PNG_240, Site, checked, console_errors, open_page, pages_in, run
+from conftest import PNG_240, Site, checked, console_errors, open_page, pages_in, run, wait_until
 
 PAGES = 5
 ADDED_IMAGE = '//img[@class="strip-art"]'
@@ -166,6 +166,82 @@ def test_the_elements_dialog_runs_a_check_without_console_errors(web, site, brow
                                "document.getElementById('check-url').value = arguments[0];", site + "/p/2")
         browser.execute_script("document.getElementById('check-go').click()")
         checked(browser)
+    errors = console_errors(browser)
+    assert not errors, errors
+
+
+def exported(browser):
+    #press Export and read the file it would have saved. the link's click is caught, so nothing lands in
+    #whatever download folder the test's browser has, and what is read is the very blob it was handed
+    browser.execute_script("window.saved = [];"
+                           "HTMLAnchorElement.prototype.click = function () {"
+                           " window.saved.push({ href: this.href, name: this.download }); };"
+                           "document.getElementById('ep-export').click()")
+    name = browser.execute_script("return window.saved.length ? window.saved[0].name : null")
+    assert name, browser.execute_script("return document.getElementById('ep-msg').textContent")
+    text = browser.execute_async_script("const done = arguments[arguments.length - 1];"
+                                        "fetch(window.saved[0].href).then((r) => r.text()).then(done)")
+    return name, json.loads(text)
+
+
+def ep_message(browser):
+    return browser.execute_script("return document.getElementById('ep-msg').textContent")
+
+
+@pytest.mark.browser
+@pytest.mark.slow
+def test_paths_exported_and_imported_through_the_dialog(web, browser, config, tmp_path):
+    #what someone would hand a friend running this too: the paths they added and none of the shipped ones,
+    #unless rows are ticked, when only those. and the friend's side: the file's paths put at the top of their
+    #lists to be looked over, the ones already listed and the ones that are no xpath left out, nothing written
+    #until Save
+    page = web()
+    shipped, _ = save_added_paths(page)
+    open_page(browser, page.base + "/")
+    browser.execute_script("document.getElementById('open-elements').click()")
+    wait_until(lambda: browser.execute_script("return document.querySelectorAll('#ep-lists .ep').length"),
+               why="the element paths never listed")
+
+    name, data = exported(browser)
+    assert name.startswith("element-paths-") and name.endswith(".json"), name
+    assert [e["xpath"] for e in data["image"]] == [ADDED_IMAGE], data["image"]
+    assert [e["xpath"] for e in data["next"]] == [ADDED_NEXT] and data["first"] == [], data
+    assert data["image"][0] == {"xpath": ADDED_IMAGE, "note": "Odd Comic", "enabled": True}
+
+    #a shipped path ticked: now that is the whole file, the paths of your own left out
+    ticked = shipped["first"][0]["xpath"]
+    browser.execute_script("document.querySelector('[data-list=first] [data-field=picked]').click()")
+    assert browser.execute_script("return document.getElementById('ep-export').textContent") == "Export ticked"
+    _, data = exported(browser)
+    assert data["image"] == [] and data["next"] == [] and [e["xpath"] for e in data["first"]] == [ticked], data
+
+    given = tmp_path / "from-a-friend.json"
+    given.write_text(json.dumps({
+        "image": [{"xpath": ADDED_IMAGE, "note": "theirs", "enabled": False},
+                  {"xpath": '//img[@id="friend"]', "note": "Friend Comic", "enabled": False},
+                  {"xpath": "strip-art"}],
+        "next": [{"xpath": '//a[@class="friend-next"]', "note": "Friend Comic"}]}), encoding="utf-8")
+    browser.execute_script("document.getElementById('ep-import-file').hidden = false")
+    browser.find_element("id", "ep-import-file").send_keys(str(given))
+    said = wait_until(lambda: "Imported" in ep_message(browser) and ep_message(browser),
+                      why="the import never said what it did")
+    assert "Imported 2 paths" in said and "1 already listed" in said and "1 not an xpath" in said, said
+    image = browser.execute_script("return paths.image")
+    assert image[0]["xpath"] == '//img[@id="friend"]' and image[0]["enabled"] is False, image[:2]
+    #yours is left as it was, not turned off or renoted by the file
+    mine = [e for e in image if e["xpath"] == ADDED_IMAGE]
+    assert len(mine) == 1 and mine[0]["enabled"] and mine[0]["note"] == "Odd Comic", mine
+    assert browser.execute_script("return document.querySelectorAll('#ep-lists .ep.imported').length") == 2
+    with open(config / "element_paths.json", encoding="utf-8") as f:
+        assert "friend" not in f.read(), "an import should write nothing before Save"
+
+    browser.execute_script("document.getElementById('ep-save').click()")
+    wait_until(lambda: ep_message(browser).startswith("Saved"), why="the save never finished")
+    with open(config / "element_paths.json", encoding="utf-8") as f:
+        saved = json.load(f)
+    assert saved["image"][0] == {"xpath": '//img[@id="friend"]', "note": "Friend Comic", "enabled": False}
+    assert saved["next"][0]["xpath"] == '//a[@class="friend-next"]', saved["next"][:2]
+    assert browser.execute_script("return document.querySelectorAll('#ep-lists .ep.imported').length") == 0
     errors = console_errors(browser)
     assert not errors, errors
 

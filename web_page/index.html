@@ -221,6 +221,10 @@
             the latest page it knows and follows one back to page 1, and stops if none matches. Check one of
             the comic's later pages to see which would be used.</li>
           <li>Put a path written for one comic above the general ones, and note which comic it is for.</li>
+          <li><b>Export</b> saves the paths you added to a file, to give to someone running this too; tick
+            rows' <b>export</b> boxes to save only those, shipped ones included. <b>Import…</b> puts a file's
+            paths at the top of their lists, marked, skipping any already listed. Nothing is kept until you
+            press <b>Save</b>.</li>
         </ul>
         The paths that came with the script are examples of the most common layouts; their notes say which.
       </details>
@@ -237,6 +241,10 @@
     </div>
     <div class="dlg-foot">
       <div class="msg" id="ep-msg"></div>
+      <button type="button" id="ep-export"
+        title="Saves a file of the paths you added, or only the rows ticked for export, to give to someone else">Export</button>
+      <button type="button" id="ep-import" title="Adds the paths in an exported file to these lists, to look over before saving">Import…</button>
+      <input type="file" id="ep-import-file" accept=".json,application/json" hidden>
       <button type="button" class="primary" id="ep-save">Save</button>
     </div>
     <button type="button" class="dlg-x" id="ep-cancel" aria-label="Close" title="Close">×</button>

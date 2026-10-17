@@ -45,6 +45,14 @@ def test_an_address_outside_the_folder_reads_nothing(web):
         assert status == 404, (path, status, body[:80])
 
 
+def test_the_openapi_spec_is_served(web):
+    page = web(password=PASSWORD)
+    status, kind, body = fetch(page, "/api/openapi.yaml")
+    assert status == 200 and kind.startswith("text/yaml"), (status, kind)
+    assert b"openapi" in body and b"paths" in body
+    assert fetch(page, "/api/openapi.yaml", auth=False)[0] == 401
+
+
 def test_only_the_folders_own_pages_and_scripts_are_handed_out(tmp_path, monkeypatch):
     #a script beside the folder, which every spelling of the climb out to it has to miss
     folder = tmp_path / "web_page"

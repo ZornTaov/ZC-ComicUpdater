@@ -178,3 +178,13 @@ def test_a_password_is_asked_for_everything_but_the_home_screen_icon(library, cl
     assert api.get("/api/library", headers={"Authorization": "Basic " + bad}).status_code == 401
     assert api.get("/api/library", headers={"Authorization": "Basic " + good}).status_code == 200
     assert api.get("/manifest.webmanifest").status_code == 404, "not asked for a password, only not there"
+
+
+def test_the_openapi_spec_is_served(library, client):
+    single(library)
+    api, _ = client()
+    spec = api.get("/api/openapi.json")
+    assert spec.status_code == 200
+    body = spec.json()
+    assert "openapi" in body and "paths" in body
+    assert "/api/library" in body["paths"]

@@ -2,9 +2,11 @@
 #nothing outside that folder, however the address is spelled.
 import base64
 import http.client
+import os
 import re
 
 import comiclib.web.server as server
+from comiclib.paths import content_stamp
 
 PASSWORD = "hunter2"
 
@@ -28,13 +30,37 @@ def test_every_file_the_page_names_is_served_as_what_it_is(web):
     status, kind, html = fetch(page, "/")
     assert status == 200 and kind.startswith("text/html"), (status, kind)
     parts = re.findall(r'(?:href|src)="((?:css|js)/[^"]+)"', html.decode())
-    assert any(p.endswith(".css") for p in parts) and any(p.endswith(".js") for p in parts), parts
+    assert any(".css?" in p for p in parts) and any(".js?" in p for p in parts), parts
     for part in parts:
+        file, _, stamp = part.partition("?v=")
+        #each named by an address that changes with what the file holds, which a cache cannot have kept
+        assert stamp == content_stamp(os.path.join(server.page_folder, file)), part
         status, kind, body = fetch(page, "/" + part)
-        wanted = "text/css" if part.endswith(".css") else "text/javascript"
+        wanted = "text/css" if file.endswith(".css") else "text/javascript"
         assert status == 200 and kind.startswith(wanted) and body.strip(), (part, status, kind)
         #the files are behind the password as much as the page and its api are
         assert fetch(page, "/" + part, auth=False)[0] == 401, part
+
+
+def test_a_changed_script_is_a_new_address_without_a_restart(tmp_path, monkeypatch):
+    #read on every request like the files themselves, so an edit to the mounted folder is asked for afresh
+    #at once. an address naming nothing in the folder, or something outside it, is left as it is
+    folder = tmp_path / "web_page"
+    (folder / "js").mkdir(parents=True)
+    (folder / "css").mkdir()
+    (folder / "js" / "main.js").write_text("one()")
+    (folder / "css" / "base.css").write_text("body {}")
+    monkeypatch.setattr(server, "page_folder", str(folder))
+    html = (b'<link rel="stylesheet" href="css/base.css"><script src="js/main.js"></script>'
+            b'<script src="js/gone.js"></script><script src="js/../../x.js"></script>'
+            b'<a href="https://example.com/js/main.js">x</a>')
+    first = server.stamped(html)
+    stamps = re.findall(rb'\?v=(\w+)', first)
+    assert len(stamps) == 2, first
+    assert b'src="js/gone.js"' in first and b'src="js/../../x.js"' in first and b'"https://example.com/js/main.js"' in first
+    (folder / "js" / "main.js").write_text("two()")
+    again = re.findall(rb'\?v=(\w+)', server.stamped(html))
+    assert again[0] == stamps[0] and again[1] != stamps[1], (stamps, again)
 
 
 def test_an_address_outside_the_folder_reads_nothing(web):

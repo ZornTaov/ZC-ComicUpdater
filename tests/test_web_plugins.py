@@ -37,6 +37,20 @@ def test_the_plugins_there_are_are_listed_with_what_is_wrong_with_any(library, c
     assert len(answer["problems"]) == 1 and "has to be one of" in answer["problems"][0]
 
 
+def test_a_plugins_dialog_is_asked_for_by_a_new_address_once_it_changes(library, config, web):
+    #a proxy told to keep everything would go on serving an updated plugin's old form, so the page asks for
+    #it by an address carrying a hash of what it holds - and the server answers that address as the plain one
+    folder = install(config)
+    page = web()
+    stamp = page.call("/api/plugins")[1]["plugins"][0]["stamp"]
+    assert stamp, "the plugin should be listed with a stamp for its dialog's address"
+    code, answer = page.call("/plugins/example/dialog.js?v=" + stamp)
+    assert code == 200 and b'pluginForms["example"]' in answer
+    with open(os.path.join(folder, "dialog.js"), "a", encoding="utf-8") as f:
+        f.write("\n//updated\n")
+    assert page.call("/api/plugins")[1]["plugins"][0]["stamp"] != stamp, "an edit should change the stamp"
+
+
 @pytest.mark.parametrize("address", [
     "/plugins/example/plugin.py", "/plugins/example/plugin.json", "/plugins/example/tool/fake_scraper.py",
     "/plugins/example/..%2F..%2FComicScraper.json", "/plugins/..%2Fexample/dialog.js", "/plugins/example/C:%2Fx.js",

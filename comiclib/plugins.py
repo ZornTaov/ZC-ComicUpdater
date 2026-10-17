@@ -11,7 +11,7 @@ import sys
 
 from comiclib import pluginenv, pluginsetup
 from comiclib.metadata import METADATA_FILE, now_stamp, write as write_metadata
-from comiclib.paths import config_folder
+from comiclib.paths import config_folder, content_stamp
 
 MANIFEST = "plugin.json"
 HOOKS = "plugin.py"
@@ -87,6 +87,9 @@ class Plugin:
         return {"name": self.name, "title": self.title, "output": self.output, "fields": self.fields,
                 "about": self.manifest.get("about"), "dialog": self.has_dialog,
                 "style": os.path.isfile(os.path.join(self.folder, STYLE)), "version": self.version,
+                #what the page puts on the addresses of its dialog.js and dialog.css, so an updated plugin's
+                #form is fetched again rather than kept by a cache along the way
+                "stamp": content_stamp(os.path.join(self.folder, DIALOG), os.path.join(self.folder, STYLE)),
                 "repository": self.is_repository, "env": pluginenv.state(self.folder, self.manifest),
                 "setup": pluginsetup.view(self),
                 "missing": pluginenv.missing_programs(self.manifest)}

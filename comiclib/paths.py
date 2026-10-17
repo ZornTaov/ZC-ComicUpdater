@@ -34,6 +34,21 @@ def element_paths_file():
     return os.path.join(config_folder(), ELEMENT_FILE)
 
 
+def content_stamp(*files):
+    #a short hash of what the files hold, put on the web page's addresses for them as ?v= so a cache between
+    #the browser and the page - a proxy told to keep everything, whatever the server says - is asked for a
+    #new address when a file changes. the contents and not the version, since an edit to a mounted folder
+    #or a nightly build changes the files without changing that. a file that cannot be read adds nothing
+    digest = hashlib.sha1()
+    for path in files:
+        try:
+            with open(path, "rb") as f:
+                digest.update(f.read())
+        except OSError:
+            pass
+    return digest.hexdigest()[:10]
+
+
 def index_name(folder):
     #the comic's own folder decides the name, and nothing else: which library it was reached through must
     #never change which index a comic uses. the short tag is what keeps two comics called Extras apart.

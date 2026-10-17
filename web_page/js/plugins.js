@@ -66,15 +66,17 @@ function pluginScript(plugin) {
   if (!plugin.dialog) return Promise.resolve();
   if (!pluginScripts[plugin.name]) {
     const base = api(`/plugins/${encodeURIComponent(plugin.name)}/`);
+    //the stamp changes with the files, so an updated plugin's form is not one a cache along the way kept
+    const stamp = plugin.stamp ? `?v=${plugin.stamp}` : "";
     if (plugin.style) {
       const style = document.createElement("link");
       style.rel = "stylesheet";
-      style.href = base + "dialog.css";
+      style.href = base + "dialog.css" + stamp;
       document.head.appendChild(style);
     }
     pluginScripts[plugin.name] = new Promise((resolve, reject) => {
       const script = document.createElement("script");
-      script.src = base + "dialog.js";
+      script.src = base + "dialog.js" + stamp;
       script.onload = resolve;
       script.onerror = () => reject(new Error(`${plugin.title}'s dialog.js could not be loaded`));
       document.head.appendChild(script);

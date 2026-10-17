@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ComicSummary } from "./api";
-import { compareComics, grewBy, openingPage, randomPick, readShare, reading,recentlyUpdated, shelf, upTo } from "./shelves";
+import { compareComics, editableTogether, grewBy, openingPage, randomPick, readShare, reading,recentlyUpdated, shelf, upTo } from "./shelves";
 
 const comic = (over: Partial<ComicSummary>): ComicSummary => ({
   id: over.name ?? over.title ?? "x", name: over.title ?? "x", title: "MyComic", series: null, number: null,
@@ -228,5 +228,32 @@ describe("random pick", () => {
   it("by series, picks within that series", () => {
     const list = [part(1, read), part(2), comic({ title: "Other" })];
     expect(randomPick(list, "series", "MyComic", draws(0.99, 0.99))?.id).toBe("Part 2");
+  });
+});
+
+describe("which tiles offer the ComicInfo of everything in them", () => {
+  const library = [
+    comic({ title: "Packed", place: "CBZs/SomeAuthor" }),
+    comic({ title: "Loose", place: "Uncompressed/SomeAuthor" }),
+    comic({ title: "Elsewhere", place: "Manga" }),
+  ];
+  const tile = (browse: "folder" | "series" | "author", path: string, key: string) =>
+    shelf(library, browse, path).groups.find((group) => group.key === key)!;
+
+  it("not the library's own two trees, which hold every comic in it", () => {
+    expect(editableTogether("folder", tile("folder", "", "CBZs"))).toBe(false);
+    expect(editableTogether("folder", tile("folder", "", "Uncompressed"))).toBe(false);
+  });
+
+  it("but any folder inside them, and any other folder", () => {
+    expect(editableTogether("folder", tile("folder", "CBZs", "CBZs/SomeAuthor"))).toBe(true);
+    expect(editableTogether("folder", tile("folder", "Uncompressed", "Uncompressed/SomeAuthor"))).toBe(true);
+    expect(editableTogether("folder", tile("folder", "", "Manga"))).toBe(true);
+  });
+
+  it("a series, never an author's comics", () => {
+    const parts = [comic({ title: "One", series: "MyComic" }), comic({ title: "Two", series: "MyComic" })];
+    expect(editableTogether("series", shelf(parts, "series", "").groups[0])).toBe(true);
+    expect(editableTogether("author", { key: "SomeAuthor", label: "SomeAuthor", comics: parts })).toBe(false);
   });
 });

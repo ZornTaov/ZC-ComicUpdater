@@ -43,6 +43,7 @@ archives, and keep them up to date unattended.
 | `intake` | Taking in what a plugin's program wrote: pages numbered on, a chapter's name in each of its pages' names (or every chapter's `001.jpg` is one `page_key`), nothing written over, the same file fetched again not taken twice, chapters added to the list |
 | `pluginrun` | One plugin run: leftovers of a killed run taken in, the program run in the staging folder until its deadline, the run recorded, the single archive kept |
 | `pluginenv` | A plugin's python packages (`install` in its `plugin.json`), in a `.venv` of its own in its folder, built again when its stamp says another python or another ask; and the programs it `needs`, only looked for |
+| `pluginsetup` | A plugin's own settings, its `plugin.json` `setup`, the same for every comic of it: kept in `config/plugin-setup/<id>.json` (mode 600, not in the plugin's clone), edited in the Plugins dialog, handed to its program as environment variables and to its `plugin.py` as `settings["setup"]`. A `secret` is never put on a command line, which the log and the run record keep; the page shows and edits it, since whoever can reach the page is trusted with the setup |
 | `pluginfetch` | Installing a plugin from its git repository (cloned aside, checked, renamed to its `id`), updating it, removing one no comic uses, and whether the web page may (`MIRROR_WEB_PASSWORD`, or `MIRROR_ALLOW_PLUGIN_INSTALLS`) |
 | `exits` | `mirror_base`'s exit codes and what each means, and `MirrorError`, which carries one |
 | `browser` | Starting the browser a scrape drives, and closing it however it ended |
@@ -168,9 +169,12 @@ where it is cheap to (`standin.py` draws PNGs and `comicinfo.py` reads image siz
   the only thing anyone edits; the scrape command is rebuilt from it every run (`settings_to_argv` in
   `update_comics.py`). Schema 2. `state` and `history` are what the tools have learned and done.
 - **`ended` is the reader's judgement, never the scraper's.** A scrape can only know it has caught up
-  with the latest page. Nothing in the code sets it; it comes from the report column, the web page's
-  tick box, or a hand edit, and is carried through untouched. `state.completed` is a different thing:
-  that *run* reached the latest page.
+  with the latest page. It comes from the report column, the web page's tick box, or a hand edit, and is
+  carried through untouched. The one exception is a plugin whose site says a series is finished: its
+  `plugin.py` `ended()` returning `True`, after a run whose program finished, marks the comic ended and
+  sets `history.plugin_ended`. While that stands, a comic the person unticks stays unticked; `ended()`
+  returning exactly `False` (the series came back) clears it, so the next `True` marks the comic again
+  (`pluginrun.ended_change`). Anything else, or an `ended()` that raises, is no answer and changes nothing. `state.completed` is a different thing: that *run* reached the latest page.
 - **The index (`config/index/<comic>.<tag>.jsonl`) is one line per page, in reading order**, recording
   the address and the image. Position is meaning: line 1 is page 1. It can only be appended to from a
   context that knows its own offset — a scrape resuming mid-comic must not start one.

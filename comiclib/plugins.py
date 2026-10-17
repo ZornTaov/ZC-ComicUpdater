@@ -9,7 +9,7 @@ import os
 import re
 import sys
 
-from comiclib import pluginenv
+from comiclib import pluginenv, pluginsetup
 from comiclib.metadata import METADATA_FILE, now_stamp, write as write_metadata
 from comiclib.paths import config_folder
 
@@ -22,7 +22,7 @@ SHAPES = ("pages", "chapter-folders", "chapter-cbz")
 #what a plugin's setting can be, the same few the web page already edits a comic's settings as
 KINDS = ("url", "text", "count", "flag")
 #the functions a plugin.py may define, each replacing the default of the same name
-HOOK_NAMES = ("build_command", "chapter_order", "remember")
+HOOK_NAMES = ("build_command", "chapter_order", "remember", "ended")
 #a plugin is named by its folder, which ends up in a comic's settings and in an address the page asks for
 NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
 KEY = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
@@ -88,6 +88,7 @@ class Plugin:
                 "about": self.manifest.get("about"), "dialog": self.has_dialog,
                 "style": os.path.isfile(os.path.join(self.folder, STYLE)), "version": self.version,
                 "repository": self.is_repository, "env": pluginenv.state(self.folder, self.manifest),
+                "setup": pluginsetup.view(self),
                 "missing": pluginenv.missing_programs(self.manifest)}
 
 
@@ -104,6 +105,9 @@ def check_manifest(name, manifest, has_hooks):
     if not isinstance(fields, list):
         raise PluginError("{0}'s {1} has to list its fields, [{{\"key\": ..., \"type\": ...}}, ...]".format(
             name, MANIFEST))
+    problems = pluginsetup.check(name, manifest, KINDS, KEY)
+    if problems:
+        raise PluginError(problems[0])
     seen = set()
     for field in fields:
         if not isinstance(field, dict) or not KEY.match(str(field.get("key") or "")):
@@ -145,6 +149,14 @@ def check_manifest(name, manifest, has_hooks):
             for part in command)):
         raise PluginError("{0}'s command has to be a list of words, each a string or a list of strings "
                           "that go in together".format(name))
+    #a secret on the command line would be printed in the log and kept in every run record
+    secrets = {field["key"]: pluginsetup.env_name(field) for field in pluginsetup.fields(manifest)
+               if field.get("type") == pluginsetup.SECRET}
+    named = [found for part in command or [] for bit in (part if isinstance(part, list) else [part])
+             for found in PLACEHOLDER.findall(bit) if found in secrets]
+    if named:
+        raise PluginError("{0}'s command names the secret {{{1}}}, which would be written into the log. Its "
+                          "program finds it in its environment as {2}".format(name, named[0], secrets[named[0]]))
 
 
 def load(name, with_hooks=True):
@@ -271,7 +283,7 @@ def fill(template, values):
         named = [name for bit in group for name in PLACEHOLDER.findall(bit)]
         unknown = [name for name in named if name not in values]
         if unknown:
-            raise PluginError("the command names {{{0}}}, which is not a field of the plugin nor one of "
+            raise PluginError("the command names {{{0}}}, which is not a field or setting of the plugin nor one of "
                               "{{python}}, {{plugin}}, {{tool}}, {{staging}}, {{last_chapter}}, {{last_page}}, "
                               "nor named in its \"remembers\"".format(unknown[0]))
         if any(values[name] in (None, "", False) for name in named):
@@ -294,6 +306,13 @@ def command_values(plugin, settings, state, staging):
             values[key] = (field.get("option") or "--" + key.replace("_", "-")) if on else None
         else:
             values[key] = given.get(key)
+    #the plugin's own settings, but never a secret, which check_manifest keeps out of a command
+    for field in pluginsetup.fields(plugin.manifest):
+        if field["type"] != pluginsetup.SECRET:
+            value = pluginsetup.values(plugin).get(field["key"])
+            if field["type"] == "flag":
+                value = (field.get("option") or "--" + field["key"].replace("_", "-")) if value else None
+            values[field["key"]] = value
     values.update(python=plugin.python, plugin=plugin.folder, tool=os.path.join(plugin.folder, "tool"),
                   staging=staging)
     return values

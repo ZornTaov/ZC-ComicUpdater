@@ -162,6 +162,32 @@ def test_a_plugin_put_in_by_hand_cannot_be_updated(config):
         pluginfetch.update("example")
 
 
+@needs_git
+def test_installing_from_git_replaces_a_plugin_put_in_by_hand(config, tmp_path):
+    #a plugin copied in by hand can be replaced by installing it from its repository, so the person
+    #does not have to remove it first and lose what they had
+    install(config)
+    plugin = plugins.load("example")
+    assert not plugin.is_repository
+    source = repository(tmp_path)
+    said = []
+    pluginfetch.install(source.as_uri(), say=said.append)
+    assert any("put in by hand" in line for line in said)
+    plugin = plugins.load("example")
+    assert plugin.is_repository
+    assert plugin_names(config) == ["example"]
+
+
+@needs_git
+def test_installing_from_git_over_a_manual_plugin_keeps_its_setup(config, tmp_path):
+    from comiclib import pluginsetup
+    install(config, setup=[{"key": "token", "type": "secret", "label": "Token"}])
+    pluginsetup.write("example", {"token": "kept-value"})
+    source = repository(tmp_path, setup=[{"key": "token", "type": "secret", "label": "Token"}])
+    pluginfetch.install(source.as_uri())
+    assert pluginsetup.stored("example") == {"token": "kept-value"}
+
+
 def test_a_plugin_a_comic_uses_is_not_removed(config):
     install(config)
     with pytest.raises(pluginfetch.FetchError, match="scraper of Uncompressed/MyComic"):

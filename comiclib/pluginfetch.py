@@ -133,7 +133,14 @@ def install(address, ref=None, say=print):
             raise FetchError(str(error))
         final = os.path.join(home, name)
         if os.path.exists(final):
-            raise FetchError("there is a plugin {0} already. Update it instead, or remove it first".format(name))
+            #a plugin from its repository is updated, not installed again; one put in by hand is replaced
+            #with the clone, keeping its setup (which is in config/plugin-setup/, not in its folder)
+            is_repo = os.path.isdir(os.path.join(final, ".git")) or os.path.isfile(os.path.join(final, ".git"))
+            if is_repo:
+                raise FetchError("there is a plugin {0} already, from its repository. Update it instead, or "
+                                 "remove it first".format(name))
+            say("{0} was put in by hand; replacing it with the repository's.".format(name))
+            remove_tree(final)
         os.rename(aside, final)
     finally:
         if os.path.exists(aside):

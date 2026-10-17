@@ -131,14 +131,14 @@ def create_app(config=None, scan_in_background=True):
         return dict(describe(library, comic), told=told)
 
     #a whole folder or series, named by its comics: asked with a body, since a folder can hold hundreds
-    @app.post("/api/comicinfo")
+    @app.post("/api/comicinfo", summary="What a folder or series of comics says, field by field, or that they differ")
     async def many_info(request: Request):
         try:
             return describe_many(library, (await request.json()).get("ids"))
         except Refused as refused:
             raise HTTPException(refused.status, str(refused))
 
-    @app.put("/api/comicinfo")
+    @app.put("/api/comicinfo", summary="Write only the fields changed into every comic of a folder or series")
     async def save_many_info(request: Request):
         body = await request.json()
         try:

@@ -146,6 +146,36 @@
         }
       }
     },
+    "/api/comicinfo": {
+      "put": {
+        "summary": "Write only the fields changed into every comic of a folder or series",
+        "operationId": "save_many_info_api_comicinfo_put",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "What a folder or series of comics says, field by field, or that they differ",
+        "operationId": "many_info_api_comicinfo_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/comics/{comic_id}/pages/{n}": {
       "get": {
         "summary": "Page",

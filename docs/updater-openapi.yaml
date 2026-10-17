@@ -474,6 +474,103 @@ paths:
         "500":
           $ref: "#/components/responses/ServerError"
 
+  /api/comicinfo:
+    get:
+      tags: [Library]
+      summary: What a comic's archives say it is, for its ComicInfo dialog
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The comic's folder name
+      responses:
+        "200":
+          description: What was said by hand, what each field means left empty, and the form to draw
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  updated:
+                    type: ["string", "null"]
+                    description: The metadata's updated timestamp, sent back with a save
+                  said:
+                    type: object
+                    description: The metadata's info block - the nine by their own names (writer), any other schema tag by its ComicInfo name (Publisher)
+                  worked:
+                    type: object
+                    description: What each field says with nothing said by hand, keyed the same way
+                  chapters:
+                    type: integer
+                    description: How many chapter archives it is kept as; 0 for one archive
+                  cbz:
+                    type: boolean
+                    description: Whether it keeps archives at all
+                  form:
+                    $ref: "#/components/schemas/ComicInfoForm"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags: [Library]
+      summary: Save what a comic is said to be, and queue writing it into its archives
+      description: >
+        The nine fields are always named, so one left out is emptied; any other schema tag changes only
+        where it is named, "" taking it out. Unless write is false or the comic keeps no archives, a job
+        is queued that brings every archive it has up to date - even when nothing changed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, info]
+              properties:
+                name:
+                  type: string
+                  description: The comic's folder name
+                info:
+                  type: object
+                  description: What the comic is said to be, keyed as the info block is
+                updated:
+                  type: ["string", "null"]
+                  description: Expected updated timestamp (optimistic concurrency)
+                write:
+                  type: boolean
+                  description: false to save without queueing the archives to be written
+      responses:
+        "200":
+          description: Saved (or nothing changed)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  saved:
+                    type: boolean
+                  changed:
+                    type: object
+                    description: "Each changed info.<key> maps to [old, new]"
+                  updated:
+                    type: ["string", "null"]
+                    description: The metadata's updated timestamp now
+                  queued:
+                    type: string
+                    description: Label of the job writing the archives
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
   /api/check:
     post:
       tags: [Elements]
@@ -1274,6 +1371,35 @@ components:
         scraper:
           type: ["string", "null"]
           description: Plugin name, for a comic another program scrapes
+
+    ComicInfoForm:
+      type: object
+      description: What a ComicInfo editor offers, from comiclib's comicinfo.form - the reader's editors are drawn from the same
+      properties:
+        fields:
+          type: array
+          description: "The nine asked of every comic, each [name, label, long]"
+          items:
+            type: array
+            prefixItems: [{type: string}, {type: string}, {type: boolean}]
+        extra:
+          type: array
+          description: "Every other tag of the v2.1 schema that may be said by hand, each [ComicInfo name, label, long]"
+          items:
+            type: array
+            prefixItems: [{type: string}, {type: string}, {type: boolean}]
+        numbers:
+          type: array
+          items:
+            type: string
+          description: Fields that must be whole numbers
+        choices:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: Fields with a fixed list of values, by the schema's own spelling
 
     ComicDetail:
       type: object

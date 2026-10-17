@@ -19,9 +19,29 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .dlg-head h3 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
 .dlg-head > span { flex: 1 1 200px; min-width: 0; text-align: right; overflow-wrap: anywhere; font-size: 12px; }
 .dlg-body { padding: 14px 18px; overflow: auto; }
+/*chrome hands a dialog's opening focus to a body long enough to scroll, so the keys scroll it; the whole
+  body ringed says nothing a control's ring would*/
+.dlg-body:focus { outline: none; }
 .dlg-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px;
   padding: 12px 18px; border-top: 1px solid var(--line); }
 .dlg-foot .msg { flex: 1; margin: 0; }
+/*closing from the head, top right, as most dialogs elsewhere do. it is the last thing in the form, placed
+  up there: a dialog opens with the focus on its first control, and the × first opened ringed as though
+  about to be pressed. last, a field or a link is first instead, and the × is the last stop of a tab round*/
+dialog > form { position: relative; }
+/*tall enough for the × even before a title is put in it*/
+.dlg-head { padding-right: 52px; min-height: 50px; box-sizing: border-box; }
+.dlg-x { position: absolute; top: 11px; right: 12px; padding: 0 8px; border: none; background: none;
+  color: var(--muted); font-size: 22px; line-height: 1.2; }
+.dlg-x:hover { color: var(--ink); background: var(--soft); }
+/*the editor's foot: what it says on a line of its own, then what opens something else on the left and what
+  saves on the right, the two kept apart however the tools wrap*/
+.edit-foot { justify-content: space-between; align-items: flex-end; }
+.edit-foot .msg { flex: 1 1 100%; }
+.edit-foot .msg:empty { display: none; }
+.foot-tools, .foot-save { display: flex; flex-wrap: wrap; gap: 8px; }
+.foot-tools { flex: 1 1 auto; }
+.foot-save { flex: none; margin-left: auto; }
 .field { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 4px 12px; align-items: center; margin-bottom: 10px; }
 .field > label { color: var(--muted); font-size: 13px; }
 .field input[type=text] { width: 100%; }
@@ -77,3 +97,10 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .plugin-setup .secret-in button { flex: none; white-space: nowrap; }
 .plugin-setup .setup-foot { display: flex; justify-content: flex-end; }
 .plugin-row button.confirming { background: transparent; border-color: transparent; }
+/*a comic's ComicInfo: a row a tag, the box and, for a tag beyond the nine, a button taking it off*/
+.ci-in { display: flex; gap: 6px; align-items: flex-start; }
+.ci-in input, .ci-in textarea, .ci-in select { flex: 1; min-width: 0; width: 100%; font: inherit; }
+.ci-in textarea { resize: vertical; }
+.ci-in button { flex: none; padding: 2px 9px; }
+#ci-chapters:empty { display: none; }
+#ci-chapters { font-size: 12.5px; color: var(--muted); margin: 0 0 10px; }

@@ -1,6 +1,7 @@
 // the library: what is being read at the top, then the library laid out by folder, series or author. the
 // place being looked at is in the address, so the back button goes back up and a folder can be bookmarked
 import { api, type ComicSummary, type Fit, type GroupCovers } from "./api";
+import { openComicInfoDialog } from "./comicinfodialog";
 import { openCoverDialog, type CoverTarget } from "./coverdialog";
 import { el, esc, fitClass, refusal } from "./dom";
 import { BROWSE_LABELS, type Browse, type Group, grewBy, matches, nextIssues, openingPage, pathLabel, randomPick, readShare, reading, recentlyUpdated, shelf, upTo } from "./shelves";
@@ -204,9 +205,24 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     if (before.length > 1) choices.push(["Mark as read up to here", () => api.markMany(before.map((each) => each.id), true), true]);
     if (comic.position !== null) choices.push(["Mark as unread", () => api.forgetProgress(comic.id), true]);
     choices.push(["About this comic", () => { location.hash = `#/info/${comic.id}`; }, false]);
-    choices.push(["Edit…", () => editCover({ target: `comic:${comic.id}`, label: comic.title, comicId: comic.id,
-                                             pages: comic.pages, fallback: api.coverUrl(comic.id, comic.cover) }), false]);
+    choices.push(["Edit ComicInfo…", () => { location.hash = `#/info/${comic.id}/edit`; }, false]);
+    // a chapter archive is one of several that are one comic: all of them changed at once
+    const chapters = comic.parent ? comics.filter((each) => each.parent === comic.parent) : [];
+    if (chapters.length > 1) {
+      choices.push(["Edit ComicInfo for the whole series…", () => editInfo(comic.series || comic.name,
+                                                                           chapters.map((each) => each.id)), false]);
+    }
+    choices.push(["Edit cover…", () => editCover({ target: `comic:${comic.id}`, label: comic.title, comicId: comic.id,
+                                                   pages: comic.pages, fallback: api.coverUrl(comic.id, comic.cover) }), false]);
     return choices;
+  }
+
+  // a folder or series's ComicInfo, every comic in it at once; the library drawn again if anything was written
+  function editInfo(label: string, ids: string[]) {
+    openComicInfoDialog({ label, ids }, async () => {
+      await reload();
+      draw();
+    });
   }
 
   function groupChoices(group: Group): Choice[] {
@@ -215,7 +231,11 @@ export async function openLibrary(root: HTMLElement, browse: Browse, path: strin
     if (group.comics.some((each) => each.position !== null)) {
       choices.push(["Mark all as unread", () => api.markMany(ids, false), true]);
     }
-    choices.push(["Edit…", () => editCover({ target: targetOf(group), label: group.label, fallback: tileCover(group).src }),
+    // a folder or a series is one thing to say things of; an author's comics are any number of unrelated ones
+    if (browse === "folder" || browse === "series") {
+      choices.push(["Edit ComicInfo for all…", () => editInfo(group.label, ids), false]);
+    }
+    choices.push(["Edit cover…", () => editCover({ target: targetOf(group), label: group.label, fallback: tileCover(group).src }),
                   false]);
     return choices;
   }

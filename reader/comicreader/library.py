@@ -574,6 +574,8 @@ class Library:
                 "volume": about.get("volume") if single else None,
                 "year": about.get("year"), "author": about.get("writer") or about.get("penciller") or comic.get("author"),
                 "place": comic.get("place", ""), "kind": comic["kind"], "pages": total,
+                #the comic a chapter archive is one chapter of, so its siblings can be found together
+                "parent": comic.get("parent"),
                 "position": at, "unread": unread, "ended": stream["ended"],
                 "new": max(total - progress["seen"], 0) if progress else 0,
                 #when a scan last saw it gain pages, and how many it gained then

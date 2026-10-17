@@ -118,27 +118,155 @@ def page(size, shape, standin):
 
 
 #what someone may say about a comic themselves, kept in its metadata as "info" and written into every
-#archive it has: everything else in a ComicInfo is worked out, and would be worked out again over an edit
+#archive it has, by the names this works them out under
 INFO = ("title", "series", "summary", "year", "writer", "penciller", "genre", "tags", "web")
+#the rest of the schema that may be said by hand as well, kept in the same block by its ComicInfo name, as
+#a publisher or a reading direction is. what tells one archive of a comic from the next - its number, how
+#many there are, its notes - and what describes its pages is worked out, never said
+EXTRA = tuple(tag for tag, key in SCHEMA if key is None and tag not in ("Pages", "PageCount"))
+#what each is called on a form; a tag left out is its own name split into words
+LABELS = {"title": "Title", "series": "Series", "summary": "Summary", "year": "Year", "writer": "Writer",
+          "penciller": "Artist", "genre": "Genre", "tags": "Tags", "web": "Web address",
+          "LanguageISO": "Language (ISO code)", "Manga": "Manga (reading direction)", "GTIN": "GTIN (ISBN)",
+          "MainCharacterOrTeam": "Main character or team"}
+#the order a form shows the nine in: who and when beside what, and the summary, the long one, last
+SHOWN = ("title", "series", "writer", "penciller", "year", "genre", "tags", "web", "summary")
+#given a box of their own rather than a line
+LONG = ("summary", "Review")
+#a whole number in the schema: a strict reader refuses an archive saying anything else
+NUMBERS = ("year", "Volume", "AlternateCount", "Month", "Day")
+#the schema's lists of what may be said, offered as they are spelled there
+CHOICES = {"BlackAndWhite": ["Unknown", "No", "Yes"],
+           "Manga": ["Unknown", "No", "Yes", "YesAndRightToLeft"],
+           "AgeRating": ["Unknown", "Adults Only 18+", "Early Childhood", "Everyone", "Everyone 10+", "G",
+                         "Kids to Adults", "M", "MA15+", "Mature 17+", "PG", "R18+", "Rating Pending", "Teen",
+                         "X18+"]}
+
+
+def label(key):
+    return LABELS.get(key) or re.sub(r"(?<=[a-z])(?=[A-Z])", " ", key).capitalize()
+
+
+def form():
+    #what an editor of these offers, for a page to draw: the nine every comic is asked about, and the rest
+    #of the schema to add one at a time. each as [name, label, long]
+    return {"fields": [[key, label(key), key in LONG] for key in SHOWN],
+            "extra": [[tag, label(tag), tag in LONG] for tag in EXTRA],
+            "numbers": list(NUMBERS), "choices": CHOICES}
+
+
+def fit(key, value):
+    #a value as a ComicInfo may carry it, or None for one it cannot: a number that is not one, a choice
+    #that is not on the schema's list, a rating outside nought to five
+    value = UNWRITABLE.sub("", str(value)).strip()
+    if not value:
+        return None
+    if key in NUMBERS:
+        return int(value) if value.isdigit() else None
+    if key in CHOICES:
+        return next((choice for choice in CHOICES[key] if choice.lower() == value.lower()), None)
+    if key == "CommunityRating":
+        try:
+            rating = float(value)
+        except ValueError:
+            return None
+        return value if 0 <= rating <= 5 else None
+    return value
+
+
+def unsayable(info):
+    #what was given that cannot be kept, as what to do about each, so a typo is said rather than dropped
+    out = []
+    for key, value in (info or {}).items():
+        if (key in INFO or key in EXTRA) and value is not None and str(value).strip() and fit(key, value) is None:
+            out.append("{0} has to be {1}".format(label(key), "a whole number" if key in NUMBERS
+                                                  else "a number from 0 to 5" if key == "CommunityRating"
+                                                  else "one of " + ", ".join(CHOICES.get(key, []))))
+    return out
 
 
 def clean_info(info):
     #an info block as it is kept: only what is known, as text, with nothing said left out. a year is a
     #number, since a reader sorts by it; one that is not is not kept
     out = {}
-    for key in INFO:
+    for key in INFO + EXTRA:
         value = (info or {}).get(key)
         if value is None:
             continue
-        value = UNWRITABLE.sub("", str(value)).strip()
-        if not value:
-            continue
-        if key == "year":
-            if not value.isdigit():
-                continue
-            value = int(value)
-        out[key] = value
+        value = fit(key, value)
+        if value is not None:
+            out[key] = value
     return out
+
+
+def with_said(about, info, own=()):
+    #what was said by hand, over everything else: the nine by the names they are worked out under, the rest
+    #of the schema among the kept tags, which build writes in their places. own is what belongs to the
+    #archive rather than the comic - a chapter's title and address - and is left as it is
+    about = dict(about)
+    kept = dict(about.get("kept") or {})
+    for key, value in clean_info(info).items():
+        if key in own:
+            continue
+        if key in INFO:
+            about[key] = value
+        else:
+            kept[key] = value
+    if kept:
+        about["kept"] = kept
+    return about
+
+
+def said_in(body):
+    #what a ComicInfo says that could be said by hand, by the info block's names: what an editor starts
+    #from, and what tells whether a folder of archives all say the same. {} for anything that is not one
+    try:
+        root = ET.fromstring(body)
+    except (ET.ParseError, ValueError, TypeError):
+        return {}
+    names = dict((tag, key) for tag, key in SCHEMA if key in INFO)
+    said = {}
+    for element in root:
+        tag = element.tag.split('}')[-1] if isinstance(element.tag, str) else None
+        key = names.get(tag) or (tag if tag in EXTRA else None)
+        text = UNWRITABLE.sub("", element.text or "").strip()
+        if key and text and len(element) == 0:
+            said.setdefault(key, text)
+    return said
+
+
+def said_by(about):
+    #what an archive made from this about says, the same way: read back from what would be written, so it
+    #is exactly that - Format's own default among it
+    return said_in(build(about, []))
+
+
+def retold(body, changes):
+    #another program's ComicInfo with what was changed by hand changed in it, and nothing else. each change
+    #is by the info block's names, None taking a tag out; a new element goes where the schema's sequence
+    #puts it, since a strict reader holds an archive to that. None for a ComicInfo that cannot be read
+    try:
+        root = ET.fromstring(body) if body else ET.Element("ComicInfo")
+    except (ET.ParseError, ValueError, TypeError):
+        return None
+    order = [tag for tag, _ in SCHEMA]
+    tags = dict((key, tag) for tag, key in SCHEMA if key)
+    for key, value in changes.items():
+        tag = tags.get(key, key)
+        found = root.find(tag)
+        if value is None:
+            if found is not None:
+                root.remove(found)
+            continue
+        if found is None:
+            found = ET.Element(tag)
+            rank = order.index(tag)
+            at = next((n for n, child in enumerate(root)
+                       if child.tag in order and order.index(child.tag) > rank), len(root))
+            root.insert(at, found)
+        found.text = str(value)
+    ET.indent(root, "  ")
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
 def about_comic(folder, metadata=None):
@@ -153,8 +281,7 @@ def about_comic(folder, metadata=None):
     about = {"title": series, "series": series, "web": site((metadata.get("settings") or {}).get("url")),
              "notes": "Mirrored by ZC-ComicUpdater."}
     about = with_kept(about, metadata.get("comicinfo"))
-    about.update(clean_info(metadata.get("info")))
-    return about
+    return with_said(about, metadata.get("info"))
 
 
 def about_chapter(folder, metadata, chapter, count):
@@ -176,7 +303,7 @@ def about_chapter(folder, metadata, chapter, count):
                   if tag not in ("Title", "Number", "Web")}
     about = with_kept(about, dict(comic_wide, **(chapter.get("comicinfo") or {})))
     info = clean_info(metadata.get("info"))
-    about.update((key, value) for key, value in info.items() if key not in ("title", "web"))
+    about = with_said(about, info, own=("title", "web"))
     if not about.get("web"):
         about["web"] = info.get("web")
     return about

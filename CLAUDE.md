@@ -38,7 +38,7 @@ archives, and keep them up to date unattended.
 | `metadata` | Reading and writing `mirror_metadata.json` (always written aside and moved into place), timestamps, settings to command and back, schema 1 to 2 |
 | `cbz` | Every archive any script writes: a new one, one added to, a chapter's, a repack. The Uncompressed/CBZs shelf rule |
 | `standin` | Draws a page for a page no reader can show. `cbz` asks it about every file, so every archive agrees |
-| `comicinfo` | The `ComicInfo.xml` every archive carries (v2.1 draft, in the schema's element order), and a picture's size read from its first bytes. `cbz` writes it last-but-metadata and an append rewrites both on the end. Another program's ComicInfo is kept (`kept_tags`, in the metadata as `comicinfo` or a chapter's `comicinfo`) and written back: typed by hand beats it, it beats what is worked out here, and its `Pages`/`PageCount`/`Count` are never believed. `build` must give the same bytes for the same input - that is how an archive is known to be current |
+| `comicinfo` | The `ComicInfo.xml` every archive carries (v2.1 draft, in the schema's element order), and a picture's size read from its first bytes. `cbz` writes it last-but-metadata and an append rewrites both on the end. Another program's ComicInfo is kept (`kept_tags`, in the metadata as `comicinfo` or a chapter's `comicinfo`) and written back: typed by hand beats it, it beats what is worked out here, and its `Pages`/`PageCount`/`Count` are never believed. `build` must give the same bytes for the same input - that is how an archive is known to be current. What is typed by hand is the metadata's `info`: the nine of `INFO` by their own names (`writer`), any other schema tag of `EXTRA` by its ComicInfo name (`Publisher`), checked by `fit`/`unsayable`. `form()` is the field list both editors - the updater's ComicInfo dialog and the reader's - are drawn from, and `retold` edits another program's ComicInfo in schema order. An edit names every one of the nine but changes an extra tag only where it is named, so a page from before extras existed cannot take one out |
 | `plugins` | Finding a plugin, checking its `plugin.json` and a comic's settings against its fields, building its command, a plugin comic's first metadata |
 | `intake` | Taking in what a plugin's program wrote: pages numbered on, a chapter's name in each of its pages' names (or every chapter's `001.jpg` is one `page_key`), nothing written over, the same file fetched again not taken twice, chapters added to the list |
 | `pluginrun` | One plugin run: leftovers of a killed run taken in, the program run in the staging folder until its deadline, the run recorded, the single archive kept |
@@ -72,8 +72,9 @@ code reaching into a script still finds it; new code should import from `comicli
 `css/` is `base` (colours and controls), `page` (the sections), `dialogs`, and `elements` (the element
 paths dialog and the check result). `js/` holds one file per part of the page: `common` (`$`, `api`,
 `post`, `esc`, the time formats), `library`, `running` (the `/api/state` poll: Running now, queue, Recent,
-log), `editor`, `elements`, `listcheck`, `bounds`, `adding`, `uploads`, `settings`, `plugins` (a plugin's
-settings as a form), and `main`, which starts it all.
+log), `editor`, `elements`, `listcheck`, `bounds`, `comicinfo` (a comic's ComicInfo, saved to its metadata
+and written into its archives by a queued `chapters.py comicinfo`), `adding`, `uploads`, `settings`,
+`plugins` (a plugin's settings as a form), and `main`, which starts it all.
 
 They are **plain scripts sharing one global scope, not modules**, on purpose: the dialogs hand each other
 state (`editing`, `checkJob`, `paths`), and an imported `let` cannot be assigned to. So a top-level name
@@ -95,7 +96,11 @@ last good reading while the scraper appends to it; `library`: every comic as one
 its chapter archives, and where the reader is up to by `page_key`, not by number; `store`: sqlite in its
 data folder; `app`: the routes). `web/` is TypeScript built by Vite inside the image (the scraper's
 `web_page/` stays build-free); the arithmetic - spreads, taps, keys, shelves - is in `layout.ts` and
-`shelves.ts` so Vitest can test it without a browser. It mounts the library **read-only**.
+`shelves.ts` so Vitest can test it without a browser. It mounts the library read-write, for covers chosen in it
+and saved on the shelf, and for `editing`: what a comic is said to be - a scraped comic's metadata `info` and
+its archives' ComicInfo, an archive from elsewhere's own ComicInfo - one comic at a time or a whole folder or
+series (`describe_many`, `edit_many`: only the fields changed, every comic checked quiet before any is
+written). Nothing else of the library is written.
 
 Its suite runs apart: `cd reader && python -m pytest` (offline, a couple of seconds; `reader/pytest.ini`
 makes it its own root) and `npm test` in `reader/web`. `tests/test_contract.py` there checks what it

@@ -3,12 +3,14 @@
 #then on - and its archives' ComicInfo brought up to it at once. an archive from somewhere else, with no
 #metadata to keep it in, has its own ComicInfo changed, and everything else it says is left as it was.
 #
+#a folder or a series is changed the same way, a comic at a time, but only what was changed on the page: a
+#box left saying "mixed" leaves each comic saying what it did.
+#
 #nothing is written while the scraper may be writing the same comic: during an update of the library, or
 #while the comic's last run or its archives changed only moments ago
 import calendar
 import os
 import time
-import xml.etree.ElementTree as ET
 import zipfile
 
 from comiclib import cbz, comicinfo
@@ -22,16 +24,8 @@ from comicreader.library import CHAPTER
 QUIET = 300
 #what update_comics holds while it updates the library
 LOCK = ".update_comics.lock"
-#the info block's keys, as ComicInfo calls them
-TAGS = {"title": "Title", "series": "Series", "summary": "Summary", "year": "Year", "writer": "Writer",
-        "penciller": "Penciller", "genre": "Genre", "tags": "Tags", "web": "Web"}
-#the v2.1 schema's sequence, which a strict reader holds an archive to: a new element goes where it belongs
-ORDER = ["Title", "Series", "Number", "Count", "Volume", "AlternateSeries", "AlternateNumber", "AlternateCount",
-         "Summary", "Notes", "Year", "Month", "Day", "Writer", "Penciller", "Inker", "Colorist", "Letterer",
-         "CoverArtist", "Editor", "Translator", "Publisher", "Imprint", "Genre", "Tags", "Web", "PageCount",
-         "LanguageISO", "Format", "BlackAndWhite", "Manga", "Characters", "Teams", "Locations", "ScanInformation",
-         "StoryArc", "StoryArcNumber", "SeriesGroup", "AgeRating", "Pages", "CommunityRating",
-         "MainCharacterOrTeam", "Review", "GTIN"]
+#what may be said of a whole folder or series at once: everything but the title, which is each comic's own
+SHARED = tuple(key for key in comicinfo.INFO + comicinfo.EXTRA if key != "title")
 
 
 class Refused(Exception):
@@ -119,88 +113,197 @@ def chapter_archives(library, comic, metadata):
     return out, len(listed)
 
 
-def edit_scraped(library, comic, said, updated):
+def archives_of(library, comic, metadata):
+    #every archive of a comic the scraper keeps, each with what makes its about and whether the archive
+    #carries the metadata too: one per chapter for a comic packed in chapters, else its one archive
     folder = comic["folder"]
-    path = os.path.join(folder, METADATA_FILE)
-    metadata = read_metadata(folder)
-    if not metadata:
-        raise Refused(409, "This comic's metadata could not be read, so nothing was changed.")
-    metadata = migrate(metadata) or metadata
-    if updated is not None and metadata.get("updated") != updated:
-        raise Refused(409, "This comic was changed since the page was opened. Reload it and make the change again.")
-    runs = (metadata.get("history") or {}).get("runs") or []
-    archives = []
     if comic.get("parent"):
         chapters, count = chapter_archives(library, comic, metadata)
-        archives = [(archive, lambda m, chapter=chapter: comicinfo.about_chapter(folder, m, chapter, count), False)
-                    for archive, chapter in chapters]
-    elif comic["kind"] == "archive":
-        archives = [(comic["sources"][0], lambda m: comicinfo.about_comic(folder, m), True)]
-    wait_for_quiet(library, [archive for archive, _, _ in archives], runs[-1].get("updated") if runs else None)
-    info = comicinfo.clean_info(said)
+        return [(archive, lambda m, chapter=chapter: comicinfo.about_chapter(folder, m, chapter, count), False)
+                for archive, chapter in chapters]
+    if comic["kind"] == "archive":
+        return [(comic["sources"][0], lambda m: comicinfo.about_comic(folder, m), True)]
+    return []
+
+
+def scraped_plan(library, comic, updated):
+    #what changing a comic the scraper keeps will write, read and checked before anything is
+    folder = comic["folder"]
+    metadata = read_metadata(folder)
+    if not metadata:
+        raise Refused(409, "{0}'s metadata could not be read, so nothing was changed.".format(
+            os.path.basename(folder)))
+    metadata = migrate(metadata) or metadata
+    if updated is not None and metadata.get("updated") != updated:
+        raise Refused(409, "{0} was changed since the page was opened. Reload it and make the change again.".format(
+            os.path.basename(folder)))
+    runs = (metadata.get("history") or {}).get("runs") or []
+    plan = {"folder": folder, "path": os.path.join(folder, METADATA_FILE), "metadata": metadata,
+            "archives": archives_of(library, comic, metadata)}
+    wait_for_quiet(library, [archive for archive, _, _ in plan["archives"]], runs[-1].get("updated") if runs else None)
+    return plan
+
+
+def scraped_write(library, plan, info):
+    metadata = plan["metadata"]
     if info:
         metadata["info"] = info
     else:
         metadata.pop("info", None)
     metadata["updated"] = now_stamp()
-    writing(lambda: write_json(path, metadata))
-    told = sum(1 for archive, about, whole in archives
-               if os.path.isfile(archive) and retell(library, archive, folder, about(metadata), whole))
-    return told
+    writing(lambda: write_json(plan["path"], metadata))
+    return sum(1 for archive, about, whole in plan["archives"]
+               if os.path.isfile(archive) and retell(library, archive, plan["folder"], about(metadata), whole))
 
 
-def edit_archive(library, comic, said, version):
-    #an archive from somewhere else: its own ComicInfo, changed where the page changed it and nowhere else.
-    #a field left empty is taken out
+def version_of(path):
+    #what the page was shown an archive from elsewhere as, so a change made over another it never saw is refused
+    return "{0:x}{1:x}".format(*stamp(path))[-12:]
+
+
+def archive_plan(library, comic, version):
     path = comic["sources"][0]
-    before = stamp(path)
-    if version is not None and version != "{0:x}{1:x}".format(*before)[-12:]:
-        raise Refused(409, "This archive was changed since the page was opened. Reload it and make the change again.")
+    if version is not None and version != version_of(path):
+        raise Refused(409, "{0} was changed since the page was opened. Reload it and make the change again.".format(
+            os.path.basename(path)))
     wait_for_quiet(library, [path], None)
+    return path
+
+
+def archive_write(library, path, changes):
+    #an archive from somewhere else: its own ComicInfo, changed where the page changed it and nowhere else
+    before = stamp(path)
     with zipfile.ZipFile(path) as zf:
         try:
-            root = ET.fromstring(zf.read(comicinfo.NAME))
+            had = zf.read(comicinfo.NAME)
         except KeyError:
-            root = ET.Element("ComicInfo")
-        except ET.ParseError:
-            raise Refused(409, "This archive's ComicInfo.xml cannot be read, so it was left as it is.")
-    info = comicinfo.clean_info(said)
-    for key, tag in TAGS.items():
-        found = root.find(tag)
-        value = info.get(key)
-        if value is None:
-            if found is not None:
-                root.remove(found)
-            continue
-        if found is None:
-            found = ET.Element(tag)
-            rank = ORDER.index(tag)
-            at = next((n for n, child in enumerate(root)
-                       if child.tag in ORDER and ORDER.index(child.tag) > rank), len(root))
-            root.insert(at, found)
-        found.text = str(value)
-    ET.indent(root, "  ")
-    body = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-    with zipfile.ZipFile(path) as zf:
-        try:
-            if zf.read(comicinfo.NAME) == body:
-                return 0
-        except KeyError:
-            pass
+            had = None
+    body = comicinfo.retold(had, changes)
+    if body is None:
+        raise Refused(409, "{0}'s ComicInfo.xml cannot be read, so it was left as it is.".format(
+            os.path.basename(path)))
+    if body == had:
+        return 0
     if stamp(path) != before:
-        raise Refused(409, "This archive changed while it was being looked at. Try again in a few minutes.")
+        raise Refused(409, "{0} changed while it was being looked at. Try again in a few minutes.".format(
+            os.path.basename(path)))
     writing(lambda: cbz.apply(path, None, {"prefix": "", "added": [], "stale": [], "info": body}, metadata=False))
     library.written[path] = stamp(path)
     return 1
 
 
-def edit(library, comic, body):
-    said = body.get("info") or {}
+def sayable(said):
     if not isinstance(said, dict):
         raise Refused(400, "info should be an object of what the comic is said to be.")
+    problems = comicinfo.unsayable(said)
+    if problems:
+        raise Refused(400, "; ".join(problems) + ".")
+    return said
+
+
+def edit(library, comic, body):
+    #the nine are always on the form, so one left out is one emptied. the rest of the schema changes only
+    #where it is named, "" taking it out: a page from before it could say them sends only the nine, and must
+    #not take out a publisher it never showed
+    said = sayable(body.get("info") or {})
+    info = comicinfo.clean_info(said)
+    named = comicinfo.INFO + tuple(tag for tag in comicinfo.EXTRA if tag in said)
     if comic.get("folder"):
-        return edit_scraped(library, comic, said, body.get("updated"))
+        plan = scraped_plan(library, comic, body.get("updated"))
+        kept = {key: value for key, value in (plan["metadata"].get("info") or {}).items() if key not in named}
+        return scraped_write(library, plan, comicinfo.clean_info(dict(kept, **info)))
     if comic["kind"] == "archive" and len(comic["sources"]) == 1:
-        return edit_archive(library, comic, said, body.get("version"))
+        path = archive_plan(library, comic, body.get("version"))
+        return archive_write(library, path, {key: info.get(key) for key in named})
     raise Refused(409, "This comic is kept as chapter archives from somewhere else; each can be changed from "
                        "its own info page.")
+
+
+def gather(library, ids):
+    #the comics a folder or series holds, each once as what an edit is made to: a comic the scraper keeps
+    #once however many chapter archives it is shelved as, an archive from elsewhere on its own
+    found, seen = [], set()
+    for comic_id in ids if isinstance(ids, list) else []:
+        comic = library.comics.get(str(comic_id))
+        if comic is None:
+            continue
+        if comic.get("folder"):
+            key = comic["folder"]
+        elif comic["kind"] == "archive" and len(comic["sources"]) == 1:
+            key = comic["sources"][0]
+        else:
+            continue
+        if key not in seen:
+            seen.add(key)
+            found.append(comic)
+    if not found:
+        raise Refused(404, "None of those comics is in the library any more. Refresh the library and try again.")
+    return found
+
+
+def comicinfo_in(path):
+    try:
+        with zipfile.ZipFile(path) as zf:
+            return zf.read(comicinfo.NAME)
+    except (OSError, KeyError, zipfile.BadZipFile):
+        return b""
+
+
+def describe_many(library, ids):
+    #what a folder or series says now, field by field: what every comic in it says, or that they differ.
+    #a comic the scraper keeps is read from its metadata - what its archives are made from - and not opened
+    each = []
+    for comic in gather(library, ids):
+        if comic.get("folder"):
+            found = read_metadata(comic["folder"]) or {}
+            metadata = migrate(found) or found
+            said = comicinfo.said_by(comicinfo.about_comic(comic["folder"], metadata))
+            each.append({"id": comic["id"], "said": said, "stamp": metadata.get("updated"), "scraped": True,
+                         "archives": len(archives_of(library, comic, metadata))})
+        else:
+            path = comic["sources"][0]
+            each.append({"id": comic["id"], "said": comicinfo.said_in(comicinfo_in(path)),
+                         "stamp": version_of(path), "scraped": False, "archives": 1})
+    fields = {}
+    for key in SHARED:
+        values = [str(one["said"].get(key, "")) for one in each]
+        if key in comicinfo.INFO or any(values):
+            same = all(value == values[0] for value in values)
+            fields[key] = {"value": values[0] if same else None, "mixed": not same}
+    return {"comics": len(each), "scraped": sum(1 for one in each if one["scraped"]),
+            "archives": sum(one["archives"] for one in each), "fields": fields,
+            "stamps": {one["id"]: one["stamp"] for one in each}, "form": comicinfo.form()}
+
+
+def edit_many(library, body):
+    #only what was changed, in every comic: a value said of each, or "" taking it out of each. every comic is
+    #checked before any is written, so one the scraper is busy with refuses the lot rather than half of it
+    changes = body.get("changes")
+    if not isinstance(changes, dict) or not changes:
+        raise Refused(400, "Nothing was changed, so nothing was written.")
+    wrong = [key for key in changes if key not in SHARED]
+    if wrong:
+        raise Refused(400, "{0} cannot be said of a whole folder or series at once; change it on each comic's "
+                           "own info page.".format(", ".join(comicinfo.label(key) for key in wrong)))
+    sayable(changes)
+    cleaned = {key: comicinfo.fit(key, value) if value is not None else None for key, value in changes.items()}
+    stamps = body.get("stamps") if isinstance(body.get("stamps"), dict) else {}
+    planned = []
+    for comic in gather(library, body.get("ids")):
+        if comic.get("folder"):
+            planned.append((True, scraped_plan(library, comic, stamps.get(comic["id"]))))
+        else:
+            planned.append((False, archive_plan(library, comic, stamps.get(comic["id"]))))
+    told = 0
+    for scraped, plan in planned:
+        if scraped:
+            info = dict(plan["metadata"].get("info") or {})
+            for key, value in cleaned.items():
+                if value is None:
+                    info.pop(key, None)
+                else:
+                    info[key] = value
+            told += scraped_write(library, plan, comicinfo.clean_info(info))
+        else:
+            told += archive_write(library, plan, cleaned)
+    return {"comics": len(planned), "told": told}

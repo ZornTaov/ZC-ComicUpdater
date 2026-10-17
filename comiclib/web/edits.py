@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-from comiclib import moving, plugins
+from comiclib import comicinfo, moving, plugins
 from comiclib.chapters.index import index_path, set_aside
 from comiclib.metadata import write_json
 from comiclib.plugins import field_value
@@ -252,6 +252,71 @@ def save_settings(args, uc, runner, name, given, expected_updated):
         "{0} {1} -> {2}".format(key, json.dumps(old), json.dumps(new)) for key, (old, new) in changed.items())),
         flush=True)
     return 200, {"saved": True, "changed": changed, "updated": stamp}
+
+
+def comicinfo_view(args, uc, runner, name):
+    #what a comic's archives say it is: what was said by hand, kept in its metadata's info block, and what
+    #each box means left empty - worked out from the comic, and from what its plugin's program said of it
+    comic = find_comic(args, uc, name)
+    if comic is None:
+        return 404, {"error": "no comic named {0}".format(name)}
+    try:
+        metadata = read_metadata(os.path.join(comic.folder, uc.metadata_file))
+    except (OSError, ValueError) as error:
+        return 500, {"error": "could not read {0}'s metadata: {1}".format(name, error)}
+    chapters = metadata.get("chapters") or {}
+    return 200, {"name": comic.name, "updated": metadata.get("updated"), "said": metadata.get("info") or {},
+                 "worked": comicinfo.said_by(comicinfo.about_comic(comic.folder, dict(metadata, info=None))),
+                 #a comic in chapters has each chapter's title and address said by the chapter
+                 "chapters": len(chapters.get("list") or []) if chapters.get("folder") else 0,
+                 "cbz": (metadata.get("settings") or {}).get("cbz") is not False,
+                 "form": comicinfo.form()}
+
+
+def save_comicinfo(args, uc, runner, name, said, expected_updated):
+    #the nine are always on the form, so one left out is one emptied; the rest of the schema changes only
+    #where it is named, "" taking it out, as on the reader's info page
+    comic = find_comic(args, uc, name)
+    if comic is None:
+        return 404, {"error": "no comic named {0}".format(name)}, None
+    if is_running(runner, comic.name):
+        return 409, {"error": "{0} is being scraped right now; stop it or wait for it to finish".format(name)}, None
+    if is_moving(runner, comic.name):
+        return 409, {"error": "{0} is being moved; reopen it once the move has finished".format(name)}, None
+    if not isinstance(said, dict):
+        return 400, {"error": "say what the comic is as an object of fields"}, None
+    problems = comicinfo.unsayable(said)
+    if problems:
+        return 400, {"error": "; ".join(problems)}, None
+    path = os.path.join(comic.folder, uc.metadata_file)
+    try:
+        metadata = read_metadata(path)
+    except (OSError, ValueError) as error:
+        return 500, {"error": "could not read {0}: {1}".format(path, error)}, None
+    if expected_updated and metadata.get("updated") != expected_updated:
+        return 409, {"error": "the metadata changed since it was opened (a run may have written it). "
+                              "Reopen it and make the change again."}, None
+    named = comicinfo.INFO + tuple(tag for tag in comicinfo.EXTRA if tag in said)
+    old = comicinfo.clean_info(metadata.get("info"))
+    info = comicinfo.clean_info(dict({key: value for key, value in old.items() if key not in named},
+                                     **comicinfo.clean_info(said)))
+    changed = {"info." + key: [old.get(key), info.get(key)] for key in sorted(set(old) | set(info))
+               if old.get(key) != info.get(key)}
+    if not changed:
+        return 200, {"saved": False, "updated": metadata.get("updated")}, comic
+    if info:
+        metadata["info"] = info
+    else:
+        metadata.pop("info", None)
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    metadata["updated"] = stamp
+    history = metadata.setdefault("history", {})
+    history["edits"] = (history.get("edits") or [])[-(max_edits - 1):] + [{"at": stamp, "changed": changed}]
+    write_json(path, metadata)
+    print("Edited {0}'s ComicInfo: {1}".format(comic.name, ", ".join(
+        "{0} {1} -> {2}".format(key, json.dumps(was), json.dumps(now)) for key, (was, now) in changed.items())),
+        flush=True)
+    return 200, {"saved": True, "changed": changed, "updated": stamp}, comic
 
 
 def save_config(args, uc, given):

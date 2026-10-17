@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { Page } from "./api";
+import type { ManyInfo, Page } from "./api";
+import { addable, boxHtml, type InfoForm } from "./comicinfoform";
+import { changeOf, holding, shownKeys } from "./comicinfodialog";
 import { chapterOf, chapterTarget, keyAction, pageAt, placeStrip, tapAction, trialKept, typedPage, viewOf, views, wanted } from "./layout";
 import { clean, merged, scopeOf } from "./settings";
 import { runLine, startingValues } from "./info";
@@ -168,25 +170,75 @@ describe("the info page", () => {
     expect(runLine(null)).toBe("");
   });
 
+  const form: InfoForm = {
+    fields: [["title", "Title", false], ["series", "Series", false], ["writer", "Writer", false], ["year", "Year", false]],
+    extra: [["Volume", "Volume", false], ["Publisher", "Publisher", false], ["Format", "Format", false],
+            ["Manga", "Manga (reading direction)", false]],
+    numbers: ["year", "Volume"], choices: { Manga: ["Unknown", "No", "Yes", "YesAndRightToLeft"] },
+  };
   const info = {
     id: "a", title: "MyComic", name: "MyComic", author: null, cover: null, coverChosen: false, coverFit: "fill" as const, kind: "archive", place: "", pages: 3,
     ended: false, links: [], folder: null, files: [], pageCount: null, lastRun: null, updated: null,
-    version: null, editable: true,
+    version: null, editable: true, form,
     about: { title: "MyComic", series: "MyComic", web: "https://example.com/" },
-    said: { writer: "SomeAuthor", year: 2014 },
+    said: { writer: "SomeAuthor", year: 2014, Publisher: "SomePublisher" },
+    says: { title: "MyComic", series: "MyComic", Manga: "YesAndRightToLeft" },
+    worked: { title: "MyComic", series: "MyComic", web: "https://example.com/", Format: "Web Comic" },
   };
 
   it("starts editing a scraped comic from what was said by hand, with the rest greyed in", () => {
     expect(startingValues({ ...info, scraped: true })).toEqual({
-      values: { writer: "SomeAuthor", year: "2014" },
-      worked: { title: "MyComic", series: "MyComic", web: "https://example.com/" },
+      values: { writer: "SomeAuthor", year: "2014", Publisher: "SomePublisher" },
+      worked: { title: "MyComic", series: "MyComic", web: "https://example.com/", Format: "Web Comic" },
+      // the tags beyond the nine said or worked out, in the schema's order
+      extras: ["Publisher", "Format"],
     });
   });
 
   it("starts editing an archive from elsewhere from everything its ComicInfo says", () => {
-    expect(startingValues({ ...info, scraped: false }).values)
-      .toEqual({ title: "MyComic", series: "MyComic", web: "https://example.com/" });
+    const { values, extras } = startingValues({ ...info, scraped: false });
+    expect(values).toEqual({ title: "MyComic", series: "MyComic", Manga: "YesAndRightToLeft" });
+    expect(extras).toEqual(["Manga"]);
   });
+
+  it("offers only the tags not on the form yet", () => {
+    expect(addable(form, ["Publisher", "Manga"]).map(([key]) => key)).toEqual(["Volume", "Format"]);
+  });
+
+  it("draws a tag with a list of choices as a list, its empty choice saying what empty means", () => {
+    const html = boxHtml(form, ["Manga", "Manga (reading direction)", false], { value: "No", hint: "mixed", removable: true });
+    expect(html).toContain('<option value="">(mixed)</option>');
+    expect(html).toContain("<option selected>No</option>");
+    expect(html).toContain('data-remove="Manga"');
+  });
+});
+
+describe("a folder's ComicInfo", () => {
+  const form: InfoForm = { fields: [["title", "Title", false], ["writer", "Writer", false], ["genre", "Genre", false]],
+                           extra: [["Publisher", "Publisher", false], ["LanguageISO", "Language", false]],
+                           numbers: [], choices: {} };
+  const many: ManyInfo = {
+    comics: 3, scraped: 1, archives: 4, stamps: {}, form,
+    fields: { writer: { value: null, mixed: true }, genre: { value: "Comedy", mixed: false },
+              LanguageISO: { value: null, mixed: true } },
+  };
+
+  it("shows the nine but the title, then every other tag any comic says, in the form's order", () => {
+    expect(shownKeys(many)).toEqual(["writer", "genre", "LanguageISO"]);
+    expect(holding(many)).toBe("3 comics, 4 archives, 1 kept up to date by the scraper");
+  });
+
+  it("writes only what was changed: never a mixed box left empty, nor a box put back as it was", () => {
+    expect(changeOf(many, "writer", "")).toBeNull();
+    expect(changeOf(many, "writer", "SomeAuthor")).toBe("SomeAuthor");
+    expect(changeOf(many, "genre", "Comedy")).toBeNull();
+    // emptying a box every comic agreed on takes it out of every one
+    expect(changeOf(many, "genre", "")).toBe("");
+    expect(changeOf(many, "Publisher", "SomePublisher")).toBe("SomePublisher");
+  });
+});
+
+describe("covers and refusals", () => {
 
   it("says where a cover went, or why it stayed in the reader", () => {
     expect(coverMessage({ shelf: "CBZs/MyComic.jpg", note: null })).toBe("Cover set, and saved as CBZs/MyComic.jpg");

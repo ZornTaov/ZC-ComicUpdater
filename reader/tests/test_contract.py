@@ -60,6 +60,22 @@ def test_the_comicinfo_the_scraper_writes_is_what_the_reader_reads(library):
     assert [(page["w"], page["h"]) for page in read["pages"]] == [(40, 60)] * 3
 
 
+def test_what_is_said_by_hand_reads_back_as_the_editor_starts_from_it(library):
+    #the reader's editors send what was typed by the info block's names, take another program's ComicInfo
+    #apart and put it back by them, and draw the form from comiclib's own lists
+    folder = comic_folder(library, "MyComic", 1)
+    info = comicinfo.clean_info({"writer": "SomeAuthor", "Publisher": "SomePublisher", "Manga": "no"})
+    about = comicinfo.about_comic(str(folder), {"settings": {"url": "https://example.com/1"}, "info": info})
+    said = comicinfo.said_by(about)
+    assert (said["writer"], said["Publisher"], said["Manga"], said["Format"]) == \
+        ("SomeAuthor", "SomePublisher", "No", "Web Comic")
+    assert comicinfo.said_in(comicinfo.retold(b"<ComicInfo/>", {"writer": "Them", "Publisher": None})) == \
+        {"writer": "Them"}
+    form = comicinfo.form()
+    assert {"fields", "extra", "numbers", "choices"} <= set(form) and "title" not in [k for k, _, _ in form["extra"]]
+    assert comicinfo.unsayable({"year": "soon"}) and comicinfo.fit("Volume", "3") == 3
+
+
 def test_a_chapter_archive_is_named_by_the_number_its_comicinfo_says(library):
     #the reader matches an archive to its chapter by the number in its name, and orders chapters by the
     #number in their ComicInfo: both have to be the one numbering works out from the labels

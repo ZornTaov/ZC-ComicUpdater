@@ -4,7 +4,7 @@ import { compareComics, grewBy, openingPage, randomPick, readShare, reading,rece
 
 const comic = (over: Partial<ComicSummary>): ComicSummary => ({
   id: over.name ?? over.title ?? "x", name: over.title ?? "x", title: "MyComic", series: null, number: null,
-  volume: null, year: null, author: null, place: "", kind: "archive", pages: 10, position: null, unread: 10,
+  volume: null, year: null, author: null, place: "", kind: "archive", parent: null, pages: 10, position: null, unread: 10,
   new: 0, ended: false, read: null, updated: 0, grew: null, added: 0, chapters: 0, cover: null, coverChosen: false, coverFit: "fill", ...over });
 
 const titles = (list: ComicSummary[]) => list.map((each) => each.title);

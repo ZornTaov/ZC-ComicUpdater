@@ -16,7 +16,7 @@ from comiclib import moving, pluginfetch, plugins, pluginsetup, runlogs
 from comiclib.paths import PROJECT
 from comiclib.web.adding import add_with_plugin, parse_entries
 from comiclib.web.edits import discard_walk, fix_chapter, insert_page, preview_move, save_config, save_settings
-from comiclib.web.edits import try_chapter_list
+from comiclib.web.edits import comicinfo_view, save_comicinfo, try_chapter_list
 from comiclib.web.elementpaths import element_settings, save_elements
 from comiclib.web.jobs import LogTee, Runner
 from comiclib.web.uploads import KINDS as upload_kinds, discard, pending, plan, receive
@@ -189,6 +189,10 @@ def make_handler(runner, args, uc, tee):
                 name = (parse_qs(where.query).get("name") or [""])[0]
                 detail, problem = comic_detail(args, uc, runner, name)
                 self.reply(detail if detail else {"error": problem}, 200 if detail else 404)
+            elif where.path == "/api/comicinfo":
+                name = (parse_qs(where.query).get("name") or [""])[0]
+                status, result = comicinfo_view(args, uc, runner, name)
+                self.reply(result, status)
             else:
                 self.reply({"error": "not found"}, 404)
 
@@ -267,6 +271,16 @@ def make_handler(runner, args, uc, tee):
                 if status == 200 and body.get("update_after"):
                     job = runner.submit_update([name], "Edited on the web page")
                     result["queued"] = job.label
+                self.reply(result, status)
+            elif path == "/api/comicinfo":
+                name = str(body.get("name") or "")
+                status, result, comic = save_comicinfo(args, uc, runner, name, body.get("info"),
+                                                       body.get("updated"))
+                #saved or not, its archives are brought up to what it says: writing an old comic's archives
+                #again is half of what the dialog is for
+                if status == 200 and body.get("write") is not False and \
+                        (comic.metadata.get("settings") or {}).get("cbz") is not False:
+                    result["queued"] = runner.submit_comicinfo(comic.name).label
                 self.reply(result, status)
             elif path == "/api/config":
                 status, result = save_config(args, uc, body.get("settings") or {})

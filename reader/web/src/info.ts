@@ -1,6 +1,7 @@
 // a comic's info page: what its ComicInfo says it is, the addresses it came from on the web - each to open or
 // to copy - where it is kept in the library, and how the scraper's last update of it went
-import { api, SAYABLE, type ComicInfo, type Said } from "./api";
+import { api, type ComicInfo } from "./api";
+import { adderHtml, boxHtml, fieldOf, shownExtras, valueOf, type Said } from "./comicinfoform";
 import { openCoverDialog } from "./coverdialog";
 import { esc, fitClass, refusal } from "./dom";
 
@@ -42,34 +43,29 @@ export async function copyText(text: string): Promise<boolean> {
   return done;
 }
 
-// what each field of the edit form is called, and how big a box it gets
-const FORM: [key: (typeof SAYABLE)[number], label: string, long?: boolean][] = [
-  ["title", "Title"], ["series", "Series"], ["writer", "Writer"], ["penciller", "Artist"], ["year", "Year"],
-  ["genre", "Genre"], ["tags", "Tags"], ["web", "Web address"], ["summary", "Summary", true],
-];
-
 // what the edit form starts from. a comic the scraper keeps says only what was said by hand, the rest worked
 // out each time it is packed - shown greyed, as what an empty box means. an archive from elsewhere is its
-// ComicInfo, all of which is someone's say
-export function startingValues(info: ComicInfo): { values: Said; worked: Said } {
+// ComicInfo, all of which is someone's say. extras are the tags beyond the nine it has a row for
+export function startingValues(info: ComicInfo): { values: Said; worked: Said; extras: string[] } {
   const values: Said = {};
-  const worked: Said = {};
-  for (const key of SAYABLE) {
-    const said = info.scraped ? info.said[key] : info.about[key];
+  for (const [key, said] of Object.entries(info.scraped ? info.said : info.says)) {
     if (said !== undefined && said !== null && said !== "") values[key] = String(said);
-    if (info.scraped && info.about[key]) worked[key] = String(info.about[key]);
   }
-  return { values, worked };
+  const worked: Said = info.scraped ? { ...info.worked } : {};
+  return { values, worked, extras: shownExtras(info.form, values, worked) };
 }
 
-export async function openInfo(root: HTMLElement, id: string, back: () => void): Promise<() => void> {
+export async function openInfo(root: HTMLElement, id: string, back: () => void, editNow = false): Promise<() => void> {
   root.innerHTML = '<p class="empty">Loading…</p>';
   let toastTimer: number | undefined;
   const keys = (event: KeyboardEvent) => {
     if (event.key === "Escape" && !(event.target as HTMLElement).closest("input, textarea")) back();
   };
   window.addEventListener("keydown", keys);
-  draw(await api.info(id));
+  const first = await api.info(id);
+  draw(first);
+  // opened from a comic's ⋯ menu to edit it: the form at once, if the comic can be edited at all
+  if (editNow && first.editable) edit(first);
   return () => {
     window.clearTimeout(toastTimer);
     window.removeEventListener("keydown", keys);
@@ -85,21 +81,19 @@ export async function openInfo(root: HTMLElement, id: string, back: () => void):
   }
 
   function edit(info: ComicInfo) {
-    const { values, worked } = startingValues(info);
-    const fields = FORM.map(([key, label, long]) => {
-      const value = esc(values[key] ?? "");
-      const hint = worked[key] ? ` placeholder="${esc(worked[key]!)}"` : "";
-      return `<label class="field${long ? " long" : ""}"><span>${label}</span>${long
-        ? `<textarea name="${key}" rows="6"${hint}>${value}</textarea>`
-        : `<input name="${key}" value="${value}"${hint}${key === "year" ? ' inputmode="numeric"' : ""}>`}</label>`;
-    }).join("");
+    const shape = info.form;
+    const { values, worked, extras } = startingValues(info);
+    // the tags beyond the nine on the form, and those taken off it, which are taken out when it is saved
+    const shown = [...extras];
+    const removed = new Set<string>();
     const section = root.querySelector<HTMLElement>(".info-edit")!;
     section.innerHTML = `
       <h2>What this comic is</h2>
       <p class="muted">${info.scraped
         ? "Kept in the comic's metadata and written into its archives now and at every update. Left empty, a box keeps what is worked out, shown greyed."
-        : "Written into this archive's ComicInfo.xml. A box left empty is taken out of it."}</p>
-      <form class="edit-form">${fields}
+        : "Written into this archive's ComicInfo.xml. A box left empty is taken out of it."}
+        Any other tag of the ComicInfo schema can be added at the end.</p>
+      <form class="edit-form"><div class="edit-boxes"></div>
         <div class="form-actions">
           <button type="submit" class="primary">Save</button>
           <button type="button" data-act="cancel">Cancel</button>
@@ -107,15 +101,53 @@ export async function openInfo(root: HTMLElement, id: string, back: () => void):
         </div>
       </form>`;
     const form = section.querySelector<HTMLFormElement>("form")!;
+    const boxes = form.querySelector<HTMLElement>(".edit-boxes")!;
     const message = section.querySelector<HTMLElement>(".form-message")!;
+    // what is typed is read back before the boxes are drawn again, so adding a tag keeps it
+    const keep = () => {
+      for (const key of shape.fields.map(([each]) => each).concat(shown)) values[key] = valueOf(form, key);
+    };
+    const drawBoxes = () => {
+      boxes.innerHTML = shape.fields.map((field) => boxHtml(shape, field, { value: values[field[0]] ?? "", hint: worked[field[0]] }))
+        .concat(shown.map((key) => boxHtml(shape, fieldOf(shape, key), { value: values[key] ?? "", hint: worked[key], removable: true })))
+        .join("") + adderHtml(shape, shown);
+    };
+    drawBoxes();
+    form.addEventListener("change", (event) => {
+      const adder = (event.target as HTMLElement).closest<HTMLSelectElement>("[data-add]");
+      if (!adder || !adder.value) return;
+      const key = adder.value;
+      keep();
+      shown.push(key);
+      // in the schema's order, as the archive will have them
+      const order = shape.extra.map(([each]) => each);
+      shown.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+      removed.delete(key);
+      drawBoxes();
+      form.querySelector<HTMLElement>(`[name="${key}"]`)?.focus();
+    });
+    form.addEventListener("click", (event) => {
+      const remove = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-remove]");
+      if (!remove) return;
+      event.preventDefault();
+      keep();
+      const key = remove.dataset.remove!;
+      shown.splice(shown.indexOf(key), 1);
+      delete values[key];
+      removed.add(key);
+      drawBoxes();
+    });
     section.querySelector<HTMLButtonElement>('[data-act="cancel"]')!.onclick = () => draw(info);
     form.onsubmit = async (event) => {
       event.preventDefault();
+      keep();
       const said: Said = {};
-      for (const [key] of FORM) {
-        const value = (form.elements.namedItem(key) as HTMLInputElement | HTMLTextAreaElement).value.trim();
-        if (value) said[key] = value;
+      for (const [key] of shape.fields) {
+        if (values[key]) said[key] = values[key];
       }
+      // a tag beyond the nine is named either way, empty taking it out: one the form never showed is left be
+      for (const key of shown) said[key] = values[key] ?? "";
+      for (const key of removed) said[key] = "";
       const save = form.querySelector<HTMLButtonElement>('[type="submit"]')!;
       save.disabled = true;
       message.textContent = "Saving…";

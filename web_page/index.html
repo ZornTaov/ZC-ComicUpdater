@@ -162,9 +162,9 @@
     </div>
     <div class="dlg-foot">
       <div class="msg" id="cfg-msg"></div>
-      <button type="button" id="cfg-cancel">Close</button>
       <button type="button" class="primary" id="cfg-save">Save</button>
     </div>
+    <button type="button" class="dlg-x" id="cfg-cancel" aria-label="Close" title="Close">×</button>
   </form>
 </dialog>
 
@@ -186,9 +186,9 @@
     </div>
     <div class="dlg-foot">
       <div class="msg" id="pl-msg"></div>
-      <button type="button" id="pl-close">Close</button>
       <button type="button" class="primary" id="pl-install">Install</button>
     </div>
+    <button type="button" class="dlg-x" id="pl-close" aria-label="Close" title="Close">×</button>
   </form>
 </dialog>
 
@@ -237,9 +237,9 @@
     </div>
     <div class="dlg-foot">
       <div class="msg" id="ep-msg"></div>
-      <button type="button" id="ep-cancel">Close</button>
       <button type="button" class="primary" id="ep-save">Save</button>
     </div>
+    <button type="button" class="dlg-x" id="ep-cancel" aria-label="Close" title="Close">×</button>
   </form>
 </dialog>
 
@@ -267,9 +267,9 @@
     </div>
     <div class="dlg-foot">
       <div class="msg" id="lc-msg"></div>
-      <button type="button" id="lc-close">Close</button>
       <button type="button" class="primary" id="lc-go">Read it</button>
     </div>
+    <button type="button" class="dlg-x" id="lc-close" aria-label="Close" title="Close">×</button>
   </form>
 </dialog>
 
@@ -317,8 +317,27 @@
     <div class="dlg-foot">
       <div class="msg" id="bd-msg"></div>
       <button type="button" id="bd-reset">Undo every correction</button>
-      <button type="button" class="primary" id="bd-close">Done</button>
     </div>
+    <button type="button" class="dlg-x" id="bd-close" aria-label="Close" title="Close">×</button>
+  </form>
+</dialog>
+
+<dialog id="comicinfo">
+  <form method="dialog">
+    <div class="dlg-head"><h3>ComicInfo</h3><span class="muted" id="ci-who"></span></div>
+    <div class="dlg-body">
+      <div class="help">What this comic's archives say it is, in each one's ComicInfo.xml: the series, who made it,
+        what it is about. Kept in its metadata, so every update after says the same, and written into every
+        archive it has already when saved. A box left empty keeps what is worked out, shown greyed; any other tag
+        of the ComicInfo schema can be added at the end.</div>
+      <div class="note" id="ci-chapters"></div>
+      <div id="ci-boxes"></div>
+    </div>
+    <div class="dlg-foot">
+      <div class="msg" id="ci-msg"></div>
+      <button type="button" class="primary" id="ci-save">Save and write the archives</button>
+    </div>
+    <button type="button" class="dlg-x" id="ci-close" aria-label="Close" title="Close">×</button>
   </form>
 </dialog>
 
@@ -397,15 +416,20 @@
       </details>
       <details id="edit-runs-box"><summary>Recent runs and edits</summary><div id="edit-runs"></div></details>
     </div>
-    <div class="dlg-foot">
+    <div class="dlg-foot edit-foot">
       <div class="msg" id="edit-msg"></div>
-      <button type="button" id="edit-cancel">Close</button>
-      <button type="button" class="builtin-only" id="edit-checklist">Check chapter list</button>
-      <button type="button" class="builtin-only" id="edit-boundaries">Chapter boundaries</button>
-      <button type="button" class="builtin-only" id="edit-chapterize">Work out chapters</button>
-      <button type="button" id="edit-save">Save</button>
-      <button type="button" class="primary" id="edit-save-update">Save and update now</button>
+      <div class="foot-tools">
+        <button type="button" class="builtin-only" id="edit-checklist">Check chapter list</button>
+        <button type="button" class="builtin-only" id="edit-boundaries">Chapter boundaries</button>
+        <button type="button" class="builtin-only" id="edit-chapterize">Work out chapters</button>
+        <button type="button" id="edit-comicinfo">Edit ComicInfo</button>
+      </div>
+      <div class="foot-save">
+        <button type="button" id="edit-save">Save</button>
+        <button type="button" class="primary" id="edit-save-update">Save and update now</button>
+      </div>
     </div>
+    <button type="button" class="dlg-x" id="edit-cancel" aria-label="Close" title="Close">×</button>
   </form>
 </dialog>
 <script src="js/common.js"></script>
@@ -415,6 +439,7 @@
 <script src="js/elements.js"></script>
 <script src="js/listcheck.js"></script>
 <script src="js/bounds.js"></script>
+<script src="js/comicinfo.js"></script>
 <script src="js/adding.js"></script>
 <script src="js/uploads.js"></script>
 <script src="js/settings.js"></script>
